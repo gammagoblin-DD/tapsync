@@ -1,31 +1,38 @@
 package com.example.tapsyncwatch.presentation
 
 import android.Manifest
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothManager
-import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanFilter
-import android.bluetooth.le.ScanResult
-import android.bluetooth.le.ScanSettings
+import android.bluetooth.*
+import android.bluetooth.le.*
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.ParcelUuid
 import android.util.Log
-import android.view.View
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.example.tapsyncwatch.R
 import java.util.UUID
+import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCallback
+import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothGattCharacteristic
+
 
 class MainActivity : ComponentActivity() {
 
     private val SERVICE_UUID =
         UUID.fromString("0000feed-0000-1000-8000-00805f9b34fb")
 
+    private val CHAR_TAP_UUID =
+        UUID.fromString("0000beef-0000-1000-8000-00805f9b34fb")
+
     private lateinit var bluetoothAdapter: BluetoothAdapter
+    private var bluetoothGatt: BluetoothGatt? = null
+    private var tapCharacteristic: BluetoothGattCharacteristic? = null
     private var scanning = false
 
+    // ---------- Permission ----------
     private val scanPermissionLauncher =
         registerForActivityResult(
             ActivityResultContracts.RequestPermission()
@@ -41,18 +48,16 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // ✅ hält die App sichtbar
+        // ✅ App bleibt sichtbar
         setContentView(R.layout.activity_main)
+        Log.e("TapSyncWatch", "⌚ Tap Sync Ready")
 
-        Log.e("TapSyncWatch", "⌚ Tap Sync Ready – App stays visible")
+        val root = findViewById<FrameLayout>(R.id.root)
 
-        // 👉 TAP auf gesamtes Display
-        findViewById<View>(R.id.root).setOnClickListener {
+        // 👆 TAP → BLE WRITE
+        root.setOnClickListener {
             Log.e("TapSyncWatch", "👆 TAP")
-
-            if (!scanning) {
-                checkPermissionAndStartScan()
-            }
+            sendTap()
         }
 
         val bluetoothManager =
@@ -62,6 +67,23 @@ class MainActivity : ComponentActivity() {
         checkPermissionAndStartScan()
     }
 
+    // ---------- TAP SENDEN ----------
+    private fun sendTap() {
+        val gatt = bluetoothGatt
+        val characteristic = tapCharacteristic
+
+        if (gatt == null || characteristic == null) {
+            Log.e("TapSyncWatch", "⚠️ TAP Characteristic noch nicht bereit")
+            return
+        }
+
+        characteristic.value = "TAP".toByteArray(Charsets.UTF_8)
+        val success = gatt.writeCharacteristic(characteristic)
+
+        Log.e("TapSyncWatch", "📤 TAP gesendet → success=$success")
+    }
+
+    // ---------- BLE PERMISSION ----------
     private fun checkPermissionAndStartScan() {
         if (ContextCompat.checkSelfPermission(
                 this,
@@ -76,7 +98,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ---------- SCAN ----------
     private fun startScan() {
+        if (scanning) return
         scanning = true
 
         val scanner = bluetoothAdapter.bluetoothLeScanner
@@ -95,7 +119,7 @@ class MainActivity : ComponentActivity() {
             scanCallback
         )
 
-        Log.e("TapSyncWatch", "🔍 BLE Scan gestartet (Service-Filter aktiv)")
+        Log.e("TapSyncWatch", "🔍 BLE Scan gestartet")
     }
 
     private val scanCallback = object : ScanCallback() {
@@ -105,16 +129,53 @@ class MainActivity : ComponentActivity() {
             result: ScanResult
         ) {
             val device = result.device
-
             Log.e(
                 "TapSyncWatch",
-                "🎯 GEFUNDEN: ${device.name ?: "Unbekannt"} / ${device.address}"
+                "🎯 GEFUNDEN: ${device.name} / ${device.address}"
+            )
+
+            bluetoothAdapter.bluetoothLeScanner.stopScan(this)
+            scanning = false
+
+            bluetoothGatt = device.connectGatt(
+                this@MainActivity,
+                false,
+                gattCallback
             )
         }
 
         override fun onScanFailed(errorCode: Int) {
             Log.e("TapSyncWatch", "❌ Scan fehlgeschlagen: $errorCode")
             scanning = false
+        }
+    }
+
+    // ---------- GATT ----------
+    private val gattCallback = object : BluetoothGattCallback() {
+
+        override fun onConnectionStateChange(
+            gatt: BluetoothGatt,
+            status: Int,
+            newState: Int
+        ) {
+            if (newState == BluetoothProfile.STATE_CONNECTED) {
+                Log.e("TapSyncWatch", "🔗 GATT verbunden")
+                gatt.discoverServices()
+            }
+        }
+
+        override fun onServicesDiscovered(
+            gatt: BluetoothGatt,
+            status: Int
+        ) {
+            val service = gatt.getService(SERVICE_UUID)
+            tapCharacteristic = service?.getCharacteristic(CHAR_TAP_UUID)
+
+            if (tapCharacteristic != null) {
+                Log.e("TapSyncWatch", "✅ TAP Characteristic bereit")
+            } else {
+                Log.e("TapSyncWatch", "❌ TAP Characteristic NICHT gefunden")
+            }
         }
     }
 }
