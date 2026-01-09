@@ -3,11 +3,15 @@ package com.example.tapsyncwatch.presentation
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
-import android.bluetooth.le.*
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.ParcelUuid
 import android.util.Log
+import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -20,33 +24,51 @@ class MainActivity : ComponentActivity() {
         UUID.fromString("0000feed-0000-1000-8000-00805f9b34fb")
 
     private lateinit var bluetoothAdapter: BluetoothAdapter
-    private var permissionGranted = false
+    private var scanning = false
 
     private val scanPermissionLauncher =
         registerForActivityResult(
             ActivityResultContracts.RequestPermission()
         ) { granted ->
-            permissionGranted = granted
-            Log.e("TapSyncWatch", "Permission result: $granted")
+            if (granted) {
+                Log.e("TapSyncWatch", "✅ BLUETOOTH_SCAN granted")
+                startScan()
+            } else {
+                Log.e("TapSyncWatch", "❌ BLUETOOTH_SCAN denied")
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 🔴 Hält App sichtbar
+        // ✅ hält die App sichtbar
         setContentView(R.layout.activity_main)
+
         Log.e("TapSyncWatch", "⌚ Tap Sync Ready – App stays visible")
+
+        // 👉 TAP auf gesamtes Display
+        findViewById<View>(R.id.root).setOnClickListener {
+            Log.e("TapSyncWatch", "👆 TAP")
+
+            if (!scanning) {
+                checkPermissionAndStartScan()
+            }
+        }
 
         val bluetoothManager =
             getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
 
+        checkPermissionAndStartScan()
+    }
+
+    private fun checkPermissionAndStartScan() {
         if (ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.BLUETOOTH_SCAN
             ) == PackageManager.PERMISSION_GRANTED
         ) {
-            permissionGranted = true
+            startScan()
         } else {
             scanPermissionLauncher.launch(
                 Manifest.permission.BLUETOOTH_SCAN
@@ -54,17 +76,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-
-        // 🔥 ERST HIER starten!
-        if (permissionGranted) {
-            startScan()
-        }
-    }
-
     private fun startScan() {
-        Log.e("TapSyncWatch", "🔍 startScan() SAFE")
+        scanning = true
 
         val scanner = bluetoothAdapter.bluetoothLeScanner
 
@@ -81,21 +94,27 @@ class MainActivity : ComponentActivity() {
             settings,
             scanCallback
         )
+
+        Log.e("TapSyncWatch", "🔍 BLE Scan gestartet (Service-Filter aktiv)")
     }
 
     private val scanCallback = object : ScanCallback() {
+
         override fun onScanResult(
             callbackType: Int,
             result: ScanResult
         ) {
+            val device = result.device
+
             Log.e(
                 "TapSyncWatch",
-                "🎯 GEFUNDEN: ${result.device.address}"
+                "🎯 GEFUNDEN: ${device.name ?: "Unbekannt"} / ${device.address}"
             )
         }
 
         override fun onScanFailed(errorCode: Int) {
-            Log.e("TapSyncWatch", "❌ Scan failed: $errorCode")
+            Log.e("TapSyncWatch", "❌ Scan fehlgeschlagen: $errorCode")
+            scanning = false
         }
     }
 }
