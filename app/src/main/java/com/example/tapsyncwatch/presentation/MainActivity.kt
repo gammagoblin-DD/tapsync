@@ -1,6 +1,7 @@
 package com.example.tapsyncwatch.presentation
 
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.Animatable
@@ -27,6 +28,9 @@ class MainActivity : ComponentActivity() {
     // 🔒 Eigener IO-Scope für OSC (crash-sicher)
     private val oscScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    // 🔒 Flood-Schutz für OSC
+    private var lastOscSend = 0L
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -43,6 +47,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun sendOscTapSafe() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastOscSend < 20) return   // 🔒 20 ms Schutz
+        lastOscSend = now
+
         oscScope.launch {
             try {
                 OscSender.sendTap()
@@ -92,7 +100,7 @@ fun TapScreen(onTap: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .clickable {
-                val now = System.currentTimeMillis()
+                val now = SystemClock.elapsedRealtime()
                 val delta = now - lastTapTime
                 lastTapTime = now
 

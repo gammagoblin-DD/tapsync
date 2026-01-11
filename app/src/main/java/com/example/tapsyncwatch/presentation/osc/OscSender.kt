@@ -10,17 +10,16 @@ object OscSender {
 
     private const val TARGET_IP = "192.168.178.24"
     private const val TARGET_PORT = 7002
-    private const val OSC_PATH = "/tap"
+    private const val OSC_PATH = "/composition/tempocontroller/tempotap"
+
+    // 🔒 Socket & Address einmalig erzeugen
+    private val address = InetAddress.getByName(TARGET_IP)
+    private val socket = DatagramSocket()
 
     suspend fun sendTap() {
-        val address = InetAddress.getByName(TARGET_IP)
-        val socket = DatagramSocket()
-
         val data = buildOscMessage(OSC_PATH)
         val packet = DatagramPacket(data, data.size, address, TARGET_PORT)
-
         socket.send(packet)
-        socket.close()
     }
 
     private fun buildOscMessage(path: String): ByteArray {
