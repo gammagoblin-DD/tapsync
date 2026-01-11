@@ -5,6 +5,7 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicBoolean
 
 object OscSender {
 
@@ -12,14 +13,43 @@ object OscSender {
     private const val TARGET_PORT = 7002
     private const val OSC_PATH = "/composition/tempocontroller/tempotap"
 
-    // 🔒 Socket & Address einmalig erzeugen
     private val address = InetAddress.getByName(TARGET_IP)
-    private val socket = DatagramSocket()
+
+    // 🔒 Socket-Status
+    private var socket: DatagramSocket? = null
+    private val socketBroken = AtomicBoolean(false)
+
+    /**
+     * Öffnet Socket bei Bedarf (lazy & recoverable)
+     */
+    private fun ensureSocket() {
+        if (socket == null || socketBroken.get()) {
+            try {
+                socket?.close()
+            } catch (_: Exception) {
+            }
+
+            socket = DatagramSocket().apply {
+                reuseAddress = true
+            }
+
+            socketBroken.set(false)
+        }
+    }
 
     suspend fun sendTap() {
-        val data = buildOscMessage(OSC_PATH)
-        val packet = DatagramPacket(data, data.size, address, TARGET_PORT)
-        socket.send(packet)
+        try {
+            ensureSocket()
+
+            val data = buildOscMessage(OSC_PATH)
+            val packet = DatagramPacket(data, data.size, address, TARGET_PORT)
+
+            socket?.send(packet)
+
+        } catch (_: Exception) {
+            // 🔥 Socket gilt als kaputt → beim nächsten Tap neu öffnen
+            socketBroken.set(true)
+        }
     }
 
     private fun buildOscMessage(path: String): ByteArray {
@@ -45,5 +75,17 @@ object OscSender {
         repeat(pad) { buffer.put(0) }
 
         return buffer.array()
+    }
+
+    /**
+     * Optional: sauberer Shutdown (nicht zwingend nötig)
+     */
+    fun shutdown() {
+        try {
+            socket?.close()
+        } catch (_: Exception) {
+        }
+        socket = null
+        socketBroken.set(false)
     }
 }

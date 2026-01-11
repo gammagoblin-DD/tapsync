@@ -25,10 +25,7 @@ import kotlin.math.min
 
 class MainActivity : ComponentActivity() {
 
-    // 🔒 Eigener IO-Scope für OSC (crash-sicher)
     private val oscScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-    // 🔒 Flood-Schutz für OSC
     private var lastOscSend = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,18 +41,20 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         oscScope.cancel()
+
+        // 🔒 sauberer Netzwerk-Shutdown
+        OscSender.shutdown()
     }
 
     private fun sendOscTapSafe() {
         val now = SystemClock.elapsedRealtime()
-        if (now - lastOscSend < 20) return   // 🔒 20 ms Schutz
+        if (now - lastOscSend < 20) return
         lastOscSend = now
 
         oscScope.launch {
             try {
                 OscSender.sendTap()
             } catch (_: Exception) {
-                // niemals crashen lassen
             }
         }
     }
@@ -75,7 +74,6 @@ fun TapScreen(onTap: () -> Unit) {
 
         alpha.snapTo(0f)
 
-        // 🌱 Weiches Einfaden
         alpha.animateTo(
             targetValue = min(1f, 0.6f + glowLevel * 0.4f),
             animationSpec = tween(
@@ -84,7 +82,6 @@ fun TapScreen(onTap: () -> Unit) {
             )
         )
 
-        // 🌊 Träger Fade-Out (Afterglow)
         alpha.animateTo(
             targetValue = 0f,
             animationSpec = tween(
