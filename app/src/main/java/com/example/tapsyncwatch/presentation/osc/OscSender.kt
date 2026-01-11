@@ -1,66 +1,52 @@
-package com.example.tapsyncwatch.osc
+package com.example.tapsyncwatch.presentation.osc
 
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.concurrent.atomic.AtomicBoolean
 
 object OscSender {
 
-    private const val TARGET_IP = "192.168.178.24"
-    private const val TARGET_PORT = 7002
-    private const val OSC_PATH = "/composition/tempocontroller/tempotap"
+    @Volatile var targetIp: String = "192.168.0.10"
+    @Volatile var targetPort: Int = 7002
 
-    private val address = InetAddress.getByName(TARGET_IP)
-
-    // 🔒 Socket-Status
     private var socket: DatagramSocket? = null
-    private val socketBroken = AtomicBoolean(false)
+    private var address: InetAddress? = null
 
-    /**
-     * Öffnet Socket bei Bedarf (lazy & recoverable)
-     */
     private fun ensureSocket() {
-        if (socket == null || socketBroken.get()) {
-            try {
-                socket?.close()
-            } catch (_: Exception) {
-            }
-
-            socket = DatagramSocket().apply {
-                reuseAddress = true
-            }
-
-            socketBroken.set(false)
+        if (socket == null || address == null) {
+            socket = DatagramSocket()
+            address = InetAddress.getByName(targetIp)
         }
     }
 
-    suspend fun sendTap() {
+    /** Sendet GENAU EIN OSC-Message */
+    fun send(path: String) {
         try {
             ensureSocket()
-
-            val data = buildOscMessage(OSC_PATH)
-            val packet = DatagramPacket(data, data.size, address, TARGET_PORT)
-
+            val data = buildOscMessage(path)
+            val packet = DatagramPacket(
+                data,
+                data.size,
+                address,
+                targetPort
+            )
             socket?.send(packet)
-
         } catch (_: Exception) {
-            // 🔥 Socket gilt als kaputt → beim nächsten Tap neu öffnen
-            socketBroken.set(true)
+            try { socket?.close() } catch (_: Exception) {}
+            socket = null
+            address = null
         }
     }
 
     private fun buildOscMessage(path: String): ByteArray {
-        val pathBytes = oscString(path)
-        val typeTagBytes = oscString(",")
-
-        val buffer = ByteBuffer.allocate(pathBytes.size + typeTagBytes.size)
+        val addr = oscString(path)
+        val type = oscString(",")
+        val buffer = ByteBuffer.allocate(addr.size + type.size)
         buffer.order(ByteOrder.BIG_ENDIAN)
-        buffer.put(pathBytes)
-        buffer.put(typeTagBytes)
-
+        buffer.put(addr)
+        buffer.put(type)
         return buffer.array()
     }
 
@@ -68,24 +54,10 @@ object OscSender {
         val raw = value.toByteArray(Charsets.UTF_8)
         val len = raw.size + 1
         val pad = (4 - (len % 4)) % 4
-
         val buffer = ByteBuffer.allocate(len + pad)
         buffer.put(raw)
         buffer.put(0)
         repeat(pad) { buffer.put(0) }
-
         return buffer.array()
-    }
-
-    /**
-     * Optional: sauberer Shutdown (nicht zwingend nötig)
-     */
-    fun shutdown() {
-        try {
-            socket?.close()
-        } catch (_: Exception) {
-        }
-        socket = null
-        socketBroken.set(false)
     }
 }
