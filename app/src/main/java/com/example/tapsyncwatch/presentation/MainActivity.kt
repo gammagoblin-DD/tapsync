@@ -1,9 +1,11 @@
+@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+
 package com.example.tapsyncwatch.presentation
 
 import android.os.Bundle
 import android.os.SystemClock
-import android.util.DisplayMetrics
 import android.view.MotionEvent
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.Animatable
@@ -27,7 +29,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.ExperimentalComposeUiApi
 import com.example.tapsyncwatch.R
 import com.example.tapsyncwatch.data.SettingsStore
 import com.example.tapsyncwatch.presentation.osc.OscSender
@@ -40,6 +41,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val settingsStore = SettingsStore(this)
 
@@ -76,7 +79,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun TapScreen(
     showBpm: Boolean,
@@ -88,36 +90,30 @@ fun TapScreen(
     onLongPress: () -> Unit
 ) {
     val context = LocalContext.current
-    val metrics: DisplayMetrics = context.resources.displayMetrics
+    val metrics = context.resources.displayMetrics
     val width = metrics.widthPixels.toFloat()
     val height = metrics.heightPixels.toFloat()
 
     var lastTapTime by remember { mutableStateOf(0L) }
     var bpm by remember { mutableStateOf(0f) }
-    var glowLevel by remember { mutableStateOf(0f) }
+
+    var tapTrigger by remember { mutableStateOf(0) }
+    val flashAlpha = remember { Animatable(0f) }
 
     var lastAngle by remember { mutableStateOf<Float?>(null) }
     var lastNudgeTime by remember { mutableStateOf(0L) }
     var longPressStart by remember { mutableStateOf(0L) }
 
-    val alpha = remember { Animatable(0f) }
-
-    val edgeFactor = 0.30f
-    val angleThreshold = 18f
-    val nudgeCooldownMs = 90L
-    val swipeThreshold = 60f
+    val edge = min(width, height) * 0.28f
+    val angleThreshold = 15f
+    val nudgeCooldown = 80L
+    val swipeThreshold = 70f
     val longPressMs = 600L
 
-    LaunchedEffect(glowLevel) {
-        alpha.snapTo(0f)
-        alpha.animateTo(
-            targetValue = min(1f, 0.6f + glowLevel * 0.4f),
-            animationSpec = tween(180, easing = FastOutSlowInEasing)
-        )
-        alpha.animateTo(
-            targetValue = 0f,
-            animationSpec = tween(600, easing = LinearOutSlowInEasing)
-        )
+    LaunchedEffect(tapTrigger) {
+        flashAlpha.snapTo(0f)
+        flashAlpha.animateTo(1f, tween(120, easing = FastOutSlowInEasing))
+        flashAlpha.animateTo(0f, tween(500, easing = LinearOutSlowInEasing))
     }
 
     Box(
@@ -127,7 +123,6 @@ fun TapScreen(
             .pointerInteropFilter { event ->
                 val cx = width / 2f
                 val cy = height / 2f
-                val edge = min(width, height) * edgeFactor
 
                 when (event.actionMasked) {
 
@@ -163,7 +158,7 @@ fun TapScreen(
                         if (abs(delta) < angleThreshold) return@pointerInteropFilter true
 
                         val now = SystemClock.elapsedRealtime()
-                        if (now - lastNudgeTime < nudgeCooldownMs) return@pointerInteropFilter true
+                        if (now - lastNudgeTime < nudgeCooldown) return@pointerInteropFilter true
                         lastNudgeTime = now
 
                         if (delta > 0) onNudgePush() else onNudgePull()
@@ -185,7 +180,7 @@ fun TapScreen(
                             bpm = (60_000f / delta).coerceIn(30f, 300f)
                         }
 
-                        glowLevel = min(1f, glowLevel + 0.3f)
+                        tapTrigger++
                         onTap()
                         true
                     }
@@ -196,26 +191,26 @@ fun TapScreen(
         contentAlignment = Alignment.Center
     ) {
         Image(
-            painter = painterResource(id = R.drawable.goblin),
+            painter = painterResource(R.drawable.goblin),
             contentDescription = null,
             modifier = Modifier.fillMaxSize()
         )
 
         Image(
-            painter = painterResource(id = R.drawable.goblin_flash),
+            painter = painterResource(R.drawable.goblin_flash),
             contentDescription = null,
             modifier = Modifier
                 .fillMaxSize()
-                .alpha(alpha.value)
+                .alpha(flashAlpha.value)
         )
 
         if (showBpm && bpm > 0f) {
             Text(
                 text = bpm.toInt().toString(),
                 color = Color.White,
-                fontSize = 18.sp,
+                fontSize = 14.sp,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.offset(y = 48.dp)
+                modifier = Modifier.offset(y = 90.dp)
             )
         }
     }
