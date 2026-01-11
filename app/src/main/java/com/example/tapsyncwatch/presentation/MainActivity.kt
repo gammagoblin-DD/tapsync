@@ -2,17 +2,16 @@ package com.example.tapsyncwatch.presentation
 
 import android.os.Bundle
 import android.os.SystemClock
+import android.util.DisplayMetrics
+import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -22,18 +21,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.ExperimentalComposeUiApi
 import com.example.tapsyncwatch.R
 import com.example.tapsyncwatch.data.SettingsStore
 import com.example.tapsyncwatch.presentation.osc.OscSender
 import kotlinx.coroutines.*
-import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
+import kotlin.math.*
 
 class MainActivity : ComponentActivity() {
 
@@ -45,7 +44,6 @@ class MainActivity : ComponentActivity() {
         val settingsStore = SettingsStore(this)
 
         setContent {
-
             var showSettings by remember { mutableStateOf(false) }
             val settings by settingsStore.settings.collectAsState(initial = null)
             settings ?: return@setContent
@@ -61,30 +59,12 @@ class MainActivity : ComponentActivity() {
             } else {
                 TapScreen(
                     showBpm = settings!!.showBpm,
-                    onTap = {
-                        oscScope.launch {
-                            OscSender.send(
-                                "/composition/tempocontroller/tempotap"
-                            )
-                        }
-                    },
-                    onSwipeUp = {
-                        oscScope.launch {
-                            OscSender.send(
-                                "/composition/tempocontroller/tempo/multiply"
-                            )
-                        }
-                    },
-                    onSwipeDown = {
-                        oscScope.launch {
-                            OscSender.send(
-                                "/composition/tempocontroller/tempo/divide"
-                            )
-                        }
-                    },
-                    onLongPress = {
-                        showSettings = true
-                    }
+                    onTap = { oscScope.launch { OscSender.send("/composition/tempocontroller/tempotap") } },
+                    onSwipeUp = { oscScope.launch { OscSender.send("/composition/tempocontroller/tempo/multiply") } },
+                    onSwipeDown = { oscScope.launch { OscSender.send("/composition/tempocontroller/tempo/divide") } },
+                    onNudgePush = { oscScope.launch { OscSender.send("/composition/tempocontroller/tempopush") } },
+                    onNudgePull = { oscScope.launch { OscSender.send("/composition/tempocontroller/tempopull") } },
+                    onLongPress = { showSettings = true }
                 )
             }
         }
@@ -96,101 +76,125 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun TapScreen(
     showBpm: Boolean,
     onTap: () -> Unit,
     onSwipeUp: () -> Unit,
     onSwipeDown: () -> Unit,
+    onNudgePush: () -> Unit,
+    onNudgePull: () -> Unit,
     onLongPress: () -> Unit
 ) {
-    var trigger by remember { mutableStateOf(0) }
+    val context = LocalContext.current
+    val metrics: DisplayMetrics = context.resources.displayMetrics
+    val width = metrics.widthPixels.toFloat()
+    val height = metrics.heightPixels.toFloat()
+
     var lastTapTime by remember { mutableStateOf(0L) }
     var bpm by remember { mutableStateOf(0f) }
     var glowLevel by remember { mutableStateOf(0f) }
 
+    var lastAngle by remember { mutableStateOf<Float?>(null) }
+    var lastNudgeTime by remember { mutableStateOf(0L) }
+    var longPressStart by remember { mutableStateOf(0L) }
+
     val alpha = remember { Animatable(0f) }
 
-    val swipeThresholdPx = 60f
-    var gestureConsumed by remember { mutableStateOf(false) }
+    val edgeFactor = 0.30f
+    val angleThreshold = 18f
+    val nudgeCooldownMs = 90L
+    val swipeThreshold = 60f
+    val longPressMs = 600L
 
-    LaunchedEffect(trigger) {
-        if (trigger == 0) return@LaunchedEffect
-
+    LaunchedEffect(glowLevel) {
         alpha.snapTo(0f)
-
         alpha.animateTo(
             targetValue = min(1f, 0.6f + glowLevel * 0.4f),
-            animationSpec = tween(
-                durationMillis = 180,
-                easing = FastOutSlowInEasing
-            )
+            animationSpec = tween(180, easing = FastOutSlowInEasing)
         )
-
         alpha.animateTo(
             targetValue = 0f,
-            animationSpec = tween(
-                durationMillis = (500 + glowLevel * 600).toInt(),
-                easing = LinearOutSlowInEasing
-            )
+            animationSpec = tween(600, easing = LinearOutSlowInEasing)
         )
-
-        glowLevel = max(0f, glowLevel - 0.25f)
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .pointerInteropFilter { event ->
+                val cx = width / 2f
+                val cy = height / 2f
+                val edge = min(width, height) * edgeFactor
 
-            // TAP + LONG PRESS
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = {
-                        if (!gestureConsumed) {
-                            val now = SystemClock.elapsedRealtime()
-                            val delta = now - lastTapTime
-                            lastTapTime = now
+                when (event.actionMasked) {
 
-                            if (delta in 180..2000) {
-                                bpm = (60_000f / delta).coerceIn(30f, 300f)
-                            }
-
-                            glowLevel = if (delta < 250) {
-                                min(1f, glowLevel + 0.45f)
-                            } else {
-                                max(0f, glowLevel - 0.15f)
-                            }
-
-                            trigger++
-                            onTap()
-                        }
-                        gestureConsumed = false
-                    },
-                    onLongPress = {
-                        gestureConsumed = true
-                        onLongPress()
+                    MotionEvent.ACTION_DOWN -> {
+                        lastAngle = null
+                        longPressStart = SystemClock.elapsedRealtime()
+                        true
                     }
-                )
-            }
 
-            // SWIPE UP / DOWN
-            .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onDragStart = { gestureConsumed = false },
-                    onVerticalDrag = { _, dragAmount ->
-                        if (!gestureConsumed && abs(dragAmount) > swipeThresholdPx) {
-                            gestureConsumed = true
-                            if (dragAmount < 0) onSwipeUp()
-                            else onSwipeDown()
+                    MotionEvent.ACTION_MOVE -> {
+                        val dy = event.y - cy
+                        if (abs(dy) > swipeThreshold) {
+                            if (dy < 0) onSwipeUp() else onSwipeDown()
+                            return@pointerInteropFilter true
                         }
+
+                        if (event.x > edge && event.x < width - edge &&
+                            event.y > edge && event.y < height - edge
+                        ) return@pointerInteropFilter false
+
+                        val angle = Math.toDegrees(
+                            atan2(event.y - cy, event.x - cx).toDouble()
+                        ).toFloat()
+
+                        val prev = lastAngle
+                        lastAngle = angle
+                        if (prev == null) return@pointerInteropFilter true
+
+                        var delta = angle - prev
+                        if (delta > 180) delta -= 360f
+                        if (delta < -180) delta += 360f
+
+                        if (abs(delta) < angleThreshold) return@pointerInteropFilter true
+
+                        val now = SystemClock.elapsedRealtime()
+                        if (now - lastNudgeTime < nudgeCooldownMs) return@pointerInteropFilter true
+                        lastNudgeTime = now
+
+                        if (delta > 0) onNudgePush() else onNudgePull()
+                        true
                     }
-                )
+
+                    MotionEvent.ACTION_UP -> {
+                        val now = SystemClock.elapsedRealtime()
+
+                        if (now - longPressStart > longPressMs) {
+                            onLongPress()
+                            return@pointerInteropFilter true
+                        }
+
+                        val delta = now - lastTapTime
+                        lastTapTime = now
+
+                        if (delta in 180..2000) {
+                            bpm = (60_000f / delta).coerceIn(30f, 300f)
+                        }
+
+                        glowLevel = min(1f, glowLevel + 0.3f)
+                        onTap()
+                        true
+                    }
+
+                    else -> false
+                }
             },
         contentAlignment = Alignment.Center
     ) {
-
         Image(
             painter = painterResource(id = R.drawable.goblin),
             contentDescription = null,
@@ -205,16 +209,13 @@ fun TapScreen(
                 .alpha(alpha.value)
         )
 
-        // ✅ BPM ANZEIGE (war der fehlende Teil)
         if (showBpm && bpm > 0f) {
             Text(
                 text = bpm.toInt().toString(),
                 color = Color.White,
-                fontSize = 15.sp,
+                fontSize = 18.sp,
                 textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .offset(y = 100.dp)
+                modifier = Modifier.offset(y = 48.dp)
             )
         }
     }

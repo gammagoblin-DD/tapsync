@@ -8,7 +8,7 @@ import java.nio.ByteOrder
 
 object OscSender {
 
-    @Volatile var targetIp: String = "192.168.0.10"
+    @Volatile var targetIp: String = "192.168.178.24"
     @Volatile var targetPort: Int = 7002
 
     private var socket: DatagramSocket? = null
@@ -21,20 +21,14 @@ object OscSender {
         }
     }
 
-    /** Sendet GENAU EIN OSC-Message */
     fun send(path: String) {
         try {
             ensureSocket()
             val data = buildOscMessage(path)
-            val packet = DatagramPacket(
-                data,
-                data.size,
-                address,
-                targetPort
-            )
+            val packet = DatagramPacket(data, data.size, address, targetPort)
             socket?.send(packet)
         } catch (_: Exception) {
-            try { socket?.close() } catch (_: Exception) {}
+            socket?.close()
             socket = null
             address = null
         }
