@@ -1,5 +1,23 @@
 # Changelog
 
+## [BASELINE_GREEN] – 2026-01-12
+
+### Added
+- Stabiler Referenzstand für TapSync Watch
+
+### Fixed
+- Nicht-deterministische Build-Fehler
+- Package-/Import-Inkonsistenzen (`OscSender`)
+- Coroutine-Verstöße bei Animationsaufrufen
+
+### Guarantees
+- `:app:assembleDebug` ist reproduzierbar grün
+- Kein Feature-Verlust
+- Keine Gesture-Regressionen
+
+### Notes
+Dieser Commit ist der offizielle technische Fixpunkt des Projekts.
+
 ## [0.3.0] – 2026-01-11
 
 ### ✨ Added
