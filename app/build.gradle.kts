@@ -8,6 +8,11 @@ android {
     namespace = "com.example.tapsyncwatch"
     compileSdk = 34
 
+    sourceSets {
+        getByName("main") {
+            kotlin.srcDirs("src/main/java")
+        }
+    }
     defaultConfig {
         applicationId = "com.example.tapsyncwatch"
         minSdk = 26

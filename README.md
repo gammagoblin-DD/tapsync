@@ -1,5 +1,33 @@
 # TapSync Watch
 
+## Current Status (v0.3.2)
+
+The project provides a stable and deterministic gesture system for live tempo control.
+
+### Center Gestures
+- Tap: exactly one `/tempotap` per tap
+- Swipe up: exactly one `/tempo/multiply` per swipe
+- Swipe down: exactly one `/tempo/divide` per swipe
+- Swipe right → left: exactly one `/resync`
+- Gesture direction is locked on first threshold crossing
+- No duplicate OSC messages
+
+### Bezel / Rotary (Partial Ring)
+- Bezel interaction is restricted to a fixed left-side ring segment
+- The ring is NOT 360° to prevent false triggers
+- Bezel interaction is only enabled when ACTION_DOWN starts inside the ring
+- Entering the ring during another gesture does not trigger rotation
+- Clockwise rotation → `/tempopush`
+- Counter-clockwise rotation → `/tempopull`
+
+### OSC Behavior
+- The watch never sends `/composition/tempocontroller/tempo`
+- Resolume may emit `/tempo` internally as a side effect of tempo-related commands
+
+### Stability
+- No unintended app navigation
+- No system gesture interference
+- Gesture zones are fully isolated
 
 
 ## Current Status (v0.3.1)

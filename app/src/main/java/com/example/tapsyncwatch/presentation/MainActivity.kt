@@ -99,8 +99,14 @@ fun TapScreen(
     val cy = height / 2f
     val radius = min(width, height) / 2f
 
-    val ringOuter = radius
+    // 🔵 Partieller Ring (linker Bereich)
+    val ringOuter = radius * 0.98f
     val ringInner = radius * 0.72f
+
+    fun isInLeftBezelSector(angleDeg: Float): Boolean {
+        // linker Bereich: ca. 10 Uhr bis 8 Uhr
+        return angleDeg >= 120f || angleDeg <= -120f
+    }
 
     var zone by remember { mutableStateOf(TouchZone.CENTER) }
 
@@ -148,13 +154,19 @@ fun TapScreen(
                         swipeDir = SwipeDir.NONE
                         gestureConsumed = false
 
-                        rotationSum = 0f
-                        lastAngle = Math.toDegrees(atan2(dy, dx).toDouble()).toFloat()
+                        val angleDeg = Math.toDegrees(
+                            atan2(dy, dx).toDouble()
+                        ).toFloat()
 
-                        zone = if (dist in ringInner..ringOuter)
-                            TouchZone.RING
-                        else
-                            TouchZone.CENTER
+                        zone =
+                            if (
+                                dist in ringInner..ringOuter &&
+                                isInLeftBezelSector(angleDeg)
+                            ) TouchZone.RING
+                            else TouchZone.CENTER
+
+                        lastAngle = angleDeg
+                        rotationSum = 0f
                         true
                     }
 
@@ -169,8 +181,8 @@ fun TapScreen(
 
                             var delta = angle - lastAngle
                             lastAngle = angle
-                            if (delta > 180) delta -= 360f
-                            if (delta < -180) delta += 360f
+                            if (delta > 180f) delta -= 360f
+                            if (delta < -180f) delta += 360f
 
                             rotationSum += delta
 
@@ -186,7 +198,6 @@ fun TapScreen(
                             return@pointerInteropFilter true
                         }
 
-                        // CENTER – Swipe once
                         if (zone == TouchZone.CENTER && swipeDir == SwipeDir.NONE) {
                             val dxTotal = event.x - startX
                             val dyTotal = event.y - startY
@@ -238,6 +249,7 @@ fun TapScreen(
             contentDescription = null,
             modifier = Modifier.fillMaxSize().alpha(flashAlpha.value)
         )
+
         if (showBpm) {
             Text(
                 text = "",

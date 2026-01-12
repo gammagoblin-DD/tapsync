@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.2] – 2026-01-12
+
+### Added
+- Partial bezel interaction (fixed left-side ring segment)
+- Angular restriction to prevent false rotary triggers
+
+### Fixed
+- Accidental bezel activation during swipes
+- Rotary triggering outside intended interaction area
+
+### Changed
+- Bezel interaction now requires ACTION_DOWN inside the allowed ring sector
+
+### Notes
+- Center gesture logic remains unchanged from v0.3.1
+- `/composition/tempocontroller/tempo` is intentionally ignored
+
 ## [0.3.1] – 2026-01-12
 
 ### Fixed
