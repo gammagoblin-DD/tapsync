@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.3.1] – 2026-01-12
+
+### Fixed
+- Final stabilization of center gesture state machine
+- Guaranteed single-fire behavior for tap, swipe and resync
+
+### Notes
+- This release freezes the gesture baseline after extended real-device testing.
+- `/composition/tempocontroller/tempo` is intentionally ignored and treated as a Resolume-internal side effect.
+
+## [0.3.0] – 2026-01-12
+
+### Added
+- Deterministic swipe direction locking
+- One-shot gesture triggering (tap, swipe, resync)
+- Explicit gesture consumption state to prevent duplicates
+
+### Fixed
+- Multiple OSC messages per gesture
+- Swipe direction inversion under slow movement
+- Accidental tap firing during swipe
+- Accidental resync retriggering
+- Gesture overlap between swipe and tap
+
+### Changed
+- Gesture state machine clarified and simplified
+- Bezel interaction restricted to explicit start zone
+
+### Notes
+- `/composition/tempocontroller/tempo` is intentionally ignored.
+  Resolume emits this internally when tempo-related commands are received.
+
+
 ## [BASELINE_GREEN] – 2026-01-12
 
 ### Added

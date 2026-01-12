@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.tapsyncwatch.R
 import com.example.tapsyncwatch.data.SettingsStore
-import com.example.tapsyncwatch.presentation.osc.OscSender
+import com.example.tapsyncwatch.presentation.network.OscSender
 import kotlinx.coroutines.*
 import kotlin.math.*
 
@@ -41,7 +41,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val settingsStore = SettingsStore(this)
@@ -55,16 +54,14 @@ class MainActivity : ComponentActivity() {
             OscSender.targetPort = settings!!.port
 
             if (showSettings) {
-                SettingsScreen(
-                    store = settingsStore,
-                    onClose = { showSettings = false }
-                )
+                SettingsScreen(store = settingsStore) { showSettings = false }
             } else {
                 TapScreen(
                     showBpm = settings!!.showBpm,
                     onTap = { oscScope.launch { OscSender.send("/composition/tempocontroller/tempotap") } },
                     onSwipeUp = { oscScope.launch { OscSender.send("/composition/tempocontroller/tempo/multiply") } },
                     onSwipeDown = { oscScope.launch { OscSender.send("/composition/tempocontroller/tempo/divide") } },
+                    onResync = { oscScope.launch { OscSender.send("/composition/tempocontroller/resync") } },
                     onNudgePush = { oscScope.launch { OscSender.send("/composition/tempocontroller/tempopush") } },
                     onNudgePull = { oscScope.launch { OscSender.send("/composition/tempocontroller/tempopull") } },
                     onLongPress = { showSettings = true }
@@ -79,36 +76,52 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private enum class TouchZone { CENTER, RING }
+private enum class SwipeDir { NONE, UP, DOWN, LEFT }
+
 @Composable
 fun TapScreen(
     showBpm: Boolean,
     onTap: () -> Unit,
     onSwipeUp: () -> Unit,
     onSwipeDown: () -> Unit,
+    onResync: () -> Unit,
     onNudgePush: () -> Unit,
     onNudgePull: () -> Unit,
     onLongPress: () -> Unit
 ) {
     val context = LocalContext.current
     val metrics = context.resources.displayMetrics
+
     val width = metrics.widthPixels.toFloat()
     val height = metrics.heightPixels.toFloat()
+    val cx = width / 2f
+    val cy = height / 2f
+    val radius = min(width, height) / 2f
 
-    var lastTapTime by remember { mutableStateOf(0L) }
-    var bpm by remember { mutableStateOf(0f) }
+    val ringOuter = radius
+    val ringInner = radius * 0.72f
 
-    var tapTrigger by remember { mutableStateOf(0) }
-    val flashAlpha = remember { Animatable(0f) }
+    var zone by remember { mutableStateOf(TouchZone.CENTER) }
 
-    var lastAngle by remember { mutableStateOf<Float?>(null) }
+    var downTime by remember { mutableStateOf(0L) }
+    var swipeDir by remember { mutableStateOf(SwipeDir.NONE) }
+    var gestureConsumed by remember { mutableStateOf(false) }
+
+    var startX by remember { mutableStateOf(0f) }
+    var startY by remember { mutableStateOf(0f) }
+
+    var lastAngle by remember { mutableStateOf(0f) }
+    var rotationSum by remember { mutableStateOf(0f) }
     var lastNudgeTime by remember { mutableStateOf(0L) }
-    var longPressStart by remember { mutableStateOf(0L) }
 
-    val edge = min(width, height) * 0.28f
-    val angleThreshold = 15f
-    val nudgeCooldown = 80L
     val swipeThreshold = 70f
+    val rotationThreshold = 25f
+    val nudgeCooldown = 80L
     val longPressMs = 600L
+
+    val flashAlpha = remember { Animatable(0f) }
+    var tapTrigger by remember { mutableStateOf(0) }
 
     LaunchedEffect(tapTrigger) {
         flashAlpha.snapTo(0f)
@@ -121,71 +134,96 @@ fun TapScreen(
             .fillMaxSize()
             .background(Color.Black)
             .pointerInteropFilter { event ->
-                val cx = width / 2f
-                val cy = height / 2f
+
+                val dx = event.x - cx
+                val dy = event.y - cy
+                val dist = hypot(dx, dy)
 
                 when (event.actionMasked) {
 
                     MotionEvent.ACTION_DOWN -> {
-                        lastAngle = null
-                        longPressStart = SystemClock.elapsedRealtime()
+                        downTime = SystemClock.elapsedRealtime()
+                        startX = event.x
+                        startY = event.y
+                        swipeDir = SwipeDir.NONE
+                        gestureConsumed = false
+
+                        rotationSum = 0f
+                        lastAngle = Math.toDegrees(atan2(dy, dx).toDouble()).toFloat()
+
+                        zone = if (dist in ringInner..ringOuter)
+                            TouchZone.RING
+                        else
+                            TouchZone.CENTER
                         true
                     }
 
                     MotionEvent.ACTION_MOVE -> {
-                        val dy = event.y - cy
-                        if (abs(dy) > swipeThreshold) {
-                            if (dy < 0) onSwipeUp() else onSwipeDown()
+
+                        if (gestureConsumed) return@pointerInteropFilter true
+
+                        if (zone == TouchZone.RING) {
+                            val angle = Math.toDegrees(
+                                atan2(event.y - cy, event.x - cx).toDouble()
+                            ).toFloat()
+
+                            var delta = angle - lastAngle
+                            lastAngle = angle
+                            if (delta > 180) delta -= 360f
+                            if (delta < -180) delta += 360f
+
+                            rotationSum += delta
+
+                            val now = SystemClock.elapsedRealtime()
+                            if (abs(rotationSum) >= rotationThreshold &&
+                                now - lastNudgeTime >= nudgeCooldown
+                            ) {
+                                lastNudgeTime = now
+                                gestureConsumed = true
+                                if (rotationSum > 0) onNudgePush() else onNudgePull()
+                                rotationSum = 0f
+                            }
                             return@pointerInteropFilter true
                         }
 
-                        if (event.x > edge && event.x < width - edge &&
-                            event.y > edge && event.y < height - edge
-                        ) return@pointerInteropFilter false
+                        // CENTER – Swipe once
+                        if (zone == TouchZone.CENTER && swipeDir == SwipeDir.NONE) {
+                            val dxTotal = event.x - startX
+                            val dyTotal = event.y - startY
 
-                        val angle = Math.toDegrees(
-                            atan2(event.y - cy, event.x - cx).toDouble()
-                        ).toFloat()
-
-                        val prev = lastAngle
-                        lastAngle = angle
-                        if (prev == null) return@pointerInteropFilter true
-
-                        var delta = angle - prev
-                        if (delta > 180) delta -= 360f
-                        if (delta < -180) delta += 360f
-
-                        if (abs(delta) < angleThreshold) return@pointerInteropFilter true
-
-                        val now = SystemClock.elapsedRealtime()
-                        if (now - lastNudgeTime < nudgeCooldown) return@pointerInteropFilter true
-                        lastNudgeTime = now
-
-                        if (delta > 0) onNudgePush() else onNudgePull()
+                            if (abs(dyTotal) > swipeThreshold && abs(dyTotal) > abs(dxTotal)) {
+                                swipeDir = if (dyTotal < 0) SwipeDir.UP else SwipeDir.DOWN
+                                gestureConsumed = true
+                                if (swipeDir == SwipeDir.UP) onSwipeUp() else onSwipeDown()
+                            } else if (abs(dxTotal) > swipeThreshold && abs(dxTotal) > abs(dyTotal)) {
+                                if (dxTotal < 0) {
+                                    swipeDir = SwipeDir.LEFT
+                                    gestureConsumed = true
+                                    onResync()
+                                }
+                            }
+                        }
                         true
                     }
 
                     MotionEvent.ACTION_UP -> {
-                        val now = SystemClock.elapsedRealtime()
 
-                        if (now - longPressStart > longPressMs) {
-                            onLongPress()
+                        if (gestureConsumed || zone == TouchZone.RING) {
                             return@pointerInteropFilter true
                         }
 
-                        val delta = now - lastTapTime
-                        lastTapTime = now
-
-                        if (delta in 180..2000) {
-                            bpm = (60_000f / delta).coerceIn(30f, 300f)
+                        val now = SystemClock.elapsedRealtime()
+                        if (now - downTime >= longPressMs) {
+                            onLongPress()
+                        } else {
+                            gestureConsumed = true
+                            tapTrigger++
+                            onTap()
                         }
-
-                        tapTrigger++
-                        onTap()
                         true
                     }
 
-                    else -> false
+                    else -> true
                 }
             },
         contentAlignment = Alignment.Center
@@ -195,18 +233,14 @@ fun TapScreen(
             contentDescription = null,
             modifier = Modifier.fillMaxSize()
         )
-
         Image(
             painter = painterResource(R.drawable.goblin_flash),
             contentDescription = null,
-            modifier = Modifier
-                .fillMaxSize()
-                .alpha(flashAlpha.value)
+            modifier = Modifier.fillMaxSize().alpha(flashAlpha.value)
         )
-
-        if (showBpm && bpm > 0f) {
+        if (showBpm) {
             Text(
-                text = bpm.toInt().toString(),
+                text = "",
                 color = Color.White,
                 fontSize = 14.sp,
                 textAlign = TextAlign.Center,
