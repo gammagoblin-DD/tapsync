@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.3.3 – Stable Gesture & OSC Semantics
+
+### Fixed
+- Multiply / Divide triggert nun stabil ×2 / ÷2 (kein ×4 / ÷4 mehr)
+- Keine Mehrfach-Trigger bei Gesten
+- Kein BPM-Drift mehr
+- Tap auf Bezel vollständig deaktiviert
+- Dauerleuchten in Resolume behoben (Tap / Resync)
+
+### Improved
+- Nudge (Bezel) jetzt echtes Momentary-Verhalten:
+  - Start bei Drehimpuls
+  - Halten solange Finger liegt
+  - Sauberes Release beim Loslassen
+- Bezel-Trefferzone:
+  - breiter
+  - < 180°
+  - links positioniert
+- Gesture-Isolation weiter verfeinert
+
+### Technical
+- TouchOSC-konforme OSC-Semantik
+- Klare Trennung von:
+  - Momentary Buttons (Tap, Resync)
+  - One-Shot Actions (Multiply, Divide)
+  - Held Controls (Nudge)
+
+
 ## [0.3.2] – 2026-01-12
 
 ### Added

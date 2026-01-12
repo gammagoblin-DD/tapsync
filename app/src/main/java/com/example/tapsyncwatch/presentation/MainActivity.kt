@@ -8,21 +8,18 @@ import android.view.MotionEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -45,6 +42,12 @@ class MainActivity : ComponentActivity() {
 
         val settingsStore = SettingsStore(this)
 
+        suspend fun momentaryInt(path: String) {
+            OscSender.sendInt(path, 1)
+            delay(40)
+            OscSender.sendInt(path, 0)
+        }
+
         setContent {
             var showSettings by remember { mutableStateOf(false) }
             val settings by settingsStore.settings.collectAsState(initial = null)
@@ -54,16 +57,83 @@ class MainActivity : ComponentActivity() {
             OscSender.targetPort = settings!!.port
 
             if (showSettings) {
-                SettingsScreen(store = settingsStore) { showSettings = false }
+                SettingsScreen(store = settingsStore) {
+                    showSettings = false
+                }
             } else {
                 TapScreen(
                     showBpm = settings!!.showBpm,
-                    onTap = { oscScope.launch { OscSender.send("/composition/tempocontroller/tempotap") } },
-                    onSwipeUp = { oscScope.launch { OscSender.send("/composition/tempocontroller/tempo/multiply") } },
-                    onSwipeDown = { oscScope.launch { OscSender.send("/composition/tempocontroller/tempo/divide") } },
-                    onResync = { oscScope.launch { OscSender.send("/composition/tempocontroller/resync") } },
-                    onNudgePush = { oscScope.launch { OscSender.send("/composition/tempocontroller/tempopush") } },
-                    onNudgePull = { oscScope.launch { OscSender.send("/composition/tempocontroller/tempopull") } },
+
+                    // ✅ Tap = echtes Momentary
+                    onTap = {
+                        oscScope.launch {
+                            momentaryInt("/composition/tempocontroller/tempotap")
+                        }
+                    },
+
+                    // ✅ Multiply = NUR Int 1
+                    onSwipeUp = {
+                        oscScope.launch {
+                            OscSender.sendInt(
+                                "/composition/tempocontroller/tempo/multiply",
+                                1
+                            )
+                        }
+                    },
+
+                    // ✅ Divide = NUR Int 1
+                    onSwipeDown = {
+                        oscScope.launch {
+                            OscSender.sendInt(
+                                "/composition/tempocontroller/tempo/divide",
+                                1
+                            )
+                        }
+                    },
+
+                    // ✅ Resync = echtes Momentary
+                    onResync = {
+                        oscScope.launch {
+                            momentaryInt("/composition/tempocontroller/resync")
+                        }
+                    },
+
+                    // ✅ Nudge Push
+                    onNudgePushStart = {
+                        oscScope.launch {
+                            OscSender.sendInt(
+                                "/composition/tempocontroller/tempopush",
+                                1
+                            )
+                        }
+                    },
+                    onNudgePushEnd = {
+                        oscScope.launch {
+                            OscSender.sendInt(
+                                "/composition/tempocontroller/tempopush",
+                                0
+                            )
+                        }
+                    },
+
+                    // ✅ Nudge Pull
+                    onNudgePullStart = {
+                        oscScope.launch {
+                            OscSender.sendInt(
+                                "/composition/tempocontroller/tempopull",
+                                1
+                            )
+                        }
+                    },
+                    onNudgePullEnd = {
+                        oscScope.launch {
+                            OscSender.sendInt(
+                                "/composition/tempocontroller/tempopull",
+                                0
+                            )
+                        }
+                    },
+
                     onLongPress = { showSettings = true }
                 )
             }
@@ -76,8 +146,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/* ------------------------------------------------------------ */
+/* ----------------------- TAP SCREEN -------------------------- */
+/* ------------------------------------------------------------ */
+
 private enum class TouchZone { CENTER, RING }
-private enum class SwipeDir { NONE, UP, DOWN, LEFT }
+private enum class BezelDir { NONE, CW, CCW }
+private enum class BezelState { IDLE, HELD }
 
 @Composable
 fun TapScreen(
@@ -86,8 +161,10 @@ fun TapScreen(
     onSwipeUp: () -> Unit,
     onSwipeDown: () -> Unit,
     onResync: () -> Unit,
-    onNudgePush: () -> Unit,
-    onNudgePull: () -> Unit,
+    onNudgePushStart: () -> Unit,
+    onNudgePushEnd: () -> Unit,
+    onNudgePullStart: () -> Unit,
+    onNudgePullEnd: () -> Unit,
     onLongPress: () -> Unit
 ) {
     val context = LocalContext.current
@@ -99,31 +176,24 @@ fun TapScreen(
     val cy = height / 2f
     val radius = min(width, height) / 2f
 
-    // 🔵 Partieller Ring (linker Bereich)
     val ringOuter = radius * 0.98f
-    val ringInner = radius * 0.72f
+    val ringInner = radius * 0.50f
 
-    fun isInLeftBezelSector(angleDeg: Float): Boolean {
-        // linker Bereich: ca. 10 Uhr bis 8 Uhr
-        return angleDeg >= 120f || angleDeg <= -120f
-    }
+    fun isInLeftBezel(angle: Float): Boolean =
+        angle >= 110f || angle <= -110f
 
     var zone by remember { mutableStateOf(TouchZone.CENTER) }
+    var bezelDir by remember { mutableStateOf(BezelDir.NONE) }
+    var bezelState by remember { mutableStateOf(BezelState.IDLE) }
+    var nudgeStarted by remember { mutableStateOf(false) }
+    var lastAngle by remember { mutableStateOf(0f) }
 
     var downTime by remember { mutableStateOf(0L) }
-    var swipeDir by remember { mutableStateOf(SwipeDir.NONE) }
-    var gestureConsumed by remember { mutableStateOf(false) }
-
     var startX by remember { mutableStateOf(0f) }
     var startY by remember { mutableStateOf(0f) }
-
-    var lastAngle by remember { mutableStateOf(0f) }
-    var rotationSum by remember { mutableStateOf(0f) }
-    var lastNudgeTime by remember { mutableStateOf(0L) }
+    var swipeHandled by remember { mutableStateOf(false) }
 
     val swipeThreshold = 70f
-    val rotationThreshold = 25f
-    val nudgeCooldown = 80L
     val longPressMs = 600L
 
     val flashAlpha = remember { Animatable(0f) }
@@ -151,85 +221,89 @@ fun TapScreen(
                         downTime = SystemClock.elapsedRealtime()
                         startX = event.x
                         startY = event.y
-                        swipeDir = SwipeDir.NONE
-                        gestureConsumed = false
+                        swipeHandled = false
+                        nudgeStarted = false
 
-                        val angleDeg = Math.toDegrees(
-                            atan2(dy, dx).toDouble()
-                        ).toFloat()
+                        val angle =
+                            Math.toDegrees(atan2(dy, dx).toDouble()).toFloat()
 
                         zone =
-                            if (
-                                dist in ringInner..ringOuter &&
-                                isInLeftBezelSector(angleDeg)
-                            ) TouchZone.RING
-                            else TouchZone.CENTER
+                            if (dist in ringInner..ringOuter && isInLeftBezel(angle))
+                                TouchZone.RING
+                            else
+                                TouchZone.CENTER
 
-                        lastAngle = angleDeg
-                        rotationSum = 0f
+                        lastAngle = angle
+                        bezelDir = BezelDir.NONE
+                        bezelState = BezelState.IDLE
                         true
                     }
 
                     MotionEvent.ACTION_MOVE -> {
 
-                        if (gestureConsumed) return@pointerInteropFilter true
-
                         if (zone == TouchZone.RING) {
-                            val angle = Math.toDegrees(
-                                atan2(event.y - cy, event.x - cx).toDouble()
-                            ).toFloat()
+                            val angle =
+                                Math.toDegrees(
+                                    atan2(event.y - cy, event.x - cx).toDouble()
+                                ).toFloat()
 
                             var delta = angle - lastAngle
                             lastAngle = angle
+
                             if (delta > 180f) delta -= 360f
                             if (delta < -180f) delta += 360f
 
-                            rotationSum += delta
+                            if (!nudgeStarted && abs(delta) > 3f) {
+                                nudgeStarted = true
+                                bezelDir =
+                                    if (delta > 0) BezelDir.CW else BezelDir.CCW
+                                bezelState = BezelState.HELD
 
-                            val now = SystemClock.elapsedRealtime()
-                            if (abs(rotationSum) >= rotationThreshold &&
-                                now - lastNudgeTime >= nudgeCooldown
-                            ) {
-                                lastNudgeTime = now
-                                gestureConsumed = true
-                                if (rotationSum > 0) onNudgePush() else onNudgePull()
-                                rotationSum = 0f
+                                if (bezelDir == BezelDir.CW)
+                                    onNudgePushStart()
+                                else
+                                    onNudgePullStart()
                             }
                             return@pointerInteropFilter true
                         }
 
-                        if (zone == TouchZone.CENTER && swipeDir == SwipeDir.NONE) {
-                            val dxTotal = event.x - startX
-                            val dyTotal = event.y - startY
+                        if (!swipeHandled && zone == TouchZone.CENTER) {
+                            val dxT = event.x - startX
+                            val dyT = event.y - startY
 
-                            if (abs(dyTotal) > swipeThreshold && abs(dyTotal) > abs(dxTotal)) {
-                                swipeDir = if (dyTotal < 0) SwipeDir.UP else SwipeDir.DOWN
-                                gestureConsumed = true
-                                if (swipeDir == SwipeDir.UP) onSwipeUp() else onSwipeDown()
-                            } else if (abs(dxTotal) > swipeThreshold && abs(dxTotal) > abs(dyTotal)) {
-                                if (dxTotal < 0) {
-                                    swipeDir = SwipeDir.LEFT
-                                    gestureConsumed = true
-                                    onResync()
-                                }
+                            if (abs(dyT) > swipeThreshold && abs(dyT) > abs(dxT)) {
+                                swipeHandled = true
+                                if (dyT < 0) onSwipeUp() else onSwipeDown()
+                            } else if (abs(dxT) > swipeThreshold && dxT < 0) {
+                                swipeHandled = true
+                                onResync()
                             }
                         }
                         true
                     }
 
-                    MotionEvent.ACTION_UP -> {
+                    MotionEvent.ACTION_UP,
+                    MotionEvent.ACTION_CANCEL -> {
 
-                        if (gestureConsumed || zone == TouchZone.RING) {
+                        if (zone == TouchZone.RING && bezelState == BezelState.HELD) {
+                            if (bezelDir == BezelDir.CW)
+                                onNudgePushEnd()
+                            else
+                                onNudgePullEnd()
+
+                            bezelState = BezelState.IDLE
+                            bezelDir = BezelDir.NONE
                             return@pointerInteropFilter true
                         }
 
-                        val now = SystemClock.elapsedRealtime()
-                        if (now - downTime >= longPressMs) {
-                            onLongPress()
-                        } else {
-                            gestureConsumed = true
-                            tapTrigger++
-                            onTap()
+                        if (!swipeHandled && zone == TouchZone.CENTER) {
+                            val now = SystemClock.elapsedRealtime()
+                            if (now - downTime >= longPressMs)
+                                onLongPress()
+                            else {
+                                tapTrigger++
+                                onTap()
+                            }
                         }
                         true
                     }
@@ -239,16 +313,38 @@ fun TapScreen(
             },
         contentAlignment = Alignment.Center
     ) {
+
         Image(
             painter = painterResource(R.drawable.goblin),
             contentDescription = null,
             modifier = Modifier.fillMaxSize()
         )
+
         Image(
             painter = painterResource(R.drawable.goblin_flash),
             contentDescription = null,
             modifier = Modifier.fillMaxSize().alpha(flashAlpha.value)
         )
+
+        if (zone == TouchZone.RING) {
+            Canvas(Modifier.fillMaxSize()) {
+                drawArc(
+                    color = Color.Red.copy(alpha = 0.25f),
+                    startAngle = 110f,
+                    sweepAngle = 140f,
+                    useCenter = false,
+                    topLeft = androidx.compose.ui.geometry.Offset(
+                        cx - ringOuter,
+                        cy - ringOuter
+                    ),
+                    size = androidx.compose.ui.geometry.Size(
+                        ringOuter * 2,
+                        ringOuter * 2
+                    ),
+                    style = Stroke(width = ringOuter - ringInner)
+                )
+            }
+        }
 
         if (showBpm) {
             Text(

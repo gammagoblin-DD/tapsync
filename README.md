@@ -1,5 +1,69 @@
 # TapSync Watch
 
+TapSync ist eine Wear-OS-App zur präzisen Tempo-Steuerung von Resolume über OSC.
+Die App ist für performative Nutzung optimiert (Tap, Swipe, Bezel/Nudge)
+und verhält sich bewusst wie TouchOSC.
+
+---
+
+## 🎛️ Features
+
+### Tap
+- Tap auf die Mitte sendet `/composition/tempocontroller/tempotap`
+- Momentary-Verhalten (kein Dauerleuchten)
+
+### Swipe
+- **Swipe Up** → Tempo ×2  
+  `/composition/tempocontroller/tempo/multiply`
+- **Swipe Down** → Tempo ÷2  
+  `/composition/tempocontroller/tempo/divide`
+- **Swipe Right → Left** → Resync  
+  `/composition/tempocontroller/resync`
+
+### Bezel / Nudge (linker Ringbereich)
+- Drehen im Uhrzeigersinn → `tempopush`
+- Drehen gegen Uhrzeigersinn → `tempopull`
+- Verhalten:
+  - Start bei Drehimpuls
+  - Halten solange Finger liegt
+  - Sauberes Release beim Loslassen
+- Bezel ist:
+  - < 180°
+  - links positioniert
+  - visuell debug-overlaybar
+  - komplett isoliert von Tap & Swipe
+
+### Long-Press
+- Öffnet die Settings
+
+---
+
+## 🧠 Design-Prinzipien
+
+- **TouchOSC-kompatible OSC-Semantik**
+- Keine Mehrfach-Trigger
+- Keine BPM-Drifts
+- Keine Gesture-Überlagerungen
+- Performance-first (Live-Betrieb)
+
+---
+
+## 🔌 OSC-Ziel
+
+Standard:
+- IP: konfigurierbar
+- Port: konfigurierbar (z. B. 7002)
+
+Getestet mit:
+- Resolume Arena / Avenue
+
+---
+
+## 📦 Version
+
+Aktuelle Version: **v0.3.3**
+
+
 ## Current Status (v0.3.2)
 
 The project provides a stable and deterministic gesture system for live tempo control.
