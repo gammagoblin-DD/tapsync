@@ -1,24 +1,51 @@
 # Changelog
 
-## v0.3.3 – Stable Gesture & OSC Semantics
+Alle relevanten Änderungen an TapSync Watch werden hier dokumentiert.  
+Der Fokus liegt auf **Verhalten, Stabilität und garantierten Eigenschaften** – nicht auf internen Refactors.
+
+---
+
+## [v0.3.4] – 2026-01-12  
+### Phase 2A – Gesture-Isolation (eingefroren)
 
 ### Fixed
-- Multiply / Divide triggert nun stabil ×2 / ÷2 (kein ×4 / ÷4 mehr)
+- Deterministische Gesture-Priorisierung (Tap / Swipe / Bezel / LongPress)
+- Exklusives MOVE-Handling (keine konkurrierenden Pfade)
+- Abgesicherte UP-Phase (Tap ist echter Fallback)
+- Explizite Gesture-Fallback-Regeln
+
+### Guarantees
+- Eine Geste → genau ein Effekt
+- Bezel, Swipe und Tap sind logisch exklusiv
+- Keine Mehrfach-Trigger
+- Keine Gesture-Regressionen
+- Kein Feature-Verlust gegenüber v0.3.3
+
+### Notes
+Dieser Release friert **Phase 2A (Gesture-Isolation)** vollständig ein  
+und definiert den finalen Gesten-Fixpunkt für alle weiteren Features.
+
+---
+
+## [v0.3.3] – Stable Gesture & OSC Semantics
+
+### Fixed
+- Multiply / Divide triggert stabil ×2 / ÷2 (kein ×4 / ÷4 mehr)
 - Keine Mehrfach-Trigger bei Gesten
-- Kein BPM-Drift mehr
+- BPM-Drift beseitigt
 - Tap auf Bezel vollständig deaktiviert
 - Dauerleuchten in Resolume behoben (Tap / Resync)
 
 ### Improved
-- Nudge (Bezel) jetzt echtes Momentary-Verhalten:
+- Nudge (Bezel) als echtes Momentary-Control:
   - Start bei Drehimpuls
   - Halten solange Finger liegt
   - Sauberes Release beim Loslassen
-- Bezel-Trefferzone:
-  - breiter
-  - < 180°
+- Bezel-Trefferzone verfeinert:
   - links positioniert
-- Gesture-Isolation weiter verfeinert
+  - < 180°
+  - robuster gegen Fehltrigger
+- Gesture-Isolation weiter verbessert
 
 ### Technical
 - TouchOSC-konforme OSC-Semantik
@@ -27,61 +54,71 @@
   - One-Shot Actions (Multiply, Divide)
   - Held Controls (Nudge)
 
+---
 
-## [0.3.2] – 2026-01-12
+## [v0.3.2] – 2026-01-12
 
 ### Added
-- Partial bezel interaction (fixed left-side ring segment)
-- Angular restriction to prevent false rotary triggers
+- Partielle Bezel-Interaktion (linkes Ringsegment)
+- Winkelbegrenzung zur Vermeidung von Fehltriggern
 
 ### Fixed
-- Accidental bezel activation during swipes
-- Rotary triggering outside intended interaction area
+- Unbeabsichtigte Bezel-Aktivierung während Swipes
+- Rotary-Trigger außerhalb der vorgesehenen Zone
 
 ### Changed
-- Bezel interaction now requires ACTION_DOWN inside the allowed ring sector
+- Bezel-Interaktion erfordert ACTION_DOWN innerhalb des Rings
 
 ### Notes
-- Center gesture logic remains unchanged from v0.3.1
-- `/composition/tempocontroller/tempo` is intentionally ignored
+- Center-Gestenlogik unverändert gegenüber v0.3.1
+- `/composition/tempocontroller/tempo` wird bewusst ignoriert
 
-## [0.3.1] – 2026-01-12
+---
+
+## [v0.3.1] – 2026-01-12
 
 ### Fixed
-- Final stabilization of center gesture state machine
-- Guaranteed single-fire behavior for tap, swipe and resync
+- Finale Stabilisierung der Center-Gesten-State-Machine
+- Garantiertes Single-Fire-Verhalten für:
+  - Tap
+  - Swipe
+  - Resync
 
 ### Notes
-- This release freezes the gesture baseline after extended real-device testing.
-- `/composition/tempocontroller/tempo` is intentionally ignored and treated as a Resolume-internal side effect.
+Dieser Release friert die **erste stabile Gesten-Baseline**  
+nach ausgiebigem Real-Device-Testing ein.
 
-## [0.3.0] – 2026-01-12
+---
+
+## [v0.3.0] – 2026-01-11
 
 ### Added
-- Deterministic swipe direction locking
-- One-shot gesture triggering (tap, swipe, resync)
-- Explicit gesture consumption state to prevent duplicates
+- Deterministische Swipe-Richtungserkennung
+- One-Shot-Gesten (Tap, Swipe, Resync)
+- Explizite Gesture-Consumption-States
 
 ### Fixed
-- Multiple OSC messages per gesture
-- Swipe direction inversion under slow movement
-- Accidental tap firing during swipe
-- Accidental resync retriggering
-- Gesture overlap between swipe and tap
+- Mehrfach-OSC-Sends pro Geste
+- Swipe-Richtungsfehler bei langsamer Bewegung
+- Unbeabsichtigtes Tap-Feuern während Swipes
+- Mehrfach-Resyncs
+- Gesture-Überlagerungen (Tap / Swipe / Bezel)
 
 ### Changed
-- Gesture state machine clarified and simplified
-- Bezel interaction restricted to explicit start zone
+- Gesten-State-Machine vereinfacht und explizit gemacht
+- Bezel-Interaktion auf klar definierte Startzone beschränkt
 
 ### Notes
-- `/composition/tempocontroller/tempo` is intentionally ignored.
-  Resolume emits this internally when tempo-related commands are received.
+- `/composition/tempocontroller/tempo` wird nicht aktiv gesendet  
+  (Resolume behandelt dies intern als Side-Effect)
 
+---
 
-## [BASELINE_GREEN] – 2026-01-12
+## [BASELINE_GREEN] – 2026-01-12  
+### Technischer Fixpunkt
 
 ### Added
-- Stabiler Referenzstand für TapSync Watch
+- Erster reproduzierbarer, stabiler Referenzstand
 
 ### Fixed
 - Nicht-deterministische Build-Fehler
@@ -94,28 +131,13 @@
 - Keine Gesture-Regressionen
 
 ### Notes
-Dieser Commit ist der offizielle technische Fixpunkt des Projekts.
-
-## [0.3.0] – 2026-01-11
-
-### ✨ Added
-- Virtuelle Lünette (circular edge gesture)
-  - Nudge + / − via Uhrzeigersinn-Geste
-- Stabile BPM-Anzeige (optional)
-- Vollständige Gestensteuerung ohne Hardware-Lünette
-
-### 🛠 Fixed
-- Build-Fehler durch experimentelle Compose APIs
-- Doppelte OSC-Sends bei Tap
-- Konflikte zwischen Gesten (Tap / Swipe / Lünette)
-- Long-Press zuverlässig für Settings
-
-### 🧹 Changed
-- MainActivity refaktoriert und stabilisiert
-- Gesture Handling robuster & besser priorisiert
+Dieser Commit ist der **offizielle technische Fixpunkt** des Projekts  
+und dient als Rollback-Anker.
 
 ---
 
-## [0.2.x]
+## [0.2.x] – Frühphase
+
 - Erste Gestenexperimente
 - OSC-Basisfunktionalität
+- Exploration verschiedener Interaktionsmodelle

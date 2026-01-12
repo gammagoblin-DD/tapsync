@@ -64,14 +64,12 @@ class MainActivity : ComponentActivity() {
                 TapScreen(
                     showBpm = settings!!.showBpm,
 
-                    // ✅ Tap = echtes Momentary
                     onTap = {
                         oscScope.launch {
                             momentaryInt("/composition/tempocontroller/tempotap")
                         }
                     },
 
-                    // ✅ Multiply = NUR Int 1
                     onSwipeUp = {
                         oscScope.launch {
                             OscSender.sendInt(
@@ -81,7 +79,6 @@ class MainActivity : ComponentActivity() {
                         }
                     },
 
-                    // ✅ Divide = NUR Int 1
                     onSwipeDown = {
                         oscScope.launch {
                             OscSender.sendInt(
@@ -91,14 +88,12 @@ class MainActivity : ComponentActivity() {
                         }
                     },
 
-                    // ✅ Resync = echtes Momentary
                     onResync = {
                         oscScope.launch {
                             momentaryInt("/composition/tempocontroller/resync")
                         }
                     },
 
-                    // ✅ Nudge Push
                     onNudgePushStart = {
                         oscScope.launch {
                             OscSender.sendInt(
@@ -116,7 +111,6 @@ class MainActivity : ComponentActivity() {
                         }
                     },
 
-                    // ✅ Nudge Pull
                     onNudgePullStart = {
                         oscScope.launch {
                             OscSender.sendInt(
@@ -241,11 +235,11 @@ fun TapScreen(
 
                     MotionEvent.ACTION_MOVE -> {
 
+                        /* ---------- BEZEL (RING) – exklusiv ---------- */
                         if (zone == TouchZone.RING) {
-                            val angle =
-                                Math.toDegrees(
-                                    atan2(event.y - cy, event.x - cx).toDouble()
-                                ).toFloat()
+                            val angle = Math.toDegrees(
+                                atan2(event.y - cy, event.x - cx).toDouble()
+                            ).toFloat()
 
                             var delta = angle - lastAngle
                             lastAngle = angle
@@ -267,6 +261,7 @@ fun TapScreen(
                             return@pointerInteropFilter true
                         }
 
+                        /* ---------- SWIPE / RESYNC (CENTER) ---------- */
                         if (!swipeHandled && zone == TouchZone.CENTER) {
                             val dxT = event.x - startX
                             val dyT = event.y - startY
@@ -274,17 +269,21 @@ fun TapScreen(
                             if (abs(dyT) > swipeThreshold && abs(dyT) > abs(dxT)) {
                                 swipeHandled = true
                                 if (dyT < 0) onSwipeUp() else onSwipeDown()
+                                return@pointerInteropFilter true
                             } else if (abs(dxT) > swipeThreshold && dxT < 0) {
                                 swipeHandled = true
                                 onResync()
+                                return@pointerInteropFilter true
                             }
                         }
-                        true
+
+                        return@pointerInteropFilter true
                     }
 
                     MotionEvent.ACTION_UP,
                     MotionEvent.ACTION_CANCEL -> {
 
+                        /* ---------- 1. BEZEL hat Vorrang ---------- */
                         if (zone == TouchZone.RING && bezelState == BezelState.HELD) {
                             if (bezelDir == BezelDir.CW)
                                 onNudgePushEnd()
@@ -296,16 +295,23 @@ fun TapScreen(
                             return@pointerInteropFilter true
                         }
 
-                        if (!swipeHandled && zone == TouchZone.CENTER) {
+                        /* ---------- 2. SWIPE blockiert Tap ---------- */
+                        if (swipeHandled) {
+                            return@pointerInteropFilter true
+                        }
+
+                        /* ---------- 3. CENTER → LongPress oder Tap ---------- */
+                        if (zone == TouchZone.CENTER) {
                             val now = SystemClock.elapsedRealtime()
-                            if (now - downTime >= longPressMs)
+                            if (now - downTime >= longPressMs) {
                                 onLongPress()
-                            else {
+                            } else {
                                 tapTrigger++
                                 onTap()
                             }
                         }
-                        true
+
+                        return@pointerInteropFilter true
                     }
 
                     else -> true
@@ -323,7 +329,9 @@ fun TapScreen(
         Image(
             painter = painterResource(R.drawable.goblin_flash),
             contentDescription = null,
-            modifier = Modifier.fillMaxSize().alpha(flashAlpha.value)
+            modifier = Modifier
+                .fillMaxSize()
+                .alpha(flashAlpha.value)
         )
 
         if (zone == TouchZone.RING) {
