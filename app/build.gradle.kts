@@ -34,11 +34,15 @@ java {
 }
 
 dependencies {
+
     implementation(platform("androidx.compose:compose-bom:2024.02.00"))
     implementation("androidx.activity:activity-compose")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material:material")
-    // DataStore (Preferences)
+
     implementation("androidx.datastore:datastore-preferences:1.0.0")
+
+    implementation("com.illposed.osc:javaosc-core:0.8")
 }
+

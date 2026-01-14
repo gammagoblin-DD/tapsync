@@ -1,74 +1,31 @@
 package com.example.tapsyncwatch.osc
 
-import android.content.Context
-import android.net.wifi.WifiManager
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.InetSocketAddress
-import java.util.concurrent.atomic.AtomicBoolean
+/**
+ * DEPRECATED / DISABLED
+ *
+ * Dieser Listener war ursprünglich für OSC-Auto-Discovery gedacht.
+ * Er öffnete jedoch denselben UDP-Port wie der aktive OscInputReceiver
+ * (z. B. 7000) und verursachte dadurch eine stille Port-Kollision,
+ * bei der die Watch keinerlei OSC mehr empfangen konnte.
+ *
+ * Ab Phase 2C ist OscInputReceiver der EINZIGE erlaubte OSC-IN-Pfad.
+ *
+ * Gründe für Deaktivierung:
+ * - UDP-Port-Kollision auf Wear OS
+ * - Mehrfache Socket-Binds durch Lifecycle / Compose
+ * - Instabile Discovery-Logik im Live-Betrieb
+ *
+ * Diese Datei bleibt bewusst im Projekt:
+ * - als Dokumentation der Entscheidung
+ * - um versehentliche Reaktivierung zu verhindern
+ *
+ * Nutzung führt absichtlich zu Compile-Fehlern.
+ */
 
+@Deprecated(
+    message = "OscListener is disabled. Do NOT use. Conflicts with OscInputReceiver on port 7000.",
+    level = DeprecationLevel.ERROR
+)
 object OscListener {
-
-    private var socket: DatagramSocket? = null
-    private var multicastLock: WifiManager.MulticastLock? = null
-    private val running = AtomicBoolean(false)
-
-    fun listen(
-        context: Context,
-        listenPort: Int,
-        onFound: (ip: String, port: Int) -> Unit
-    ) {
-        if (running.get()) return
-        running.set(true)
-
-        Thread {
-            try {
-                // 🔒 Multicast/Broadcast erlauben
-                val wifi = context.applicationContext
-                    .getSystemService(Context.WIFI_SERVICE) as WifiManager
-
-                multicastLock = wifi.createMulticastLock("tapsync-osc").apply {
-                    setReferenceCounted(false)
-                    acquire()
-                }
-
-                socket = DatagramSocket(null).apply {
-                    reuseAddress = true
-                    broadcast = true
-                    bind(InetSocketAddress(listenPort))
-                }
-
-                val buffer = ByteArray(2048)
-
-                while (running.get()) {
-                    val packet = DatagramPacket(buffer, buffer.size)
-                    socket?.receive(packet)
-
-                    val senderIp = packet.address.hostAddress
-                    val senderPort = packet.port
-
-                    onFound(senderIp, senderPort)
-                    stop()
-                }
-
-            } catch (_: Exception) {
-                stop()
-            }
-        }.start()
-    }
-
-    fun stop() {
-        running.set(false)
-
-        try {
-            socket?.close()
-        } catch (_: Exception) {}
-
-        try {
-            multicastLock?.release()
-        } catch (_: Exception) {}
-
-        socket = null
-        multicastLock = null
-    }
+    // intentionally empty
 }

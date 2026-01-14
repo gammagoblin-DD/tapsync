@@ -2,24 +2,23 @@ package com.example.tapsyncwatch.domain.clock
 
 class TapHistory {
 
-    private val taps = ArrayDeque<Long>(3)
+    private val taps = ArrayDeque<Long>(5)
 
     fun addTap(nowNs: Long) {
         taps.addLast(nowNs)
-        if (taps.size > 3) taps.removeFirst()
+        if (taps.size > 5) taps.removeFirst()
     }
 
-    fun isLocked(): Boolean = taps.size == 3
+    fun isLocked(): Boolean = taps.size >= 4
 
-    fun medianIntervalNs(): Long {
+    fun averageIntervalNs(): Long {
         require(isLocked())
 
-        val intervals = listOf(
-            taps[1] - taps[0],
-            taps[2] - taps[1]
-        ).sorted()
+        val intervals = taps
+            .zipWithNext { a, b -> b - a }
+            .takeLast(4)
 
-        return intervals[intervals.size / 2]
+        return intervals.sum() / intervals.size
     }
 
     fun clear() {

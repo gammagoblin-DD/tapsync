@@ -1,180 +1,113 @@
 package com.example.tapsyncwatch.presentation
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.tapsyncwatch.data.SettingsStore
-import com.example.tapsyncwatch.osc.OscListener
 import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
-    store: SettingsStore,
+    settingsStore: SettingsStore,
     onClose: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
+    val settings by settingsStore.settings.collectAsState(initial = null)
 
-    val settings by store.settings.collectAsState(initial = null)
     settings ?: return
 
-    var discoveryStatus by remember { mutableStateOf<String?>(null) }
-    var listening by remember { mutableStateOf(false) }
+    var ip by remember { mutableStateOf(settings!!.ip) }
+    var portText by remember { mutableStateOf(settings!!.port.toString()) }
+    var showBpm by remember { mutableStateOf(settings!!.showBpm) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
 
-        // ---------- TITLE ----------
         Text(
             text = "Settings",
-            color = Color.White,
-            style = MaterialTheme.typography.subtitle1,
-            modifier = Modifier.align(Alignment.CenterHorizontally)
+            fontSize = 18.sp
         )
 
-        Divider(color = Color.White.copy(alpha = 0.3f))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // ---------- IP ----------
-        Text(
-            text = "Resolume IP",
-            color = Color.LightGray
-        )
-        TextField(
-            value = settings!!.ip,
-            onValueChange = { scope.launch { store.updateIp(it) } },
+        /* ---------- IP ---------- */
+        Text(text = "Resolume IP")
+
+        OutlinedTextField(
+            value = ip,
+            onValueChange = { ip = it },
             singleLine = true,
-            colors = TextFieldDefaults.textFieldColors(
-                textColor = Color.White,
-                backgroundColor = Color.Transparent,
-                cursorColor = Color.White,
-                focusedIndicatorColor = Color.White,
-                unfocusedIndicatorColor = Color.Gray
-            )
-        )
-
-        // ---------- PORT ----------
-        Text(
-            text = "OSC Port (Resolume IN)",
-            color = Color.LightGray
-        )
-        TextField(
-            value = settings!!.port.toString(),
-            onValueChange = {
-                it.toIntOrNull()?.let { p ->
-                    scope.launch { store.updatePort(p) }
-                }
-            },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            colors = TextFieldDefaults.textFieldColors(
-                textColor = Color.White,
-                backgroundColor = Color.Transparent,
-                cursorColor = Color.White,
-                focusedIndicatorColor = Color.White,
-                unfocusedIndicatorColor = Color.Gray
-            )
-        )
-
-        Divider(color = Color.White.copy(alpha = 0.3f))
-
-        // ---------- LISTEN FOR RESOLUME (BROADCAST OSC OUT = 7000) ----------
-        Button(
-            onClick = {
-                if (!listening) {
-                    listening = true
-                    discoveryStatus =
-                        "Waiting for Resolume…\nTap or Resync in Resolume"
-
-                    OscListener.listen(
-                        context = context,
-                        listenPort = 7000   // ✅ Resolume OSC OUT
-                    ) { ip, _ ->
-                        scope.launch {
-                            store.updateIp(ip)
-                            store.updatePort(7002) // ✅ Resolume OSC IN
-                            discoveryStatus = "Found Resolume:\n$ip"
-                            listening = false
-                        }
-                    }
-                }
-            },
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(
-                backgroundColor = if (listening) Color.Gray else Color.DarkGray,
-                contentColor = Color.White
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Number
             )
-        ) {
-            Text(
-                if (listening) "Listening…" else "Listen for Resolume OSC"
+        )
+
+        /* ---------- PORT ---------- */
+        Text(text = "OSC Port (Resolume IN)")
+
+        OutlinedTextField(
+            value = portText,
+            onValueChange = { portText = it.filter { c -> c.isDigit() } },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Number
             )
-        }
+        )
 
-        if (discoveryStatus != null) {
-            Text(
-                text = discoveryStatus!!,
-                color = Color.LightGray,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
-        }
-
-        Divider(color = Color.White.copy(alpha = 0.3f))
-
-        // ---------- BPM TOGGLE ----------
+        /* ---------- SHOW BPM ---------- */
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = "Show BPM",
-                color = Color.White
-            )
-            Spacer(Modifier.weight(1f))
+            Text(text = "Show BPM")
             Switch(
-                checked = settings!!.showBpm,
-                onCheckedChange = {
-                    scope.launch { store.setShowBpm(it) }
-                },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = Color.LightGray
-                )
+                checked = showBpm,
+                onCheckedChange = { showBpm = it }
             )
-        }
-
-        Divider(color = Color.White.copy(alpha = 0.3f))
-
-        // ---------- BACK ----------
-        Button(
-            onClick = {
-                OscListener.stop()
-                listening = false
-                onClose()
-            },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(
-                backgroundColor = Color.DarkGray,
-                contentColor = Color.White
-            )
-        ) {
-            Text("Back")
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+
+        /* ---------- SAVE ---------- */
+        Button(
+            onClick = {
+                val port = portText.toIntOrNull() ?: return@Button
+
+                scope.launch {
+                    if (ip != settings!!.ip) {
+                        settingsStore.updateIp(ip)
+                    }
+                    if (port != settings!!.port) {
+                        settingsStore.updatePort(port)
+                    }
+                    if (showBpm != settings!!.showBpm) {
+                        settingsStore.setShowBpm(showBpm)
+                    }
+                    onClose()
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Save")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "OSC IN (from Resolume) uses port 7000 automatically.",
+            fontSize = 12.sp,
+            color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
+        )
     }
 }
