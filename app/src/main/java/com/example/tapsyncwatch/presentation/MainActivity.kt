@@ -1,102 +1,56 @@
 package com.example.tapsyncwatch.presentation
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Surface
 import androidx.compose.runtime.*
-import androidx.lifecycle.lifecycleScope
-import com.example.tapsyncwatch.input.osc.OscOutputSender
-import com.example.tapsyncwatch.presentation.ui.WatchUI
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import com.example.tapsyncwatch.domain.action.ActionEngine
+import com.example.tapsyncwatch.presentation.network.OscSender
+import com.example.tapsyncwatch.presentation.ui.TapScreen
+import kotlinx.coroutines.*
 
 class MainActivity : ComponentActivity() {
 
-    private lateinit var oscSender: OscOutputSender
-
-    // UI-State (nur Anzeige, keine Clock)
-    private var bpm by mutableStateOf(120f)
-
-    private var blockTempoSend = false
+    // exakt wie im ALT-Code
+    private val oscScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        oscSender = OscOutputSender(
-            host = "192.168.178.24", // Resolume Rechner
-            port = 7002              // Resolume OSC INPUT
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        val actionEngine = ActionEngine(
+            scope = oscScope
         )
 
         setContent {
+            var showSettings by remember { mutableStateOf(false) }
+
             MaterialTheme {
                 Surface {
-                    WatchUI(
-                        bpm = bpm,
+                    if (showSettings) {
 
-                        // ---------- TAP ----------
-                        onTap = {
-                            lifecycleScope.launch {
-                                oscSender.sendInt(
-                                    "/composition/tempocontroller/tempotap",
-                                    1
-                                )
-                                delay(40)
-                                oscSender.sendInt(
-                                    "/composition/tempocontroller/tempotap",
-                                    0
-                                )
-                            }
-                        },
+                        // ✅ KORREKT: parameterlose SettingsScreen
+                        SettingsScreen()
 
-                        // ---------- MULTIPLY ×2 ----------
-                        // ❗ nur OSC-Impuls, keine BPM-Sends
-                        onMultiply = {
-                            lifecycleScope.launch {
-                                blockTempoSend = true
-                                oscSender.sendInt(
-                                    "/composition/tempocontroller/tempo/multiply",
-                                    1
-                                )
-                                delay(40)
-                                blockTempoSend = false
-                            }
-                        },
+                    } else {
 
-                        // ---------- DIVIDE ÷2 ----------
-                        onDivide = {
-                            lifecycleScope.launch {
-                                blockTempoSend = true
-                                oscSender.sendInt(
-                                    "/composition/tempocontroller/tempo/divide",
-                                    1
-                                )
-                                delay(40)
-                                blockTempoSend = false
-                            }
-                        },
-
-                        // ---------- RESYNC ----------
-                        // wird durch Swipe R→L in WatchUI ausgelöst
-                        onResync = {
-                            lifecycleScope.launch {
-                                blockTempoSend = true
-                                oscSender.sendInt(
-                                    "/composition/tempocontroller/resync",
-                                    1
-                                )
-                                delay(40)
-                                oscSender.sendInt(
-                                    "/composition/tempocontroller/resync",
-                                    0
-                                )
-                                blockTempoSend = false
-                            }
-                        }
-                    )
+                        TapScreen(
+                            showBpm = true, // wird intern geregelt wie im Alt-Code
+                            action = actionEngine,
+                            onLongPress = { showSettings = true }
+                        )
+                    }
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        oscScope.cancel()
     }
 }

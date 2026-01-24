@@ -1,127 +1,124 @@
 package com.example.tapsyncwatch.domain.clock
 
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
+import com.example.tapsyncwatch.input.osc.OscOutputSender
+import kotlinx.coroutines.*
 
 class Clock(
-    initialBpm: Double = 120.0,
-    initialPhase: Double = 0.0
+    private val oscSender: OscOutputSender,
+    private val onBpmChanged: (Float) -> Unit
 ) {
 
-    private var bpm: Double = initialBpm
-    private var phase: Double = initialPhase
-
-    private val tapIntervals = ArrayDeque<Long>(6)
-    private var lastTapTimestamp: Long? = null
-    private var externalCooldownMs: Long = 0L
-
-    private val MIN_BPM = 20.0
-    private val MAX_BPM = 500.0
-
-    private val EXTERNAL_BPM_DEADZONE = 0.5
-    private val EXTERNAL_BPM_MIN_INTERVAL_MS = 200L
-    private val EXTERNAL_BPM_ALPHA = 0.2
-
-    private val _stateFlow = MutableStateFlow(
-        ClockState(
-            bpm = bpm,
-            phase = phase,
-            isRunning = true
-        )
-    )
-
-    val stateFlow: StateFlow<ClockState> = _stateFlow
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var nudgeJob: Job? = null
 
     fun handle(event: ClockEvent) {
         when (event) {
 
-            is ClockEvent.Tick -> {
-                advancePhase(event.deltaMs)
-                externalCooldownMs =
-                    max(0L, externalCooldownMs - event.deltaMs)
+            is ClockEvent.Tick -> Unit
+
+            // -----------------------------
+            // TAP  (NUR EIN IMPULS!)
+            // -----------------------------
+            is ClockEvent.Tap -> {
+                oscSender.sendInt(
+                    "/composition/tempocontroller/tempotap",
+                    1
+                )
             }
 
-            is ClockEvent.Tap -> handleTap(event.timestampMs)
-
-            is ClockEvent.ExternalBpm -> applyExternalBpm(event.bpm)
-
-            ClockEvent.Multiply -> setBpmSafely(bpm * 2.0)
-            ClockEvent.Divide -> setBpmSafely(bpm / 2.0)
-
-            ClockEvent.Resync -> phase = 0.0
-
-            ClockEvent.Nudge.LeftStart,
-            ClockEvent.Nudge.RightStart,
-            ClockEvent.Nudge.Stop -> {
-                // Phase 3 – bewusst leer
-            }
-        }
-
-        publishState()
-    }
-
-    private fun handleTap(timestampMs: Long) {
-        lastTapTimestamp?.let { last ->
-            val interval = timestampMs - last
-
-            if (interval > 2000) {
-                tapIntervals.clear()
-                lastTapTimestamp = timestampMs
-                return
-            }
-
-            if (interval in 80..2000) {
-                tapIntervals.addLast(interval)
-                if (tapIntervals.size > 6) {
-                    tapIntervals.removeFirst()
-                }
-
-                if (tapIntervals.size >= 2) {
-                    val avgInterval = tapIntervals.average()
-                    val newBpm = 60_000.0 / avgInterval
-                    setBpmSafely(newBpm)
-                    phase = 0.0
+            // -----------------------------
+            // MULTIPLY ×2  (INT-Button!)
+            // -----------------------------
+            ClockEvent.Multiply -> {
+                stopNudge()
+                scope.launch {
+                    oscSender.sendInt(
+                        "/composition/tempocontroller/tempo/multiply",
+                        1
+                    )
+                    delay(40)
+                    oscSender.sendInt(
+                        "/composition/tempocontroller/tempo/multiply",
+                        0
+                    )
                 }
             }
+
+            // -----------------------------
+            // DIVIDE ÷2  (INT-Button!)
+            // -----------------------------
+            ClockEvent.Divide -> {
+                stopNudge()
+                scope.launch {
+                    oscSender.sendInt(
+                        "/composition/tempocontroller/tempo/divide",
+                        1
+                    )
+                    delay(40)
+                    oscSender.sendInt(
+                        "/composition/tempocontroller/tempo/divide",
+                        0
+                    )
+                }
+            }
+
+            // -----------------------------
+            // RESYNC
+            // -----------------------------
+            ClockEvent.Resync -> {
+                stopNudge()
+                scope.launch {
+                    oscSender.sendInt(
+                        "/composition/tempocontroller/resync",
+                        1
+                    )
+                    delay(40)
+                    oscSender.sendInt(
+                        "/composition/tempocontroller/resync",
+                        0
+                    )
+                }
+            }
+
+            // -----------------------------
+            // NUDGE (diskrete Steps)
+            // -----------------------------
+            ClockEvent.Nudge.RightStart ->
+                startNudge("/composition/tempocontroller/tempopush")
+
+            ClockEvent.Nudge.LeftStart ->
+                startNudge("/composition/tempocontroller/tempopull")
+
+            ClockEvent.Nudge.Stop ->
+                stopNudge()
+
+            // -----------------------------
+            // EXTERNAL BPM (optional)
+            // -----------------------------
+            is ClockEvent.ExternalBpm -> {
+                onBpmChanged(event.bpm.toFloat())
+            }
         }
-        lastTapTimestamp = timestampMs
     }
 
-    private fun advancePhase(deltaMs: Long) {
-        if (deltaMs <= 0L) return
-        val beatsPerMs = bpm / 60_000.0
-        phase = (phase + deltaMs * beatsPerMs) % 1.0
-        if (phase < 0.0) phase += 1.0
+    // ============================================
+    // NUDGE = STEP-BASIERT (1 → 0 pro Schritt)
+    // ============================================
+    private fun startNudge(path: String) {
+        stopNudge()
+
+        nudgeJob = scope.launch {
+            while (isActive) {
+                oscSender.sendInt(path, 1)
+                delay(30)
+                oscSender.sendInt(path, 0)
+                delay(180)
+            }
+        }
     }
 
-    private fun applyExternalBpm(externalBpm: Double) {
-        if (externalBpm !in MIN_BPM..MAX_BPM) return
-        if (externalCooldownMs > 0L) return
-
-        val diff = externalBpm - bpm
-        if (abs(diff) < EXTERNAL_BPM_DEADZONE) return
-
-        val filtered = bpm + diff * EXTERNAL_BPM_ALPHA
-        setBpmSafely(filtered)
-
-        externalCooldownMs = EXTERNAL_BPM_MIN_INTERVAL_MS
+    private fun stopNudge() {
+        nudgeJob?.cancel()
+        nudgeJob = null
     }
-
-    private fun setBpmSafely(value: Double) {
-        bpm = min(MAX_BPM, max(MIN_BPM, value))
-    }
-
-    private fun publishState() {
-        _stateFlow.value = ClockState(
-            bpm = bpm,
-            phase = phase,
-            isRunning = true
-        )
-    }
-
-    val state: ClockState
-        get() = _stateFlow.value
 }

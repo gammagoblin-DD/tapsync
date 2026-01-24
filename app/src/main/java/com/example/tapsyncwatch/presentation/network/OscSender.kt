@@ -21,7 +21,6 @@ object OscSender {
         }
     }
 
-    /** INT button (Tap, Resync, Nudge) */
     fun sendInt(path: String, value: Int) {
         try {
             ensureSocket()
@@ -34,7 +33,6 @@ object OscSender {
         }
     }
 
-    /** FLOAT button (Multiply / Divide) */
     fun sendFloat(path: String, value: Float) {
         try {
             ensureSocket()

@@ -1,165 +1,248 @@
-# TapSync Watch
+# TapSyncWatch
 
-TapSync ist eine **Wear-OS-App zur präzisen Tempo-Steuerung von Resolume über OSC**.  
-Die App ist für **Live-Performance** optimiert und verhält sich bewusst wie **TouchOSC**:
-deterministisch, direkt, ohne Mehrfach-Trigger oder versteckte Zustände.
+![CI](https://github.com/gammagoblin-DD/TapSyncWatch/actions/workflows/android.yml/badge.svg)
+![Release](https://img.shields.io/github/v/release/gammagoblin-DD/TapSyncWatch)
+![License](https://img.shields.io/github/license/gammagoblin-DD/TapSyncWatch)
+![Platform](https://img.shields.io/badge/platform-Wear%20OS-blue)
+![Protocol](https://img.shields.io/badge/protocol-OSC-purple)
+![Status](https://img.shields.io/badge/status-final-brightgreen)
 
----
+**TapSyncWatch** is a Wear OS app for **direct tempo control of Resolume
+via OSC**.
 
-## 🟢 Aktueller Status
+> **Resolume is the master clock.\
+> The watch is a deterministic button.**
 
-**Phase 2A abgeschlossen – Gestenlogik eingefroren**
+------------------------------------------------------------------------
 
-- Gesten sind vollständig **isoliert**
-- Jede Geste erzeugt **genau einen definierten Effekt**
-- Keine konkurrierenden Pointer-Events
-- Stabiler Referenzstand für alle weiteren Features
+## Table of Contents
 
-Dieser Stand ist ein **technischer Fixpunkt** und dient als Ausgangsbasis für:
-BPM-Clock, Phase-Anzeige, visuelles Feedback und weitere Performance-Features.
+-   [Project Goal](#project-goal)
+-   [Architecture](#architecture)
+-   [Golden Rules](#golden-rules)
+-   [Screenshots & GIFs](#screenshots--gifs)
+-   [Build & Install](#build--install)
+-   [Features](#features)
+-   [ActionEngine](#actionengine)
+-   [Gestures](#gestures)
+-   [MainActivity](#mainactivity)
+-   [Contributing](#contributing)
+-   [Changelog](#changelog)
+-   [License](#license)
 
----
+------------------------------------------------------------------------
 
-## 🎛️ Features
+## Project Goal
 
-### Tap (Center)
-- Tap auf die Mitte
-- OSC:
+TapSyncWatch provides **reliable, tactile tempo control** for Resolume.
 
-/composition/tempocontroller/tempotap
+The watch is deliberately **not**: - a clock - a BPM calculator - a
+musical timing system
 
-- **Momentary-Verhalten**
-- Genau **ein OSC-Event pro Tap**
+It sends **precise OSC button impulses only**.
 
----
+------------------------------------------------------------------------
 
-### Swipe (Center)
+## Architecture
 
-- **Swipe Up** → Tempo ×2  
+    TapScreen (MotionEvent gestures)
+            ↓
+        ActionEngine
+            ↓
+         OscSender
+            ↓
+          Resolume
 
-/composition/tempocontroller/tempo/multiply
+-   Resolume owns timing and repeat logic
+-   The watch only presses buttons
+-   No abstraction above Resolume semantics
 
+------------------------------------------------------------------------
 
-- **Swipe Down** → Tempo ÷2  
+## Golden Rules
 
-/composition/tempocontroller/tempo/divide
+These rules are **non-negotiable**.
 
+1.  **Never repeat Nudge on the watch**
+    -   DOWN → sendInt(1)
+    -   HOLD → Resolume repeats internally
+    -   UP → sendInt(0)
+2.  **Tap is always momentary**
+    -   `1 → 40 ms → 0`
+3.  **Multiply / Divide are latch buttons**
+    -   `sendInt(1)` only
+    -   no reset (`0`)
+    -   no floats
+4.  **Gestures use raw MotionEvents**
+    -   `pointerInteropFilter`
+    -   no `detectDragGestures`
 
-- **Swipe Right → Left** → Resync  
+> If something feels "smarter" than before, it is wrong.
 
-/composition/tempocontroller/resync
+------------------------------------------------------------------------
 
+## Screenshots & GIFs
 
-Eigenschaften:
-- Richtung wird beim ersten Threshold festgelegt
-- Keine Mehrfach-Trigger
-- Swipe blockiert Tap zuverlässig
+> 📸 Place your media files in `docs/media/` and update the links below.
 
----
+### Tap Gesture
 
-### Bezel / Nudge (linker Ringbereich)
+![Tap Gesture](docs/media/tap.gif)
 
-- Begrenzt auf **linkes Ring-Segment (< 180°)**
-- Rotation nur, wenn der Touch **im Ring startet**
-- Keine Aktivierung durch „Hereinziehen“
+### Nudge Hold & Release
 
-**OSC-Mapping:**
-- Uhrzeigersinn → Tempo Push  
+![Nudge Gesture](docs/media/nudge.gif)
 
-/composition/tempocontroller/tempopush
+### Multiply / Divide Swipe
 
-- Gegen Uhrzeigersinn → Tempo Pull  
+![Multiply Divide](docs/media/multiply_divide.gif)
 
-/composition/tempocontroller/tempopull
+------------------------------------------------------------------------
 
+## Build & Install
 
-Verhalten:
-- Start bei Drehimpuls
-- Halten, solange Finger liegt
-- Sauberes Release beim Loslassen
-- Vollständig isoliert von Tap & Swipe
+### Requirements
 
----
+-   Android Studio (latest stable)
+-   Android SDK 33+
+-   Wear OS device or emulator
+-   Resolume Arena/Avenue with OSC enabled
 
-### Long-Press
-- Öffnet die App-Einstellungen
+### Clone
 
----
+``` bash
+git clone https://github.com/gammagoblin-DD/TapSyncWatch.git
+cd TapSyncWatch
+```
 
-## 🧠 Design-Prinzipien
+### Build (Debug)
 
-- **TouchOSC-kompatible OSC-Semantik**
-- Eine Geste → genau ein Effekt
-- Keine BPM-Drifts
-- Keine impliziten Zustände
-- Performance-first (Live-Betrieb)
-- Vorhersagbares Verhalten > „magisches“ UX-Tuning
+``` bash
+./gradlew assembleDebug
+```
 
----
+### Install via ADB
 
-## 🔌 OSC-Setup
+``` bash
+adb install app/build/outputs/apk/debug/app-debug.apk
+```
 
-- Ziel-IP: **konfigurierbar**
-- Ziel-Port: **konfigurierbar** (z. B. 7002)
+### Wear OS (Wireless Debugging)
 
-Getestet mit:
-- Resolume Arena
-- Resolume Avenue
+``` bash
+adb pair <IP>:<PORT>
+adb connect <IP>:<PORT>
+adb install app-debug.apk
+```
 
-Hinweis:
-- Die Watch sendet **kein**
+------------------------------------------------------------------------
 
-/composition/tempocontroller/tempo
+## Features
 
-- Resolume kann `/tempo` intern als Side-Effect erzeugen – das ist beabsichtigt.
+### Tap
 
----
+-   `/composition/tempocontroller/tempotap`
+-   Momentary button (1 → 40 ms → 0)
 
-## 🧩 Gesture-Übersicht
+### Multiply ×2
 
-| Geste                    | Bereich | OSC-Message                                  |
-|--------------------------|--------|-----------------------------------------------|
-| Tap                      | Center | `/composition/tempocontroller/tempotap`       |
-| Swipe Up                 | Center | `/composition/tempocontroller/tempo/multiply` |
-| Swipe Down               | Center | `/composition/tempocontroller/tempo/divide`   |
-| Swipe Right → Left       | Center | `/composition/tempocontroller/resync`         |
-| Bezel CW                 | Ring   | `/composition/tempocontroller/tempopush`      |
-| Bezel CCW                | Ring   | `/composition/tempocontroller/tempopull`      |
+-   `/composition/tempocontroller/tempo/multiply`
+-   One-shot latch
 
----
+### Divide ÷2
 
-## 🧪 Technische Garantien
+-   `/composition/tempocontroller/tempo/divide`
+-   One-shot latch
 
-- Reproduzierbar **grüner Build**
-- Keine Experimental APIs
-- Keine konkurrierenden Pointer-Events
-- Coroutine-Regeln eingehalten
-- Kein Feature-Verlust gegenüber früheren Ständen
-- Stabiler Rollback-Anker (Phase 2A)
+### Nudge Push / Pull
 
----
+-   `/composition/tempocontroller/tempopush`
+-   `/composition/tempocontroller/tempopull`
 
-## 🧭 Roadmap (kurz)
+```{=html}
+<!-- -->
+```
+    DOWN  → 1
+    HOLD  → Resolume repeats
+    UP    → 0
 
-Nächste geplante Schritte (nicht Teil dieses Stands):
+### Resync
 
-- Phase 2B: BPM-Clock & Phase-State
-- Visuelles Nudge-Feedback
-- BPM- & Phase-Anzeige
-- Haptisches Feedback
-- Erweiterte Settings
-- Weitere Performance-Controls
+-   `/composition/tempocontroller/resync`
+-   Momentary button
 
----
+------------------------------------------------------------------------
 
-## 📦 Versionierung
+## ActionEngine
 
-- **BASELINE_GREEN**: erster stabiler technischer Fixpunkt
-- **v0.3.4**: Phase 2A – Gesture-Isolation vollständig abgeschlossen
+The **ActionEngine** is intentionally dumb.
 
----
+``` kotlin
+tap()
+multiply()
+divide()
+resync()
+nudgePushStart()
+nudgePushEnd()
+nudgePullStart()
+nudgePullEnd()
+```
 
-## ⚠️ Hinweis
+-   no clock
+-   no BPM state
+-   no gesture knowledge
+-   no optimizations
 
-Dieser Stand ist **eingefroren**.  
-Weiterentwicklung erfolgt **ausschließlich** auf Basis dieses Commits.
+------------------------------------------------------------------------
+
+## Gestures
+
+-   implemented with `pointerInteropFilter`
+-   raw `MotionEvent` handling
+-   exclusive zones:
+    -   **CENTER** → tap / swipe / resync
+    -   **LEFT BEZEL** → nudge
+
+Reason: \> Musical control requires deterministic input.
+
+------------------------------------------------------------------------
+
+## MainActivity
+
+-   creates exactly one `ActionEngine`
+-   owns exactly one OSC coroutine scope
+-   contains no timing or gesture logic
+-   only wires UI to actions
+
+------------------------------------------------------------------------
+
+## Contributing
+
+Contributions are welcome, but **behavior must remain identical**.
+
+### Guidelines
+
+1.  Do **not** introduce a clock or BPM logic
+2.  Do **not** add internal repeat timers
+3.  Do **not** replace MotionEvent gestures
+4.  Keep ActionEngine behavior unchanged
+
+Please open an issue before major changes.
+
+------------------------------------------------------------------------
+
+## Changelog
+
+### v1.0.0 -- FINAL
+
+-   Behavior identical to legacy implementation
+-   Deterministic ActionEngine introduced
+-   Raw MotionEvent gesture port completed
+-   Architecture locked
+
+------------------------------------------------------------------------
+
+## License
+
+Specify your license here (e.g. MIT).\
+If omitted, the project is considered **All Rights Reserved**.
