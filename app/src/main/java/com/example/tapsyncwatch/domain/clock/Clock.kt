@@ -1,129 +1,127 @@
 package com.example.tapsyncwatch.domain.clock
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-class Clock {
+class Clock(
+    initialBpm: Double = 120.0,
+    initialPhase: Double = 0.0
+) {
 
-    // =========================
-    // 1️⃣ Aktueller Zustand
-    // =========================
+    private var bpm: Double = initialBpm
+    private var phase: Double = initialPhase
 
-    private var bpm: Double = 120.0
-    private var phase: Double = 0.0
-    private var lastTickTime: Long = 0L
-    private var lastExternalUpdateTime: Long = 0L
+    private val tapIntervals = ArrayDeque<Long>(6)
+    private var lastTapTimestamp: Long? = null
+    private var externalCooldownMs: Long = 0L
 
-    // =========================
-    // 2️⃣ Feste BPM-Grenzen
-    // =========================
-
-    // Resolume-kompatible Grenzen
     private val MIN_BPM = 20.0
     private val MAX_BPM = 500.0
 
-    // =========================
-    // 3️⃣ External BPM Filter
-    // =========================
-
     private val EXTERNAL_BPM_DEADZONE = 0.5
-    private val EXTERNAL_BPM_MIN_INTERVAL = 200L
+    private val EXTERNAL_BPM_MIN_INTERVAL_MS = 200L
     private val EXTERNAL_BPM_ALPHA = 0.2
 
-    // =========================
-    // 4️⃣ Zentrale Event-Verarbeitung
-    // =========================
+    private val _stateFlow = MutableStateFlow(
+        ClockState(
+            bpm = bpm,
+            phase = phase,
+            isRunning = true
+        )
+    )
+
+    val stateFlow: StateFlow<ClockState> = _stateFlow
 
     fun handle(event: ClockEvent) {
         when (event) {
 
-            is ClockEvent.Tap -> {
-                // Tap-Logik bleibt unverändert
-            }
-
-            is ClockEvent.ExternalBpm -> {
-                handleExternalBpm(event.bpm, event.time)
-            }
-
             is ClockEvent.Tick -> {
-                updatePhase(event.time)
+                advancePhase(event.deltaMs)
+                externalCooldownMs =
+                    max(0L, externalCooldownMs - event.deltaMs)
             }
 
-            is ClockEvent.Multiply -> {
-                setBpmSafely(bpm * 2.0)
-            }
+            is ClockEvent.Tap -> handleTap(event.timestampMs)
 
-            is ClockEvent.Divide -> {
-                setBpmSafely(bpm / 2.0)
-            }
+            is ClockEvent.ExternalBpm -> applyExternalBpm(event.bpm)
 
-            is ClockEvent.Resync -> {
-                phase = 0.0
-            }
+            ClockEvent.Multiply -> setBpmSafely(bpm * 2.0)
+            ClockEvent.Divide -> setBpmSafely(bpm / 2.0)
 
-            is ClockEvent.Nudge.LeftStart -> { }
-            is ClockEvent.Nudge.RightStart -> { }
-            is ClockEvent.Nudge.Stop -> { }
+            ClockEvent.Resync -> phase = 0.0
+
+            ClockEvent.Nudge.LeftStart,
+            ClockEvent.Nudge.RightStart,
+            ClockEvent.Nudge.Stop -> {
+                // Phase 3 – bewusst leer
+            }
         }
+
+        publishState()
     }
 
-    // =========================
-    // 5️⃣ External BPM (gefiltert)
-    // =========================
+    private fun handleTap(timestampMs: Long) {
+        lastTapTimestamp?.let { last ->
+            val interval = timestampMs - last
 
-    private fun handleExternalBpm(externalBpm: Double, time: Long) {
+            if (interval > 2000) {
+                tapIntervals.clear()
+                lastTapTimestamp = timestampMs
+                return
+            }
 
-        // Resolume-kompatible Plausibilität
-        if (externalBpm < MIN_BPM || externalBpm > MAX_BPM) return
+            if (interval in 80..2000) {
+                tapIntervals.addLast(interval)
+                if (tapIntervals.size > 6) {
+                    tapIntervals.removeFirst()
+                }
 
-        // Rate-Limit
-        if (time - lastExternalUpdateTime < EXTERNAL_BPM_MIN_INTERVAL) return
+                if (tapIntervals.size >= 2) {
+                    val avgInterval = tapIntervals.average()
+                    val newBpm = 60_000.0 / avgInterval
+                    setBpmSafely(newBpm)
+                    phase = 0.0
+                }
+            }
+        }
+        lastTapTimestamp = timestampMs
+    }
+
+    private fun advancePhase(deltaMs: Long) {
+        if (deltaMs <= 0L) return
+        val beatsPerMs = bpm / 60_000.0
+        phase = (phase + deltaMs * beatsPerMs) % 1.0
+        if (phase < 0.0) phase += 1.0
+    }
+
+    private fun applyExternalBpm(externalBpm: Double) {
+        if (externalBpm !in MIN_BPM..MAX_BPM) return
+        if (externalCooldownMs > 0L) return
 
         val diff = externalBpm - bpm
-
-        // Deadzone
         if (abs(diff) < EXTERNAL_BPM_DEADZONE) return
 
-        // Low-Pass-Filter
         val filtered = bpm + diff * EXTERNAL_BPM_ALPHA
-
         setBpmSafely(filtered)
 
-        lastExternalUpdateTime = time
+        externalCooldownMs = EXTERNAL_BPM_MIN_INTERVAL_MS
     }
-
-    // =========================
-    // 6️⃣ BPM sicher setzen
-    // =========================
 
     private fun setBpmSafely(value: Double) {
         bpm = min(MAX_BPM, max(MIN_BPM, value))
     }
 
-    // =========================
-    // 7️⃣ Phase berechnen
-    // =========================
-
-    private fun updatePhase(time: Long) {
-        if (lastTickTime == 0L) {
-            lastTickTime = time
-            return
-        }
-
-        val deltaMs = time - lastTickTime
-        lastTickTime = time
-
-        val beatsPerMs = bpm / 60000.0
-        phase += deltaMs * beatsPerMs
-
-        phase %= 1.0
+    private fun publishState() {
+        _stateFlow.value = ClockState(
+            bpm = bpm,
+            phase = phase,
+            isRunning = true
+        )
     }
 
-    // =========================
-    // 8️⃣ Öffentliche Abfragen
-    // =========================
-
-    fun getBpm(): Double = bpm
-    fun getPhase(): Double = phase
+    val state: ClockState
+        get() = _stateFlow.value
 }

@@ -3,105 +3,100 @@ package com.example.tapsyncwatch.presentation
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import com.example.tapsyncwatch.domain.clock.Clock
-import com.example.tapsyncwatch.domain.clock.ClockEvent
-import com.example.tapsyncwatch.input.osc.OscInputReceiver
-import com.example.tapsyncwatch.presentation.ui.WatchUI
-import kotlinx.coroutines.*
+import androidx.compose.material.MaterialTheme
+import androidx.compose.material.Surface
+import androidx.compose.runtime.*
+import androidx.lifecycle.lifecycleScope
 import com.example.tapsyncwatch.input.osc.OscOutputSender
-
+import com.example.tapsyncwatch.presentation.ui.WatchUI
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
-    // =========================
-    // 1️⃣ Zentrale Objekte
-    // =========================
+    private lateinit var oscSender: OscOutputSender
 
-    private lateinit var clock: Clock
-    private lateinit var oscInputReceiver: OscInputReceiver
-    private lateinit var oscOutputSender: OscOutputSender
+    // UI-State (nur Anzeige, keine Clock)
+    private var bpm by mutableStateOf(120f)
 
-
-    private val activityScope = CoroutineScope(
-        Dispatchers.Default + SupervisorJob()
-    )
-
-    private val networkScope = CoroutineScope(Dispatchers.IO)
-
-
-    // =========================
-    // 2️⃣ Activity Start
-    // =========================
+    private var blockTempoSend = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        oscOutputSender = OscOutputSender(
-            targetIp = "192.168.178.24", // <-- DEINE RESOLUME-IP
-            targetPort = 7002
+        oscSender = OscOutputSender(
+            host = "192.168.178.24", // Resolume Rechner
+            port = 7002              // Resolume OSC INPUT
         )
 
-
-        // 🧠 Clock erstellen
-        clock = Clock()
-
-        // 👂 OSC Receiver erstellen
-        oscInputReceiver = OscInputReceiver(clock)
-
-        // 👂 OSC Receiver starten
-        oscInputReceiver.start()
-
-        // ⏱ Tick-Loop starten
-        startTickLoop()
-
-        // 🎨 UI starten
         setContent {
-            WatchUI(
-                clock = clock,
-                onTap = {
-                    clock.handle(ClockEvent.Tap(System.currentTimeMillis()))
-                    networkScope.launch {
-                        oscOutputSender.sendTempoTap()
-                    }
-                }
-,
-                onMultiply = {
-                    clock.handle(ClockEvent.Multiply)
-                },
-                onDivide = {
-                    clock.handle(ClockEvent.Divide)
-                },
-                onResync = {
-                    clock.handle(ClockEvent.Resync)
-                }
-            )
-        }
-    }
+            MaterialTheme {
+                Surface {
+                    WatchUI(
+                        bpm = bpm,
 
-    // =========================
-    // 3️⃣ Herzschlag (Tick)
-    // =========================
+                        // ---------- TAP ----------
+                        onTap = {
+                            lifecycleScope.launch {
+                                oscSender.sendInt(
+                                    "/composition/tempocontroller/tempotap",
+                                    1
+                                )
+                                delay(40)
+                                oscSender.sendInt(
+                                    "/composition/tempocontroller/tempotap",
+                                    0
+                                )
+                            }
+                        },
 
-    private fun startTickLoop() {
-        activityScope.launch {
-            while (isActive) {
-                clock.handle(
-                    ClockEvent.Tick(System.currentTimeMillis())
-                )
-                delay(16L) // ca. 60 FPS
+                        // ---------- MULTIPLY ×2 ----------
+                        // ❗ nur OSC-Impuls, keine BPM-Sends
+                        onMultiply = {
+                            lifecycleScope.launch {
+                                blockTempoSend = true
+                                oscSender.sendInt(
+                                    "/composition/tempocontroller/tempo/multiply",
+                                    1
+                                )
+                                delay(40)
+                                blockTempoSend = false
+                            }
+                        },
+
+                        // ---------- DIVIDE ÷2 ----------
+                        onDivide = {
+                            lifecycleScope.launch {
+                                blockTempoSend = true
+                                oscSender.sendInt(
+                                    "/composition/tempocontroller/tempo/divide",
+                                    1
+                                )
+                                delay(40)
+                                blockTempoSend = false
+                            }
+                        },
+
+                        // ---------- RESYNC ----------
+                        // wird durch Swipe R→L in WatchUI ausgelöst
+                        onResync = {
+                            lifecycleScope.launch {
+                                blockTempoSend = true
+                                oscSender.sendInt(
+                                    "/composition/tempocontroller/resync",
+                                    1
+                                )
+                                delay(40)
+                                oscSender.sendInt(
+                                    "/composition/tempocontroller/resync",
+                                    0
+                                )
+                                blockTempoSend = false
+                            }
+                        }
+                    )
+                }
             }
         }
-    }
-
-    // =========================
-    // 4️⃣ Activity Ende
-    // =========================
-
-    override fun onDestroy() {
-        super.onDestroy()
-
-        oscOutputSender.close()
-        oscInputReceiver.stop()
-        activityScope.cancel()
     }
 }

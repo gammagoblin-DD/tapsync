@@ -2,11 +2,13 @@ package com.example.tapsyncwatch.input.osc
 
 import com.example.tapsyncwatch.domain.clock.Clock
 import com.example.tapsyncwatch.domain.clock.ClockEvent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import kotlin.concurrent.thread
 
 class OscInputReceiver(
     private val clock: Clock,
@@ -16,87 +18,130 @@ class OscInputReceiver(
     private var socket: DatagramSocket? = null
     private var running = false
 
-    // =========================
-    // 1️⃣ Start listening
-    // =========================
     fun start() {
         if (running) return
-
         running = true
 
-        thread(start = true, isDaemon = true) {
-            socket = DatagramSocket(port)
+        socket = DatagramSocket(port)
 
+        CoroutineScope(Dispatchers.IO).launch {
             val buffer = ByteArray(1024)
 
             while (running) {
                 try {
                     val packet = DatagramPacket(buffer, buffer.size)
                     socket?.receive(packet)
-
-                    handlePacket(packet)
-
-                } catch (e: Exception) {
-                    // Fehler ignorieren → Receiver darf nie App killen
+                    handlePacket(packet.data.copyOf(packet.length))
+                } catch (_: Exception) {
+                    // OSC darf App niemals crashen
                 }
             }
         }
     }
 
-    // =========================
-    // 2️⃣ Stop listening
-    // =========================
     fun stop() {
         running = false
         socket?.close()
         socket = null
     }
 
-    // =========================
-    // 3️⃣ Paket verarbeiten
-    // =========================
-    private fun handlePacket(packet: DatagramPacket) {
+    // =====================================================
+    // OSC → ClockEvent
+    // =====================================================
 
-        val data = packet.data
-        val length = packet.length
+    private fun handlePacket(data: ByteArray) {
+        val bb = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN)
 
-        // Wir lesen nur rohe Bytes
-        // Keine OSC-Library, keine Magie
-        val message = String(data, 0, length)
+        val address = readOscString(bb) ?: return
+        val typeTags = readOscString(bb) ?: return
 
-        // Wir interessieren uns NUR für Tempo-Nachrichten
-        if (!message.contains("/composition/tempocontroller/tempo")) {
-            return
+        when (address) {
+
+            // -------------------------------------------------
+            // Resolume → BPM (Float)
+            // /composition/tempocontroller/tempo
+            // -------------------------------------------------
+            "/composition/tempocontroller/tempo" -> {
+                if (typeTags == ",f" && bb.remaining() >= 4) {
+                    val bpm = bb.float.toDouble()
+                    clock.handle(
+                        ClockEvent.ExternalBpm(bpm)
+                    )
+                }
+            }
+
+            // -------------------------------------------------
+            // Resolume → Tap
+            // /composition/tempocontroller/tempotap
+            // -------------------------------------------------
+            "/composition/tempocontroller/tempotap" -> {
+                clock.handle(
+                    ClockEvent.Tap(
+                        timestampMs = System.currentTimeMillis()
+                    )
+                )
+            }
+
+            // -------------------------------------------------
+            // Resolume → Multiply / Divide
+            // -------------------------------------------------
+            "/composition/tempocontroller/tempo/multiply" -> {
+                clock.handle(ClockEvent.Multiply)
+            }
+
+            "/composition/tempocontroller/tempo/divide" -> {
+                clock.handle(ClockEvent.Divide)
+            }
+
+            // -------------------------------------------------
+            // Resolume → Resync
+            // -------------------------------------------------
+            "/composition/tempocontroller/resync" -> {
+                clock.handle(ClockEvent.Resync)
+            }
+
+            // -------------------------------------------------
+            // Resolume → Nudge (Phase 3 – unverändert)
+            // -------------------------------------------------
+            "/composition/tempocontroller/tempopush" -> {
+                clock.handle(ClockEvent.Nudge.RightStart)
+            }
+
+            "/composition/tempocontroller/tempopull" -> {
+                clock.handle(ClockEvent.Nudge.LeftStart)
+            }
+
+            "/composition/tempocontroller/tempo/release" -> {
+                clock.handle(ClockEvent.Nudge.Stop)
+            }
         }
-
-        // BPM aus den Bytes lesen
-        val bpm = extractFloat(data, length) ?: return
-
-        // Grober Schutz vor Unsinn
-        if (bpm < 10f || bpm > 600f) return
-
-        // Event an die Clock schicken
-        clock.handle(
-            ClockEvent.ExternalBpm(
-                bpm = bpm.toDouble(),
-                time = System.currentTimeMillis()
-            )
-        )
     }
 
-    // =========================
-    // 4️⃣ Float aus Bytes lesen
-    // =========================
-    private fun extractFloat(data: ByteArray, length: Int): Float? {
-        if (length < 4) return null
+    // =====================================================
+    // OSC String Parser (RFC-konform, 4-Byte aligned)
+    // =====================================================
 
-        return try {
-            ByteBuffer
-                .wrap(data, length - 4, 4)
-                .order(ByteOrder.BIG_ENDIAN)
-                .float
-        } catch (e: Exception) {
-            null
+    private fun readOscString(bb: ByteBuffer): String? {
+        val start = bb.position()
+
+        while (bb.hasRemaining()) {
+            if (bb.get() == 0.toByte()) {
+                val end = bb.position() - 1
+                val len = end - start
+
+                val bytes = ByteArray(len)
+                bb.position(start)
+                bb.get(bytes)
+                bb.position(end + 1)
+
+                // Padding auf 4-Byte-Boundary
+                while (bb.position() % 4 != 0 && bb.hasRemaining()) {
+                    bb.get()
+                }
+
+                return String(bytes)
+            }
         }
+        return null
     }
 }

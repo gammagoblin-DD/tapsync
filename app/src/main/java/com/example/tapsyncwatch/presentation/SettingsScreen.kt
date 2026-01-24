@@ -1,113 +1,116 @@
 package com.example.tapsyncwatch.presentation
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.example.tapsyncwatch.data.SettingsStore
+import com.example.tapsyncwatch.presentation.data.SettingsState
+import com.example.tapsyncwatch.presentation.data.SettingsStore
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(
-    settingsStore: SettingsStore,
-    onClose: () -> Unit
-) {
+fun SettingsScreen() {
+
+    val context = LocalContext.current
+    val settingsStore = remember { SettingsStore(context) }
     val scope = rememberCoroutineScope()
-    val settings by settingsStore.settings.collectAsState(initial = null)
 
-    settings ?: return
+    // 🔒 MAXIMAL KOMPATIBEL: kein Lifecycle-Compose, kein KeyboardOptions
+    val settings by settingsStore.settings.collectAsState(
+        initial = SettingsState(
+            ip = "192.168.178.24",
+            port = 7002,
+            showBpm = true
+        )
+    )
 
-    var ip by remember { mutableStateOf(settings!!.ip) }
-    var portText by remember { mutableStateOf(settings!!.port.toString()) }
-    var showBpm by remember { mutableStateOf(settings!!.showBpm) }
+    var ipText by remember(settings.ip) {
+        mutableStateOf(settings.ip)
+    }
+
+    var portText by remember(settings.port) {
+        mutableStateOf(settings.port.toString())
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
 
         Text(
-            text = "Settings",
-            fontSize = 18.sp
+            text = "OSC Settings",
+            style = MaterialTheme.typography.h6
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        /* ---------- IP ---------- */
-        Text(text = "Resolume IP")
-
+        // ===============================
+        // IP ADDRESS
+        // ===============================
         OutlinedTextField(
-            value = ip,
-            onValueChange = { ip = it },
+            value = ipText,
+            onValueChange = { value ->
+                ipText = value
+            },
+            label = { Text("Target IP") },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Number
-            )
+            modifier = Modifier.fillMaxWidth()
         )
 
-        /* ---------- PORT ---------- */
-        Text(text = "OSC Port (Resolume IN)")
-
-        OutlinedTextField(
-            value = portText,
-            onValueChange = { portText = it.filter { c -> c.isDigit() } },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Number
-            )
-        )
-
-        /* ---------- SHOW BPM ---------- */
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(text = "Show BPM")
-            Switch(
-                checked = showBpm,
-                onCheckedChange = { showBpm = it }
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        /* ---------- SAVE ---------- */
         Button(
             onClick = {
-                val port = portText.toIntOrNull() ?: return@Button
-
                 scope.launch {
-                    if (ip != settings!!.ip) {
-                        settingsStore.updateIp(ip)
-                    }
-                    if (port != settings!!.port) {
-                        settingsStore.updatePort(port)
-                    }
-                    if (showBpm != settings!!.showBpm) {
-                        settingsStore.setShowBpm(showBpm)
-                    }
-                    onClose()
+                    settingsStore.updateIp(ipText)
                 }
             },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Save")
+            Text("Save IP")
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "OSC IN (from Resolume) uses port 7000 automatically.",
-            fontSize = 12.sp,
-            color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
+        // ===============================
+        // PORT
+        // ===============================
+        OutlinedTextField(
+            value = portText,
+            onValueChange = { value ->
+                portText = value.filter { it.isDigit() }
+            },
+            label = { Text("Target Port") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
         )
+
+        Button(
+            onClick = {
+                val port = portText.toIntOrNull() ?: return@Button
+                scope.launch {
+                    settingsStore.updatePort(port)
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Save Port")
+        }
+
+        // ===============================
+        // SHOW BPM
+        // ===============================
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("Show BPM")
+            Switch(
+                checked = settings.showBpm,
+                onCheckedChange = { enabled ->
+                    scope.launch {
+                        settingsStore.setShowBpm(enabled)
+                    }
+                }
+            )
+        }
     }
 }

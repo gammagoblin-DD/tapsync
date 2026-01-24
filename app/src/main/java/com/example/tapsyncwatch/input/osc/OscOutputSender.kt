@@ -1,83 +1,101 @@
 package com.example.tapsyncwatch.input.osc
 
+import android.util.Log
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class OscOutputSender(
-    targetIp: String,
-    private val targetPort: Int
+    host: String,
+    private val port: Int
 ) {
 
-    private val socket = DatagramSocket()
-    private val address = InetAddress.getByName(targetIp)
+    private val address: InetAddress = InetAddress.getByName(host)
 
-    // Debounce, damit ein Tap wirklich EIN Tap ist
-    private var lastTapTime: Long = 0L
-    private val TAP_COOLDOWN_MS = 150L
+    private var socket: DatagramSocket? = null
 
-    fun sendTempoTap() {
-        val now = System.currentTimeMillis()
-        if (now - lastTapTime < TAP_COOLDOWN_MS) return
-        lastTapTime = now
+    private val executor: ExecutorService =
+        Executors.newSingleThreadExecutor()
 
-        // 1️⃣ TAP DOWN (1.0)
-        sendOscFloat(
-            address = "/composition/tempocontroller/tempotap",
-            value = 1.0f
+    // -------------------------------------------------
+    // PUBLIC API (exakt wie alte Version)
+    // -------------------------------------------------
+
+    fun sendInt(path: String, value: Int) {
+        sendAsync(
+            buildOscMessage(path, ",i") { bb ->
+                bb.putInt(value)
+            }
         )
+    }
 
-        // 2️⃣ TAP UP (0.0) – kurz danach
-        Thread {
+    fun sendFloat(path: String, value: Float) {
+        sendAsync(
+            buildOscMessage(path, ",f") { bb ->
+                bb.putFloat(value)
+            }
+        )
+    }
+
+    // -------------------------------------------------
+    // Core send (Background Thread)
+    // -------------------------------------------------
+
+    private fun sendAsync(data: ByteArray) {
+        executor.execute {
             try {
-                Thread.sleep(40)
-            } catch (_: InterruptedException) {}
+                if (socket == null || socket?.isClosed == true) {
+                    socket = DatagramSocket()
+                }
 
-            sendOscFloat(
-                address = "/composition/tempocontroller/tempotap",
-                value = 0.0f
-            )
-        }.start()
+                val packet = DatagramPacket(
+                    data,
+                    data.size,
+                    address,
+                    port
+                )
+
+                socket?.send(packet)
+
+                Log.d(
+                    "OSC",
+                    "SEND ${data.size} bytes → ${address.hostAddress}:$port"
+                )
+            } catch (e: Exception) {
+                Log.e("OSC", "SEND FAILED", e)
+            }
+        }
     }
 
-    private fun sendOscFloat(address: String, value: Float) {
-        val addressBytes = padOscString(address)
-        val typeTagBytes = padOscString(",f")
+    // -------------------------------------------------
+    // OSC Message Builder
+    // -------------------------------------------------
 
-        val buffer = ByteBuffer
-            .allocate(addressBytes.size + typeTagBytes.size + 4)
+    private fun buildOscMessage(
+        path: String,
+        typeTag: String,
+        payload: (ByteBuffer) -> Unit
+    ): ByteArray {
+
+        val bb = ByteBuffer
+            .allocate(256)
             .order(ByteOrder.BIG_ENDIAN)
-            .put(addressBytes)
-            .put(typeTagBytes)
-            .putFloat(value)
-            .array()
 
-        val packet = DatagramPacket(
-            buffer,
-            buffer.size,
-            this.address,
-            targetPort
-        )
+        writeOscString(bb, path)
+        writeOscString(bb, typeTag)
+        payload(bb)
 
-        socket.send(packet)
+        return bb.array().copyOf(bb.position())
     }
 
-    private fun padOscString(value: String): ByteArray {
-        val raw = value.toByteArray(Charsets.US_ASCII)
-        val lengthWithNull = raw.size + 1
-        val paddedLength = (lengthWithNull + 3) and -4
-
-        return ByteBuffer
-            .allocate(paddedLength)
-            .order(ByteOrder.BIG_ENDIAN)
-            .put(raw)
-            .put(0)
-            .array()
-    }
-
-    fun close() {
-        socket.close()
+    private fun writeOscString(bb: ByteBuffer, value: String) {
+        val bytes = value.toByteArray(Charsets.UTF_8)
+        bb.put(bytes)
+        bb.put(0)
+        while (bb.position() % 4 != 0) bb.put(0)
     }
 }
