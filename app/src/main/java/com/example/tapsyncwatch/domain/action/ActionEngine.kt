@@ -1,25 +1,27 @@
 package com.example.tapsyncwatch.domain.action
 
-import com.example.tapsyncwatch.presentation.network.OscSender
-import kotlinx.coroutines.*
+import com.example.tapsyncwatch.input.osc.OscOutputSender
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class ActionEngine(
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val osc: OscOutputSender
 ) {
 
-    // =====================================================
-    // HELFER: Momentary INT Button (1 → 0)
-    // =====================================================
+    // -------------------------------------------------
+    // Helfer: Momentary Button (1 → 0)
+    // -------------------------------------------------
     private suspend fun momentaryInt(path: String) {
-        OscSender.sendInt(path, 1)
+        osc.sendInt(path, 1)
         delay(40)
-        OscSender.sendInt(path, 0)
+        osc.sendInt(path, 0)
     }
 
-    // =====================================================
+    // -------------------------------------------------
     // TAP
-    // ALT: 1 → delay → 0
-    // =====================================================
+    // -------------------------------------------------
     fun tap() {
         scope.launch {
             momentaryInt(
@@ -28,36 +30,33 @@ class ActionEngine(
         }
     }
 
-    // =====================================================
+    // -------------------------------------------------
     // MULTIPLY ×2
-    // ALT: INT = 1, KEIN 0
-    // =====================================================
+    // -------------------------------------------------
     fun multiply() {
         scope.launch {
-            OscSender.sendInt(
+            osc.sendInt(
                 "/composition/tempocontroller/tempo/multiply",
                 1
             )
         }
     }
 
-    // =====================================================
+    // -------------------------------------------------
     // DIVIDE ÷2
-    // ALT: INT = 1, KEIN 0
-    // =====================================================
+    // -------------------------------------------------
     fun divide() {
         scope.launch {
-            OscSender.sendInt(
+            osc.sendInt(
                 "/composition/tempocontroller/tempo/divide",
                 1
             )
         }
     }
 
-    // =====================================================
+    // -------------------------------------------------
     // RESYNC
-    // ALT: 1 → delay → 0
-    // =====================================================
+    // -------------------------------------------------
     fun resync() {
         scope.launch {
             momentaryInt(
@@ -66,13 +65,12 @@ class ActionEngine(
         }
     }
 
-    // =====================================================
-    // NUDGE PUSH  (Tempo +)
-    // ALT: Button HOLD
-    // =====================================================
+    // -------------------------------------------------
+    // NUDGE PUSH
+    // -------------------------------------------------
     fun nudgePushStart() {
         scope.launch {
-            OscSender.sendInt(
+            osc.sendInt(
                 "/composition/tempocontroller/tempopush",
                 1
             )
@@ -81,20 +79,19 @@ class ActionEngine(
 
     fun nudgePushEnd() {
         scope.launch {
-            OscSender.sendInt(
+            osc.sendInt(
                 "/composition/tempocontroller/tempopush",
                 0
             )
         }
     }
 
-    // =====================================================
-    // NUDGE PULL  (Tempo −)
-    // ALT: Button HOLD
-    // =====================================================
+    // -------------------------------------------------
+    // NUDGE PULL
+    // -------------------------------------------------
     fun nudgePullStart() {
         scope.launch {
-            OscSender.sendInt(
+            osc.sendInt(
                 "/composition/tempocontroller/tempopull",
                 1
             )
@@ -103,7 +100,7 @@ class ActionEngine(
 
     fun nudgePullEnd() {
         scope.launch {
-            OscSender.sendInt(
+            osc.sendInt(
                 "/composition/tempocontroller/tempopull",
                 0
             )

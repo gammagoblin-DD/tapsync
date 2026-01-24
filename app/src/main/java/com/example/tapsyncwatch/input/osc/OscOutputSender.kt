@@ -16,28 +16,27 @@ class OscOutputSender(
 
     private val address: InetAddress = InetAddress.getByName(host)
 
-    private var socket: DatagramSocket? = null
+    // 🔒 Socket EINMALIG erzeugen
+    private val socket: DatagramSocket = DatagramSocket().apply {
+        reuseAddress = true
+    }
 
     private val executor: ExecutorService =
         Executors.newSingleThreadExecutor()
 
     // -------------------------------------------------
-    // PUBLIC API (exakt wie alte Version)
+    // PUBLIC API
     // -------------------------------------------------
 
     fun sendInt(path: String, value: Int) {
         sendAsync(
-            buildOscMessage(path, ",i") { bb ->
-                bb.putInt(value)
-            }
+            buildOscMessage(path, ",i") { it.putInt(value) }
         )
     }
 
     fun sendFloat(path: String, value: Float) {
         sendAsync(
-            buildOscMessage(path, ",f") { bb ->
-                bb.putFloat(value)
-            }
+            buildOscMessage(path, ",f") { it.putFloat(value) }
         )
     }
 
@@ -48,10 +47,6 @@ class OscOutputSender(
     private fun sendAsync(data: ByteArray) {
         executor.execute {
             try {
-                if (socket == null || socket?.isClosed == true) {
-                    socket = DatagramSocket()
-                }
-
                 val packet = DatagramPacket(
                     data,
                     data.size,
@@ -59,7 +54,7 @@ class OscOutputSender(
                     port
                 )
 
-                socket?.send(packet)
+                socket.send(packet)
 
                 Log.d(
                     "OSC",

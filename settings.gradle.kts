@@ -15,10 +15,11 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        google()
+        google()        // 🔥 MUSS zuerst stehen
         mavenCentral()
     }
 }
+
 
 rootProject.name = "TapSync"
 include(":app")
