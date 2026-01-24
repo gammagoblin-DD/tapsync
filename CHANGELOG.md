@@ -1,5 +1,35 @@
 # Changelog
 
+## [v1.0.1] – FINAL (2026-01-24)
+
+### Fixed / Verified
+- Verhalten vollständig identisch zum Legacy-Stand
+- Tap, Multiply, Divide, Nudge, Resync exakt TouchOSC-konform
+- Kein BPM-Sprung (120 → 480) mehr
+- Kein rennender Nudge
+- Kein toter Tap
+
+### Architecture
+- Einführung der ActionEngine (dumm, deterministisch)
+- Entfernung aller Clock- / BPM-Logik aus der Watch
+- Resolume ist alleinige Clock
+- Keine eigenen Repeats
+
+### Guarantees
+- Eine Geste → genau ein OSC-Impuls
+- Kein impliziter State
+- Reproduzierbar grüner Build
+- Architektur eingefroren
+
+---
+
+## [v1.0.0] – FINAL (Initial)
+
+Erster als „FINAL“ markierter Stand.
+Wurde durch **v1.0.1** ersetzt und dient nur noch
+als historischer Referenzpunkt.
+
+
 Alle relevanten Änderungen an TapSync Watch werden hier dokumentiert.  
 Der Fokus liegt auf **Verhalten, Stabilität und garantierten Eigenschaften** – nicht auf internen Refactors.
 

@@ -1,5 +1,45 @@
 # TapSync Watch – Releases
 
+## 🟢 Aktueller Release
+
+### v1.0.1 — FINAL (2026-01-24)
+
+Dies ist der **offizielle, eingefrorene FINAL-Release** von TapSyncWatch.
+
+#### Status
+- Verhalten vollständig verifiziert
+- Identisch zum Legacy-Stand
+- Architektur abgeschlossen und eingefroren
+
+#### Kernprinzip
+**Resolume ist die Clock.  
+Die Watch ist ein deterministischer Taster.**
+
+#### Enthaltene Features
+- Tap → Tempo Tap (Momentary)
+- Swipe Up → Tempo ×2
+- Swipe Down → Tempo ÷2
+- Swipe → Resync
+- Bezel (linker Ring):
+  - CW → Tempo Push
+  - CCW → Tempo Pull
+- Long Press → Settings
+
+#### Technische Garantien
+- Keine Clock / kein BPM-State in der Watch
+- Keine eigenen Repeats
+- Eine Geste → genau ein OSC-Event
+- Reproduzierbar grüner Build
+
+---
+
+## 🟡 Historische Fixpunkte
+
+### v0.3.4 — Phase 2A Gesture Isolation
+Eingefrorener Gesten-Fixpunkt.
+Diente als Grundlage für v1.x, ist aber **kein aktueller Release** mehr.
+
+
 Dieses Dokument beschreibt **offizielle Release-Stände** von TapSync Watch.
 Ein Release ist ein **eingefrorener, getesteter und reproduzierbarer Zustand**,
 der als stabiler Referenzpunkt dient.

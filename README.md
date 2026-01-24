@@ -233,6 +233,10 @@ Please open an issue before major changes.
 
 ## Changelog
 
+See [CHANGELOG.md](CHANGELOG.md)
+
+v1.0.0 FINAL → v1.0.1 FINAL
+
 ### v1.0.0 -- FINAL
 
 -   Behavior identical to legacy implementation

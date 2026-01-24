@@ -1,3 +1,90 @@
+# TapSyncWatch – Architecture (FINAL)
+
+Dieses Dokument beschreibt die **finale Architektur** von TapSyncWatch
+ab **v1.0.1 FINAL**.
+
+Ziel ist **deterministisches, live-taugliches Verhalten**
+bei direkter OSC-Steuerung von Resolume.
+
+---
+
+## 🧭 Architektur-Prinzip (FINAL)
+
+**Resolume ist die einzige Clock.**
+
+Die Watch:
+- berechnet kein BPM
+- hält keinen Phasen-State
+- erzeugt keine Repeats
+- trifft keine musikalischen Entscheidungen
+
+Sie verhält sich wie ein **Hardware-Taster**.
+
+---
+
+## 🧩 Architektur-Überblick
+
+User (Touch / Bezel)
+↓
+TapScreen (MotionEvent, deterministisch)
+↓
+ActionEngine (dumm, zustandslos)
+↓
+OscSender (UDP, stateless)
+↓
+Resolume (Clock + Repeat + Tempo)
+
+
+---
+
+## 🖐️ Gesture Layer (TapScreen)
+
+- rohe `MotionEvent`s via `pointerInteropFilter`
+- exklusive Gesture-Zonen:
+  - CENTER → Tap / Swipe / Resync
+  - LEFT BEZEL → Nudge
+- **eine Geste → genau ein Effekt**
+- keine konkurrierenden Pfade
+
+Tap ist **immer Fallback**, nie Seiteneffekt.
+
+---
+
+## 🎛️ Action Layer (ActionEngine)
+
+Die ActionEngine enthält **keine Logik**, sondern nur **exakte Abbildung**
+auf OSC-Controls:
+
+- Tap → Momentary (1 → 0)
+- Multiply / Divide → Latch (nur 1)
+- Nudge → Held Button (DOWN=1, UP=0)
+- Resync → Momentary (1 → 0)
+
+**Kein Timing außer Momentary-Delay.**
+
+---
+
+## 🔌 OSC Layer
+
+- vollständig stateless
+- strikt TouchOSC-Semantik
+- **/composition/tempocontroller/tempo wird niemals gesendet**
+
+Tempo entsteht ausschließlich als **Resolume-interner Side-Effect**.
+
+---
+
+## 🔒 Architektur-Garantie
+
+Ab **v1.0.1 FINAL** gilt:
+
+- keine Clock in der Watch
+- keine BPM-Logik
+- keine zukünftige „Phase 2B Clock“
+- Erweiterungen nur außerhalb der Tempo-Gesten
+
+Diese Architektur ist **eingefroren**.
+
 # TapSync Watch – Architecture
 
 Dieses Dokument beschreibt die **Architektur, Zuständigkeiten und Designentscheidungen**
