@@ -10,6 +10,7 @@ import androidx.compose.material.Surface
 import androidx.compose.runtime.*
 import com.example.tapsyncwatch.domain.action.ActionEngine
 import com.example.tapsyncwatch.input.osc.OscOutputSender
+import com.example.tapsyncwatch.presentation.ui.SettingsScreen
 import com.example.tapsyncwatch.presentation.ui.TapScreen
 import com.example.tapsyncwatch.service.TapSyncForegroundService
 import kotlinx.coroutines.*
@@ -44,6 +45,7 @@ class MainActivity : ComponentActivity() {
                 Surface {
                     if (showSettings) {
                         SettingsScreen(
+                            osc = oscOut,
                             onClose = { showSettings = false }
                         )
                     } else {
