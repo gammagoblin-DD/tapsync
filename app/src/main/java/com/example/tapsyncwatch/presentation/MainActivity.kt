@@ -21,17 +21,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Wear-OS: App als laufende Performance-App markieren
         startForegroundService(
             Intent(this, TapSyncForegroundService::class.java)
         )
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // 🔴 FIX: OSC Output explizit erzeugen
         val oscOut = OscOutputSender(
-            host = "192.168.178.24", // ← Resolume IP
-            port = 7002              // ← Resolume OSC Port
+            host = "192.168.178.24",
+            port = 7002
         )
 
         val actionEngine = ActionEngine(
@@ -45,7 +43,9 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface {
                     if (showSettings) {
-                        SettingsScreen()
+                        SettingsScreen(
+                            onClose = { showSettings = false }
+                        )
                     } else {
                         TapScreen(
                             showBpm = true,
