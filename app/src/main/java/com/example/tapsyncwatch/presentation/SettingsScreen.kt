@@ -39,13 +39,18 @@ fun SettingsScreen(
     var showBpm by remember { mutableStateOf(true) }
     var showOscDot by remember { mutableStateOf(true) }
 
-    // Initialwerte übernehmen
+    // ---------- Initialisierung nur EINMAL ----------
+    var initialized by remember { mutableStateOf(false) }
+
     LaunchedEffect(settings) {
-        settings?.let {
-            ip = it.ip
-            port = it.port.toString()
-            showBpm = it.showBpm
-            showOscDot = it.showOscDot
+        settings?.let { s ->
+            if (!initialized) {
+                ip = s.ip
+                port = s.port.toString()
+                showBpm = s.showBpm
+                showOscDot = s.showOscDot
+                initialized = true
+            }
         }
     }
 
@@ -87,7 +92,6 @@ fun SettingsScreen(
         /* ================= OSC TARGET ================= */
 
         SettingsBlock {
-
             OutlinedTextField(
                 value = ip,
                 onValueChange = { ip = it },
@@ -137,6 +141,18 @@ fun SettingsScreen(
             }
         }
 
+        /* ===== UX HINT ===== */
+
+        Text(
+            text = "Changes apply on close",
+            color = Color.Gray,
+            style = MaterialTheme.typography.caption,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            textAlign = TextAlign.Center
+        )
+
         /* ================= SAVE & CLOSE ================= */
 
         Button(
@@ -148,9 +164,7 @@ fun SettingsScreen(
                     store.setShowBpm(showBpm)
                     store.setShowOscDot(showOscDot)
 
-                    // 🔥 WICHTIG: sofort anwenden
                     osc.updateTarget(ip, p)
-
                     onClose()
                 }
             },
