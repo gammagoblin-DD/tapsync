@@ -9,7 +9,10 @@ import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Surface
 import androidx.compose.runtime.*
 import com.example.tapsyncwatch.domain.action.ActionEngine
+import com.example.tapsyncwatch.domain.clock.Clock
 import com.example.tapsyncwatch.input.osc.OscOutputSender
+import com.example.tapsyncwatch.presentation.data.SettingsState
+import com.example.tapsyncwatch.presentation.data.SettingsStore
 import com.example.tapsyncwatch.presentation.ui.SettingsScreen
 import com.example.tapsyncwatch.presentation.ui.TapScreen
 import com.example.tapsyncwatch.service.TapSyncForegroundService
@@ -18,6 +21,8 @@ import kotlinx.coroutines.*
 class MainActivity : ComponentActivity() {
 
     private val oscScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var oscInputReceiver:
+            com.example.tapsyncwatch.input.osc.OscUdpInputReceiver? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,12 +38,41 @@ class MainActivity : ComponentActivity() {
             port = 7002
         )
 
+        // ✅ ACTION ENGINE ZUERST
         val actionEngine = ActionEngine(
             scope = oscScope,
             osc = oscOut
         )
 
+        // ✅ ZENTRALE CLOCK – korrekt verdrahtet
+        val clock = Clock(
+            oscSender = oscOut,
+            onBpmChanged = { bpm ->
+                actionEngine.setExternalBpm(bpm.toDouble())
+            }
+        )
+
+        // ✅ OSC INPUT STARTEN (MEHR DARF MAINACTIVITY NICHT TUN)
+        oscInputReceiver =
+            com.example.tapsyncwatch.input.osc.OscUdpInputReceiver(
+                clock = clock,
+                port = 7000
+            ).also {
+                it.start()
+            }
+
+        val settingsStore = SettingsStore(this)
+
         setContent {
+            val settings by settingsStore.settings.collectAsState(
+                initial = SettingsState(
+                    ip = "192.168.178.24",
+                    port = 7002,
+                    showBpm = true
+                )
+            )
+
+            val bpm by actionEngine.bpm.collectAsState()
             var showSettings by remember { mutableStateOf(false) }
 
             MaterialTheme {
@@ -50,8 +84,10 @@ class MainActivity : ComponentActivity() {
                         )
                     } else {
                         TapScreen(
-                            showBpm = true,
+                            bpm = bpm,
+                            showBpm = settings.showBpm,
                             action = actionEngine,
+                            osc = oscOut,
                             onLongPress = { showSettings = true }
                         )
                     }
@@ -62,6 +98,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        oscInputReceiver?.stop()
+        oscInputReceiver = null
         oscScope.cancel()
     }
 }
