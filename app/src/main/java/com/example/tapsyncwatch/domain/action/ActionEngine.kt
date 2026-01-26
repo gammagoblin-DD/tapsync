@@ -4,6 +4,9 @@ import com.example.tapsyncwatch.input.osc.OscOutputSender
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class ActionEngine(
     private val scope: CoroutineScope,
@@ -11,8 +14,21 @@ class ActionEngine(
 ) {
 
     // -------------------------------------------------
+    // BPM (AUSSCHLIESSLICH extern – Resolume ist Master)
+    // -------------------------------------------------
+
+    private val _bpm = MutableStateFlow(0f)
+    val bpm: StateFlow<Float> = _bpm.asStateFlow()
+
+    /** Wird von Clock / ExternalBpm aufgerufen */
+    fun setExternalBpm(bpm: Double) {
+        _bpm.value = bpm.toFloat()
+    }
+
+    // -------------------------------------------------
     // Helfer: Momentary Button (1 → 0)
     // -------------------------------------------------
+
     private suspend fun momentaryInt(path: String) {
         osc.sendInt(path, 1)
         delay(40)
@@ -20,90 +36,54 @@ class ActionEngine(
     }
 
     // -------------------------------------------------
-    // TAP
+    // ACTIONS (SEND ONLY)
     // -------------------------------------------------
+
     fun tap() {
         scope.launch {
-            momentaryInt(
-                "/composition/tempocontroller/tempotap"
-            )
+            momentaryInt("/composition/tempocontroller/tempotap")
         }
     }
 
-    // -------------------------------------------------
-    // MULTIPLY ×2
-    // -------------------------------------------------
     fun multiply() {
         scope.launch {
-            osc.sendInt(
-                "/composition/tempocontroller/tempo/multiply",
-                1
-            )
+            osc.sendInt("/composition/tempocontroller/tempo/multiply", 1)
         }
     }
 
-    // -------------------------------------------------
-    // DIVIDE ÷2
-    // -------------------------------------------------
     fun divide() {
         scope.launch {
-            osc.sendInt(
-                "/composition/tempocontroller/tempo/divide",
-                1
-            )
+            osc.sendInt("/composition/tempocontroller/tempo/divide", 1)
         }
     }
 
-    // -------------------------------------------------
-    // RESYNC
-    // -------------------------------------------------
     fun resync() {
         scope.launch {
-            momentaryInt(
-                "/composition/tempocontroller/resync"
-            )
+            momentaryInt("/composition/tempocontroller/resync")
         }
     }
 
-    // -------------------------------------------------
-    // NUDGE PUSH
-    // -------------------------------------------------
     fun nudgePushStart() {
         scope.launch {
-            osc.sendInt(
-                "/composition/tempocontroller/tempopush",
-                1
-            )
+            osc.sendInt("/composition/tempocontroller/tempopush", 1)
         }
     }
 
     fun nudgePushEnd() {
         scope.launch {
-            osc.sendInt(
-                "/composition/tempocontroller/tempopush",
-                0
-            )
+            osc.sendInt("/composition/tempocontroller/tempopush", 0)
         }
     }
 
-    // -------------------------------------------------
-    // NUDGE PULL
-    // -------------------------------------------------
     fun nudgePullStart() {
         scope.launch {
-            osc.sendInt(
-                "/composition/tempocontroller/tempopull",
-                1
-            )
+            osc.sendInt("/composition/tempocontroller/tempopull", 1)
         }
     }
 
     fun nudgePullEnd() {
         scope.launch {
-            osc.sendInt(
-                "/composition/tempocontroller/tempopull",
-                0
-            )
+            osc.sendInt("/composition/tempocontroller/tempopull", 0)
         }
     }
 }

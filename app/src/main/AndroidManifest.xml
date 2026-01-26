@@ -1,29 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Wear OS -->
+    <!-- ✅ ERFORDERLICH für OSC / UDP -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- ✅ Wear-OS App -->
     <uses-feature
         android:name="android.hardware.type.watch"
         android:required="true" />
 
-    <!-- Foreground / Ongoing (Android 14+) -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    <uses-permission android:name="android.permission.VIBRATE" />
-
-    <!-- 🔴 PFLICHT für OSC / UDP -->
-    <uses-permission android:name="android.permission.INTERNET" />
-
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
 
     <application
         android:allowBackup="true"
         android:label="TapSync"
-        android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher_round"
-        android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault">
+        android:supportsRtl="true">
 
-        <!-- Standalone Wear App -->
+        <!-- ✅ Standalone Wear App -->
         <meta-data
             android:name="com.google.android.wearable.standalone"
             android:value="true" />
@@ -31,18 +26,14 @@
         <activity
             android:name=".presentation.MainActivity"
             android:exported="true"
-            android:launchMode="singleTask">
+            android:launchMode="singleTop">
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
 
-        <service
-            android:name=".service.TapSyncForegroundService"
-            android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
+        </activity>
 
     </application>
 
