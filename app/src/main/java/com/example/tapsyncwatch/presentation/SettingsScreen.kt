@@ -16,7 +16,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.tapsyncwatch.input.osc.OscOutputSender
-import com.example.tapsyncwatch.presentation.data.SettingsState
 import com.example.tapsyncwatch.presentation.data.SettingsStore
 import kotlinx.coroutines.launch
 
@@ -25,20 +24,30 @@ fun SettingsScreen(
     osc: OscOutputSender,
     onClose: () -> Unit
 ) {
-    BackHandler { onClose() }
+    BackHandler { /* bewusst leer → nur Save & Close */ }
 
     val context = LocalContext.current
     val store = remember { SettingsStore(context) }
     val scope = rememberCoroutineScope()
     val scroll = rememberScrollState()
 
-    val settings by store.settings.collectAsState(
-        initial = SettingsState(
-            ip = "192.168.178.24",
-            port = 7002,
-            showBpm = true
-        )
-    )
+    val settings by store.settings.collectAsState(initial = null)
+
+    // ---------- Lokaler Edit-State ----------
+    var ip by remember { mutableStateOf("") }
+    var port by remember { mutableStateOf("") }
+    var showBpm by remember { mutableStateOf(true) }
+    var showOscDot by remember { mutableStateOf(true) }
+
+    // Initialwerte übernehmen
+    LaunchedEffect(settings) {
+        settings?.let {
+            ip = it.ip
+            port = it.port.toString()
+            showBpm = it.showBpm
+            showOscDot = it.showOscDot
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -49,31 +58,35 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 12.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "Settings",
-                color = Color.White,
-                style = MaterialTheme.typography.h5,
-                textAlign = TextAlign.Center
-            )
-        }
+        /* ================= HEADER ================= */
+
+        Text(
+            text = "Settings",
+            color = Color.White,
+            style = MaterialTheme.typography.h5,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center
+        )
+
+        /* ================= RESOLUME STATUS ================= */
 
         SettingsBlock {
             val status by osc.status.collectAsState()
             Text(
-                text = if (status.connected) "OSC connected" else "OSC disconnected",
-                color = if (status.connected) Color(0xFF4CAF50) else Color.Red
+                text = if (status.connected)
+                    "Resolume connected"
+                else
+                    "Resolume not connected",
+                color = if (status.connected)
+                    Color(0xFF4CAF50)
+                else
+                    Color(0xFFFF5252)
             )
         }
 
+        /* ================= OSC TARGET ================= */
+
         SettingsBlock {
-            var ip by remember(settings.ip) { mutableStateOf(settings.ip) }
-            var port by remember(settings.port) { mutableStateOf(settings.port.toString()) }
 
             OutlinedTextField(
                 value = ip,
@@ -92,21 +105,9 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 colors = textFieldColors()
             )
-
-            Button(
-                onClick = {
-                    scope.launch {
-                        store.updateIp(ip)
-                        store.updatePort(port.toIntOrNull() ?: settings.port)
-                        osc.updateTarget(ip, port.toIntOrNull() ?: settings.port)
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                colors = grayButtonColors()
-            ) {
-                Text("Save OSC Target")
-            }
         }
+
+        /* ================= UI OPTIONS ================= */
 
         SettingsBlock {
             Row(
@@ -116,16 +117,43 @@ fun SettingsScreen(
             ) {
                 Text("Show BPM", color = Color.White)
                 Switch(
-                    checked = settings.showBpm,
-                    onCheckedChange = {
-                        scope.launch { store.setShowBpm(it) }
-                    }
+                    checked = showBpm,
+                    onCheckedChange = { showBpm = it }
                 )
             }
         }
 
+        SettingsBlock {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("OSC Dot", color = Color.White)
+                Switch(
+                    checked = showOscDot,
+                    onCheckedChange = { showOscDot = it }
+                )
+            }
+        }
+
+        /* ================= SAVE & CLOSE ================= */
+
         Button(
-            onClick = onClose,
+            onClick = {
+                val p = port.toIntOrNull() ?: return@Button
+                scope.launch {
+                    store.updateIp(ip)
+                    store.updatePort(p)
+                    store.setShowBpm(showBpm)
+                    store.setShowOscDot(showOscDot)
+
+                    // 🔥 WICHTIG: sofort anwenden
+                    osc.updateTarget(ip, p)
+
+                    onClose()
+                }
+            },
             modifier = Modifier.fillMaxWidth(),
             colors = grayButtonColors(),
             shape = RoundedCornerShape(18.dp)
@@ -134,6 +162,8 @@ fun SettingsScreen(
         }
     }
 }
+
+/* ========================================================= */
 
 @Composable
 private fun SettingsBlock(content: @Composable ColumnScope.() -> Unit) {

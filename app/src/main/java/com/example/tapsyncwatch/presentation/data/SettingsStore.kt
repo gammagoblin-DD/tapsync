@@ -17,6 +17,7 @@ object SettingsKeys {
     val TARGET_IP = stringPreferencesKey("target_ip")
     val TARGET_PORT = intPreferencesKey("target_port")
     val SHOW_BPM = booleanPreferencesKey("show_bpm")
+    val SHOW_OSC_DOT = booleanPreferencesKey("show_osc_dot") // ✅ NEU
 }
 
 class SettingsStore(
@@ -28,31 +29,31 @@ class SettingsStore(
             SettingsState(
                 ip = prefs[SettingsKeys.TARGET_IP] ?: "192.168.178.24",
                 port = prefs[SettingsKeys.TARGET_PORT] ?: 7002,
-                showBpm = prefs[SettingsKeys.SHOW_BPM] ?: true
+                showBpm = prefs[SettingsKeys.SHOW_BPM] ?: true,
+                showOscDot = prefs[SettingsKeys.SHOW_OSC_DOT] ?: true // ✅ NEU
             )
         }
 
     suspend fun updateIp(ip: String) {
-        context.dataStore.edit { prefs ->
-            prefs[SettingsKeys.TARGET_IP] = ip
-        }
+        context.dataStore.edit { it[SettingsKeys.TARGET_IP] = ip }
     }
 
     suspend fun updatePort(port: Int) {
-        context.dataStore.edit { prefs ->
-            prefs[SettingsKeys.TARGET_PORT] = port
-        }
+        context.dataStore.edit { it[SettingsKeys.TARGET_PORT] = port }
     }
 
     suspend fun setShowBpm(show: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[SettingsKeys.SHOW_BPM] = show
-        }
+        context.dataStore.edit { it[SettingsKeys.SHOW_BPM] = show }
+    }
+
+    suspend fun setShowOscDot(show: Boolean) { // ✅ NEU
+        context.dataStore.edit { it[SettingsKeys.SHOW_OSC_DOT] = show }
     }
 }
 
 data class SettingsState(
     val ip: String,
     val port: Int,
-    val showBpm: Boolean
+    val showBpm: Boolean,
+    val showOscDot: Boolean // ✅ NEU
 )

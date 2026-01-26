@@ -20,10 +20,18 @@ class ActionEngine(
     private val _bpm = MutableStateFlow(0f)
     val bpm: StateFlow<Float> = _bpm.asStateFlow()
 
+    /** letzter gültiger BPM-Wert (UI-Hold, keine Logik) */
+    private var lastValidBpm: Float? = null
+
     /** Wird von Clock / ExternalBpm aufgerufen */
     fun setExternalBpm(bpm: Double) {
-        _bpm.value = bpm.toFloat()
+        val value = bpm.toFloat()
+        _bpm.value = value
+        lastValidBpm = value
     }
+
+    /** Für UI: letzter gültiger BPM oder null */
+    fun getLastValidBpm(): Float? = lastValidBpm
 
     // -------------------------------------------------
     // Helfer: Momentary Button (1 → 0)

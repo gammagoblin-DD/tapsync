@@ -68,6 +68,7 @@ private fun rememberHaptics(): (HapticType) -> Unit {
 fun TapScreen(
     bpm: Float,
     showBpm: Boolean,
+    showOscDot: Boolean, // ✅ wird jetzt korrekt verwendet
     action: ActionEngine,
     osc: OscOutputSender,
     onLongPress: () -> Unit
@@ -239,61 +240,72 @@ fun TapScreen(
         )
 
         /* =====================================================
-         * OSC STATUS DOT
+         * OSC STATUS DOT (JETZT TOGGLEBAR)
          * ===================================================== */
 
-        val density = LocalDensity.current.density
+        if (showOscDot) {
 
-        val angleRad = Math.toRadians(325.0)
-        val dotRadiusPx = radius * 0.95f
+            val density = LocalDensity.current.density
+            val angleRad = Math.toRadians(325.0)
+            val dotRadiusPx = radius * 0.95f
 
-        val offsetXPx = cos(angleRad).toFloat() * dotRadiusPx
-        val offsetYPx = -sin(angleRad).toFloat() * dotRadiusPx
+            val offsetXPx = cos(angleRad).toFloat() * dotRadiusPx
+            val offsetYPx = -sin(angleRad).toFloat() * dotRadiusPx
 
-        val offsetXDp = (offsetXPx / density).dp
-        val offsetYDp = (offsetYPx / density).dp
+            val offsetXDp = (offsetXPx / density).dp
+            val offsetYDp = (offsetYPx / density).dp
 
-        val dotColor =
-            if (oscStatus.connected) Color(0xFFD98A2B)
-            else Color(0xFF6E6A63)
+            val dotColor =
+                if (oscStatus.connected) Color(0xFFD98A2B)
+                else Color(0xFF6E6A63)
 
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .offset(x = offsetXDp, y = offsetYDp)
-        ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .offset(x = offsetXDp, y = offsetYDp)
+            ) {
 
-            if (oscStatus.lastSentAt != null) {
+                // Pulse-Halo bei Aktivität
+                if (oscStatus.lastSentAt != null) {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .scale(1f + (pulse.value - 1f) * 0.4f)
+                            .alpha(0.45f)
+                            .background(
+                                color = lerp(
+                                    Color(0xFFD98A2B),
+                                    Color(0xFFE85D9E),
+                                    (pulse.value - 1f).coerceIn(0f, 1f)
+                                ),
+                                shape = CircleShape
+                            )
+                    )
+                }
+
+                // Innerer Punkt
                 Box(
                     modifier = Modifier
-                        .size(10.dp)
-                        .scale(1f + (pulse.value - 1f) * 0.4f)
-                        .alpha(0.55f)
+                        .size(6.dp)
+                        .align(Alignment.Center)
                         .background(
-                            color = lerp(
-                                Color(0xFFD98A2B),
-                                Color(0xFFE85D9E),
-                                (pulse.value - 1f).coerceIn(0f, 1f)
-                            ),
+                            color = dotColor.copy(alpha = 0.9f),
                             shape = CircleShape
                         )
                 )
             }
-
-            Box(
-                modifier = Modifier
-                    .size(4.dp)
-                    .align(Alignment.Center)
-                    .background(dotColor, CircleShape)
-            )
         }
 
         /* ================= BPM DISPLAY ================= */
 
         if (showBpm) {
+            val heldBpm = action.getLastValidBpm()
+            val displayBpm = if (bpm > 0f) bpm else heldBpm
+            val isHeld = bpm <= 0f && heldBpm != null
+
             Text(
-                text = if (bpm > 0f) "${bpm.toInt()} BPM" else "-- BPM",
-                color = Color.White.copy(alpha = if (bpm > 0f) 1f else 0.5f),
+                text = displayBpm?.let { "${it.toInt()} BPM" } ?: "-- BPM",
+                color = Color.White.copy(alpha = if (isHeld) 0.6f else 1f),
                 fontSize = 14.sp,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
@@ -301,6 +313,5 @@ fun TapScreen(
                     .padding(bottom = 12.dp)
             )
         }
-
     }
 }

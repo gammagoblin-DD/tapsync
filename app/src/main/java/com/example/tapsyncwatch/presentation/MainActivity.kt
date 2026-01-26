@@ -38,13 +38,11 @@ class MainActivity : ComponentActivity() {
             port = 7002
         )
 
-        // ✅ ACTION ENGINE ZUERST
         val actionEngine = ActionEngine(
             scope = oscScope,
             osc = oscOut
         )
 
-        // ✅ ZENTRALE CLOCK – korrekt verdrahtet
         val clock = Clock(
             oscSender = oscOut,
             onBpmChanged = { bpm ->
@@ -52,14 +50,11 @@ class MainActivity : ComponentActivity() {
             }
         )
 
-        // ✅ OSC INPUT STARTEN (MEHR DARF MAINACTIVITY NICHT TUN)
         oscInputReceiver =
             com.example.tapsyncwatch.input.osc.OscUdpInputReceiver(
                 clock = clock,
                 port = 7000
-            ).also {
-                it.start()
-            }
+            ).also { it.start() }
 
         val settingsStore = SettingsStore(this)
 
@@ -68,7 +63,8 @@ class MainActivity : ComponentActivity() {
                 initial = SettingsState(
                     ip = "192.168.178.24",
                     port = 7002,
-                    showBpm = true
+                    showBpm = true,
+                    showOscDot = true   // ✅ FIX
                 )
             )
 
@@ -86,6 +82,7 @@ class MainActivity : ComponentActivity() {
                         TapScreen(
                             bpm = bpm,
                             showBpm = settings.showBpm,
+                            showOscDot = settings.showOscDot,
                             action = actionEngine,
                             osc = oscOut,
                             onLongPress = { showSettings = true }
