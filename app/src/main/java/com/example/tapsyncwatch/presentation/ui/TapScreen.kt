@@ -2,7 +2,6 @@
 
 package com.example.tapsyncwatch.presentation.ui
 
-import android.content.Context
 import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -20,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -60,7 +58,6 @@ private fun rememberHaptics(): (HapticType) -> Unit {
     }
 }
 
-
 /* =========================================================
  * TAP SCREEN
  * ========================================================= */
@@ -69,7 +66,7 @@ private fun rememberHaptics(): (HapticType) -> Unit {
 fun TapScreen(
     bpm: Float,
     showBpm: Boolean,
-    showOscDot: Boolean, // ✅ wird jetzt korrekt verwendet
+    showOscDot: Boolean,
     action: ActionEngine,
     osc: OscOutputSender,
     onLongPress: () -> Unit
@@ -107,6 +104,8 @@ fun TapScreen(
     /* ================= OSC STATUS ================= */
 
     val oscStatus by osc.status.collectAsState()
+    val lastBpmAt by action.lastBpmAt.collectAsState()
+
     val pulse = remember { Animatable(1f) }
 
     LaunchedEffect(oscStatus.lastSentAt) {
@@ -119,6 +118,20 @@ fun TapScreen(
         flash.snapTo(0f)
         flash.animateTo(1f, tween(120))
         flash.animateTo(0f, tween(500))
+    }
+
+    val bpmActive = lastBpmAt > 0L &&
+            (System.currentTimeMillis() - lastBpmAt) < 600L
+
+    /* ================= DEBUG OVERLAY STATE ================= */
+
+    var showDebug by remember { mutableStateOf(false) }
+
+    LaunchedEffect(showDebug) {
+        if (showDebug) {
+            kotlinx.coroutines.delay(5_000)
+            showDebug = false
+        }
     }
 
     Box(
@@ -240,9 +253,7 @@ fun TapScreen(
                 }
         )
 
-        /* =====================================================
-         * OSC STATUS DOT (JETZT TOGGLEBAR)
-         * ===================================================== */
+        /* ================= OSC STATUS DOT ================= */
 
         if (showOscDot) {
 
@@ -256,9 +267,11 @@ fun TapScreen(
             val offsetXDp = (offsetXPx / density).dp
             val offsetYDp = (offsetYPx / density).dp
 
-            val dotColor =
-                if (oscStatus.connected) Color(0xFFD98A2B)
-                else Color(0xFF6E6A63)
+            val dotColor = when {
+                !oscStatus.connected -> Color(0xFF6E6A63)
+                bpmActive -> Color(0xFF4CAF50)
+                else -> Color(0xFFD98A2B)
+            }
 
             Box(
                 modifier = Modifier
@@ -266,33 +279,21 @@ fun TapScreen(
                     .offset(x = offsetXDp, y = offsetYDp)
             ) {
 
-                // Pulse-Halo bei Aktivität
-                if (oscStatus.lastSentAt != null) {
+                if (bpmActive) {
                     Box(
                         modifier = Modifier
                             .size(12.dp)
                             .scale(1f + (pulse.value - 1f) * 0.4f)
                             .alpha(0.45f)
-                            .background(
-                                color = lerp(
-                                    Color(0xFFD98A2B),
-                                    Color(0xFFE85D9E),
-                                    (pulse.value - 1f).coerceIn(0f, 1f)
-                                ),
-                                shape = CircleShape
-                            )
+                            .background(Color(0xFF4CAF50), CircleShape)
                     )
                 }
 
-                // Innerer Punkt
                 Box(
                     modifier = Modifier
                         .size(6.dp)
                         .align(Alignment.Center)
-                        .background(
-                            color = dotColor.copy(alpha = 0.9f),
-                            shape = CircleShape
-                        )
+                        .background(dotColor.copy(alpha = 0.9f), CircleShape)
                 )
             }
         }
@@ -312,7 +313,48 @@ fun TapScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 12.dp)
+                    .pointerInteropFilter { event ->
+                        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                            downTime = SystemClock.elapsedRealtime()
+                            true
+                        } else if (
+                            event.actionMasked == MotionEvent.ACTION_UP &&
+                            SystemClock.elapsedRealtime() - downTime >= 600L
+                        ) {
+                            showDebug = !showDebug
+                            true
+                        } else false
+                    }
             )
+        }
+
+        /* ================= DEBUG OVERLAY ================= */
+
+        if (showDebug) {
+            val ageMs =
+                if (lastBpmAt > 0L)
+                    System.currentTimeMillis() - lastBpmAt
+                else -1
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = 0.7f))
+                    .padding(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("DEBUG", color = Color.Gray, fontSize = 10.sp)
+                Spacer(Modifier.height(4.dp))
+                Text("BPM: ${"%.1f".format(bpm)}", color = Color.White)
+                Text(
+                    text = if (ageMs >= 0) "Last BPM: ${ageMs} ms ago" else "Last BPM: --",
+                    color = Color.White
+                )
+                Text(
+                    text = "OSC: ${if (oscStatus.connected) "connected" else "disconnected"}",
+                    color = Color.White
+                )
+            }
         }
     }
 }

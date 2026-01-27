@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.tapsyncwatch.input.osc.OscOutputSender
+import com.example.tapsyncwatch.presentation.data.OscTarget
 import com.example.tapsyncwatch.presentation.data.SettingsStore
 import kotlinx.coroutines.launch
 
@@ -24,7 +25,7 @@ fun SettingsScreen(
     osc: OscOutputSender,
     onClose: () -> Unit
 ) {
-    BackHandler { /* bewusst leer → nur Save & Close */ }
+    BackHandler { }
 
     val context = LocalContext.current
     val store = remember { SettingsStore(context) }
@@ -33,26 +34,25 @@ fun SettingsScreen(
 
     val settings by store.settings.collectAsState(initial = null)
 
-    // ---------- Lokaler Edit-State ----------
-    var ip by remember { mutableStateOf("") }
-    var port by remember { mutableStateOf("") }
+    var activePreset by remember { mutableStateOf(0) }
+    var presets by remember { mutableStateOf(listOf<OscTarget>()) }
     var showBpm by remember { mutableStateOf(true) }
     var showOscDot by remember { mutableStateOf(true) }
-
-    // ---------- Initialisierung nur EINMAL ----------
     var initialized by remember { mutableStateOf(false) }
 
     LaunchedEffect(settings) {
         settings?.let { s ->
             if (!initialized) {
-                ip = s.ip
-                port = s.port.toString()
+                activePreset = s.activePreset
+                presets = s.presets
                 showBpm = s.showBpm
                 showOscDot = s.showOscDot
                 initialized = true
             }
         }
     }
+
+    val current = presets.getOrNull(activePreset)
 
     Column(
         modifier = Modifier
@@ -63,8 +63,6 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
 
-        /* ================= HEADER ================= */
-
         Text(
             text = "Settings",
             color = Color.White,
@@ -73,42 +71,71 @@ fun SettingsScreen(
             textAlign = TextAlign.Center
         )
 
-        /* ================= RESOLUME STATUS ================= */
+        /* ================= PRESETS ================= */
 
         SettingsBlock {
-            val status by osc.status.collectAsState()
-            Text(
-                text = if (status.connected)
-                    "Resolume connected"
-                else
-                    "Resolume not connected",
-                color = if (status.connected)
-                    Color(0xFF4CAF50)
-                else
-                    Color(0xFFFF5252)
-            )
+            Text("OSC Target Preset", color = Color.White)
+
+            presets.forEachIndexed { i, p ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(p.name, color = Color.White)
+                    RadioButton(
+                        selected = activePreset == i,
+                        onClick = { activePreset = i }
+                    )
+                }
+            }
         }
 
-        /* ================= OSC TARGET ================= */
+        /* ================= EDIT PRESET ================= */
 
-        SettingsBlock {
-            OutlinedTextField(
-                value = ip,
-                onValueChange = { ip = it },
-                label = { Text("IP Address") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                colors = textFieldColors()
-            )
+        current?.let { preset ->
+            SettingsBlock {
 
-            OutlinedTextField(
-                value = port,
-                onValueChange = { port = it.filter(Char::isDigit) },
-                label = { Text("Port") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                colors = textFieldColors()
-            )
+                OutlinedTextField(
+                    value = preset.name,
+                    onValueChange = { newName ->
+                        presets = presets.toMutableList().also { list ->
+                            list[activePreset] = preset.copy(name = newName)
+                        }
+                    },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = textFieldColors()
+                )
+
+                OutlinedTextField(
+                    value = preset.ip,
+                    onValueChange = { newIp ->
+                        presets = presets.toMutableList().also { list ->
+                            list[activePreset] = preset.copy(ip = newIp)
+                        }
+                    },
+                    label = { Text("IP Address") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = textFieldColors()
+                )
+
+                OutlinedTextField(
+                    value = preset.port.toString(),
+                    onValueChange = { v ->
+                        val p = v.filter(Char::isDigit).toIntOrNull() ?: preset.port
+                        presets = presets.toMutableList().also { list ->
+                            list[activePreset] = preset.copy(port = p)
+                        }
+                    },
+                    label = { Text("Port") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = textFieldColors()
+                )
+            }
         }
 
         /* ================= UI OPTIONS ================= */
@@ -120,10 +147,7 @@ fun SettingsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("Show BPM", color = Color.White)
-                Switch(
-                    checked = showBpm,
-                    onCheckedChange = { showBpm = it }
-                )
+                Switch(showBpm, { showBpm = it })
             }
         }
 
@@ -134,22 +158,15 @@ fun SettingsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("OSC Dot", color = Color.White)
-                Switch(
-                    checked = showOscDot,
-                    onCheckedChange = { showOscDot = it }
-                )
+                Switch(showOscDot, { showOscDot = it })
             }
         }
-
-        /* ===== UX HINT ===== */
 
         Text(
             text = "Changes apply on close",
             color = Color.Gray,
             style = MaterialTheme.typography.caption,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth(),
             textAlign = TextAlign.Center
         )
 
@@ -157,14 +174,20 @@ fun SettingsScreen(
 
         Button(
             onClick = {
-                val p = port.toIntOrNull() ?: return@Button
                 scope.launch {
-                    store.updateIp(ip)
-                    store.updatePort(p)
+
+                    presets.forEachIndexed { i, p ->
+                        store.updatePreset(i, p)
+                    }
+
+                    store.setActivePreset(activePreset)
                     store.setShowBpm(showBpm)
                     store.setShowOscDot(showOscDot)
 
-                    osc.updateTarget(ip, p)
+                    current?.let {
+                        osc.updateTarget(it.ip, it.port)
+                    }
+
                     onClose()
                 }
             },

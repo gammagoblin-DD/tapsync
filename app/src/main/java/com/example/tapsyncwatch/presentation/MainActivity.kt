@@ -11,7 +11,7 @@ import androidx.compose.runtime.*
 import com.example.tapsyncwatch.domain.action.ActionEngine
 import com.example.tapsyncwatch.domain.clock.Clock
 import com.example.tapsyncwatch.input.osc.OscOutputSender
-import com.example.tapsyncwatch.presentation.data.SettingsState
+import com.example.tapsyncwatch.input.osc.OscUdpInputReceiver
 import com.example.tapsyncwatch.presentation.data.SettingsStore
 import com.example.tapsyncwatch.presentation.ui.SettingsScreen
 import com.example.tapsyncwatch.presentation.ui.TapScreen
@@ -21,8 +21,7 @@ import kotlinx.coroutines.*
 class MainActivity : ComponentActivity() {
 
     private val oscScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var oscInputReceiver:
-            com.example.tapsyncwatch.input.osc.OscUdpInputReceiver? = null
+    private var oscInputReceiver: OscUdpInputReceiver? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,8 +32,9 @@ class MainActivity : ComponentActivity() {
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
+        // Initiale Dummy-Werte – echtes Target kommt aus Presets
         val oscOut = OscOutputSender(
-            host = "192.168.178.24",
+            host = "127.0.0.1",
             port = 7002
         )
 
@@ -46,47 +46,48 @@ class MainActivity : ComponentActivity() {
         val clock = Clock(
             oscSender = oscOut,
             onBpmChanged = { bpm ->
+                // ✅ FIX: Float → Double
                 actionEngine.setExternalBpm(bpm.toDouble())
             }
         )
 
-        oscInputReceiver =
-            com.example.tapsyncwatch.input.osc.OscUdpInputReceiver(
-                clock = clock,
-                port = 7000
-            ).also { it.start() }
+        oscInputReceiver = OscUdpInputReceiver(
+            clock = clock,
+            port = 7000
+        ).also { it.start() }
 
         val settingsStore = SettingsStore(this)
 
         setContent {
-            val settings by settingsStore.settings.collectAsState(
-                initial = SettingsState(
-                    ip = "192.168.178.24",
-                    port = 7002,
-                    showBpm = true,
-                    showOscDot = true   // ✅ FIX
-                )
-            )
-
+            val settings by settingsStore.settings.collectAsState(initial = null)
             val bpm by actionEngine.bpm.collectAsState()
             var showSettings by remember { mutableStateOf(false) }
 
-            MaterialTheme {
-                Surface {
-                    if (showSettings) {
-                        SettingsScreen(
-                            osc = oscOut,
-                            onClose = { showSettings = false }
-                        )
-                    } else {
-                        TapScreen(
-                            bpm = bpm,
-                            showBpm = settings.showBpm,
-                            showOscDot = settings.showOscDot,
-                            action = actionEngine,
-                            osc = oscOut,
-                            onLongPress = { showSettings = true }
-                        )
+            settings?.let { s ->
+
+                // 🔑 Aktives Preset bestimmt OSC OUT
+                LaunchedEffect(s.activePreset) {
+                    val target = s.activeTarget
+                    oscOut.updateTarget(target.ip, target.port)
+                }
+
+                MaterialTheme {
+                    Surface {
+                        if (showSettings) {
+                            SettingsScreen(
+                                osc = oscOut,
+                                onClose = { showSettings = false }
+                            )
+                        } else {
+                            TapScreen(
+                                bpm = bpm,
+                                showBpm = s.showBpm,
+                                showOscDot = s.showOscDot,
+                                action = actionEngine,
+                                osc = oscOut,
+                                onLongPress = { showSettings = true }
+                            )
+                        }
                     }
                 }
             }

@@ -23,11 +23,16 @@ class ActionEngine(
     /** letzter gültiger BPM-Wert (UI-Hold, keine Logik) */
     private var lastValidBpm: Float? = null
 
+    /** Telemetrie: Zeitpunkt des letzten empfangenen BPM */
+    private val _lastBpmAt = MutableStateFlow(0L)
+    val lastBpmAt: StateFlow<Long> = _lastBpmAt.asStateFlow()
+
     /** Wird von Clock / ExternalBpm aufgerufen */
     fun setExternalBpm(bpm: Double) {
         val value = bpm.toFloat()
         _bpm.value = value
         lastValidBpm = value
+        _lastBpmAt.value = System.currentTimeMillis()
     }
 
     /** Für UI: letzter gültiger BPM oder null */

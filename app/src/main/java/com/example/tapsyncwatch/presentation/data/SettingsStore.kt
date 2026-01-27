@@ -1,10 +1,7 @@
 package com.example.tapsyncwatch.presentation.data
 
 import android.content.Context
-import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -13,12 +10,55 @@ private val Context.dataStore by preferencesDataStore(
     name = "tapsync_settings"
 )
 
+/* =========================================================
+ * KEYS
+ * ========================================================= */
+
 object SettingsKeys {
-    val TARGET_IP = stringPreferencesKey("target_ip")
-    val TARGET_PORT = intPreferencesKey("target_port")
+
+    // Presets (A/B/C)
+    val PRESET_A_IP = stringPreferencesKey("preset_a_ip")
+    val PRESET_A_PORT = intPreferencesKey("preset_a_port")
+    val PRESET_A_NAME = stringPreferencesKey("preset_a_name")
+
+    val PRESET_B_IP = stringPreferencesKey("preset_b_ip")
+    val PRESET_B_PORT = intPreferencesKey("preset_b_port")
+    val PRESET_B_NAME = stringPreferencesKey("preset_b_name")
+
+    val PRESET_C_IP = stringPreferencesKey("preset_c_ip")
+    val PRESET_C_PORT = intPreferencesKey("preset_c_port")
+    val PRESET_C_NAME = stringPreferencesKey("preset_c_name")
+
+    val ACTIVE_PRESET = intPreferencesKey("active_preset")
+
+    // UI
     val SHOW_BPM = booleanPreferencesKey("show_bpm")
-    val SHOW_OSC_DOT = booleanPreferencesKey("show_osc_dot") // ✅ NEU
+    val SHOW_OSC_DOT = booleanPreferencesKey("show_osc_dot")
 }
+
+/* =========================================================
+ * MODELS
+ * ========================================================= */
+
+data class OscTarget(
+    val name: String,
+    val ip: String,
+    val port: Int
+)
+
+data class SettingsState(
+    val presets: List<OscTarget>,
+    val activePreset: Int,
+    val showBpm: Boolean,
+    val showOscDot: Boolean
+) {
+    val activeTarget: OscTarget
+        get() = presets[activePreset.coerceIn(0, presets.lastIndex)]
+}
+
+/* =========================================================
+ * STORE
+ * ========================================================= */
 
 class SettingsStore(
     private val context: Context
@@ -26,34 +66,70 @@ class SettingsStore(
 
     val settings: Flow<SettingsState> =
         context.dataStore.data.map { prefs ->
+
+            val presets = listOf(
+                OscTarget(
+                    name = prefs[SettingsKeys.PRESET_A_NAME] ?: "Preset A",
+                    ip = prefs[SettingsKeys.PRESET_A_IP] ?: "192.168.178.24",
+                    port = prefs[SettingsKeys.PRESET_A_PORT] ?: 7002
+                ),
+                OscTarget(
+                    name = prefs[SettingsKeys.PRESET_B_NAME] ?: "Preset B",
+                    ip = prefs[SettingsKeys.PRESET_B_IP] ?: "192.168.178.25",
+                    port = prefs[SettingsKeys.PRESET_B_PORT] ?: 7002
+                ),
+                OscTarget(
+                    name = prefs[SettingsKeys.PRESET_C_NAME] ?: "Preset C",
+                    ip = prefs[SettingsKeys.PRESET_C_IP] ?: "192.168.178.26",
+                    port = prefs[SettingsKeys.PRESET_C_PORT] ?: 7002
+                )
+            )
+
             SettingsState(
-                ip = prefs[SettingsKeys.TARGET_IP] ?: "192.168.178.24",
-                port = prefs[SettingsKeys.TARGET_PORT] ?: 7002,
+                presets = presets,
+                activePreset = prefs[SettingsKeys.ACTIVE_PRESET] ?: 0,
                 showBpm = prefs[SettingsKeys.SHOW_BPM] ?: true,
-                showOscDot = prefs[SettingsKeys.SHOW_OSC_DOT] ?: true // ✅ NEU
+                showOscDot = prefs[SettingsKeys.SHOW_OSC_DOT] ?: true
             )
         }
 
-    suspend fun updateIp(ip: String) {
-        context.dataStore.edit { it[SettingsKeys.TARGET_IP] = ip }
+    /* -------- Preset Updates -------- */
+
+    suspend fun setActivePreset(index: Int) {
+        context.dataStore.edit {
+            it[SettingsKeys.ACTIVE_PRESET] = index.coerceIn(0, 2)
+        }
     }
 
-    suspend fun updatePort(port: Int) {
-        context.dataStore.edit { it[SettingsKeys.TARGET_PORT] = port }
+    suspend fun updatePreset(index: Int, target: OscTarget) {
+        context.dataStore.edit {
+            when (index) {
+                0 -> {
+                    it[SettingsKeys.PRESET_A_NAME] = target.name
+                    it[SettingsKeys.PRESET_A_IP] = target.ip
+                    it[SettingsKeys.PRESET_A_PORT] = target.port
+                }
+                1 -> {
+                    it[SettingsKeys.PRESET_B_NAME] = target.name
+                    it[SettingsKeys.PRESET_B_IP] = target.ip
+                    it[SettingsKeys.PRESET_B_PORT] = target.port
+                }
+                2 -> {
+                    it[SettingsKeys.PRESET_C_NAME] = target.name
+                    it[SettingsKeys.PRESET_C_IP] = target.ip
+                    it[SettingsKeys.PRESET_C_PORT] = target.port
+                }
+            }
+        }
     }
+
+    /* -------- UI -------- */
 
     suspend fun setShowBpm(show: Boolean) {
         context.dataStore.edit { it[SettingsKeys.SHOW_BPM] = show }
     }
 
-    suspend fun setShowOscDot(show: Boolean) { // ✅ NEU
+    suspend fun setShowOscDot(show: Boolean) {
         context.dataStore.edit { it[SettingsKeys.SHOW_OSC_DOT] = show }
     }
 }
-
-data class SettingsState(
-    val ip: String,
-    val port: Int,
-    val showBpm: Boolean,
-    val showOscDot: Boolean // ✅ NEU
-)
