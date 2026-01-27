@@ -42,8 +42,10 @@ class OscUdpInputReceiver(
     // Runtime State
     // ------------------------------------------------------------------
 
-    private var socket: DatagramSocket? = null
+    @Volatile
     private var running = false
+
+    private var socket: DatagramSocket? = null
 
     fun start() {
         if (running) return
@@ -54,15 +56,23 @@ class OscUdpInputReceiver(
         CoroutineScope(Dispatchers.IO).launch {
             val buffer = ByteArray(2048)
 
-            while (running) {
+            while (true) {
+                if (!running) break
+
                 try {
                     val packet = DatagramPacket(buffer, buffer.size)
                     socket?.receive(packet)
                     handlePacket(packet.data.copyOf(packet.length))
                 } catch (_: Exception) {
+                    if (!running) break
                     // OSC darf die App niemals crashen
                 }
             }
+
+            // expliziter, erreichbarer Cleanup-Pfad
+            socket?.close()
+            socket = null
+            running = false
         }
     }
 
@@ -132,8 +142,7 @@ class OscUdpInputReceiver(
             }
 
             // -------------------------------------------------
-            // ALLE ANDEREN OSC-PFADE IGNORIEREN
-            // (Echo-Schutz: Watch reagiert NICHT auf eigene Befehle)
+            // ALLE ANDEREN OSC-PFADE IGNORIEREN (Echo-Schutz)
             // -------------------------------------------------
             else -> Unit
         }

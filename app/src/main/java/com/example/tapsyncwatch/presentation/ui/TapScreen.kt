@@ -43,12 +43,12 @@ private enum class HapticType { TAP, ACTION }
 private fun rememberHaptics(): (HapticType) -> Unit {
     val context = LocalContext.current
     val vibrator = remember {
-        context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        context.getSystemService(Vibrator::class.java)
     }
 
     return { type ->
         try {
-            if (vibrator != null && vibrator.hasVibrator()) {
+            if (vibrator?.hasVibrator() == true) {
                 vibrator.vibrate(
                     VibrationEffect.createOneShot(
                         if (type == HapticType.TAP) 20L else 35L,
@@ -59,6 +59,7 @@ private fun rememberHaptics(): (HapticType) -> Unit {
         } catch (_: Throwable) {}
     }
 }
+
 
 /* =========================================================
  * TAP SCREEN
