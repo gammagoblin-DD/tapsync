@@ -8,13 +8,13 @@ import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Surface
 import androidx.compose.runtime.*
 import com.example.tapsyncwatch.domain.action.ActionEngine
-import com.example.tapsyncwatch.presentation.network.OscSender
+import com.example.tapsyncwatch.presentation.data.SettingsStore
+import com.example.tapsyncwatch.presentation.ui.SettingsScreen
 import com.example.tapsyncwatch.presentation.ui.TapScreen
 import kotlinx.coroutines.*
 
 class MainActivity : ComponentActivity() {
 
-    // exakt wie im ALT-Code
     private val oscScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -26,21 +26,23 @@ class MainActivity : ComponentActivity() {
             scope = oscScope
         )
 
+        // SettingsStore EXISTIERT und bleibt
+        val settingsStore = SettingsStore(this)
+
         setContent {
             var showSettings by remember { mutableStateOf(false) }
 
             MaterialTheme {
                 Surface {
                     if (showSettings) {
-
-                        // ✅ KORREKT: parameterlose SettingsScreen
-                        SettingsScreen()
-
+                        SettingsScreen(
+                            settingsStore = settingsStore,
+                            onClose = { showSettings = false }
+                        )
                     } else {
-
                         TapScreen(
-                            showBpm = true, // wird intern geregelt wie im Alt-Code
                             action = actionEngine,
+                            showBpm = true,          // ✅ PFLICHTPARAMETER
                             onLongPress = { showSettings = true }
                         )
                     }
