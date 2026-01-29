@@ -29,8 +29,10 @@ object SettingsKeys {
     val PRESET_C_PORT = intPreferencesKey("preset_c_port")
 
     val ACTIVE_PRESET = intPreferencesKey("active_preset")
-
     val SHOW_OSC_DOT = booleanPreferencesKey("show_osc_dot")
+
+    // 🆕 HAPTICS
+    val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
 }
 
 /* =========================================================
@@ -46,7 +48,8 @@ data class OscTarget(
 data class SettingsState(
     val presets: List<OscTarget>,
     val activePreset: Int,
-    val showOscDot: Boolean
+    val showOscDot: Boolean,
+    val hapticsEnabled: Boolean            // 🆕
 ) {
     val activeTarget: OscTarget
         get() = presets[activePreset.coerceIn(0, presets.lastIndex)]
@@ -84,11 +87,11 @@ class SettingsStore(
             SettingsState(
                 presets = presets,
                 activePreset = prefs[SettingsKeys.ACTIVE_PRESET] ?: 0,
-                showOscDot = prefs[SettingsKeys.SHOW_OSC_DOT] ?: true
+                showOscDot = prefs[SettingsKeys.SHOW_OSC_DOT] ?: true,
+                hapticsEnabled = prefs[SettingsKeys.HAPTICS_ENABLED] ?: true
             )
         }
 
-    /** 🔑 Runtime-relevanter Flow */
     val activeTarget: Flow<OscTarget> =
         settings.map { it.activeTarget }
 
@@ -123,6 +126,13 @@ class SettingsStore(
     suspend fun setShowOscDot(show: Boolean) {
         context.dataStore.edit {
             it[SettingsKeys.SHOW_OSC_DOT] = show
+        }
+    }
+
+    // 🆕 HAPTICS
+    suspend fun setHapticsEnabled(enabled: Boolean) {
+        context.dataStore.edit {
+            it[SettingsKeys.HAPTICS_ENABLED] = enabled
         }
     }
 }

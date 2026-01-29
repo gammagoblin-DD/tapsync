@@ -33,9 +33,8 @@ class MainActivity : ComponentActivity() {
 
         val settingsStore = SettingsStore(this)
 
-        /** 🔑 OSC OUT (Port 7002 = Resolume) */
         val oscSender = OscOutputSender(
-            host = "127.0.0.1", // Platzhalter
+            host = "127.0.0.1",
             port = 7002
         )
 
@@ -43,11 +42,6 @@ class MainActivity : ComponentActivity() {
             oscSender = oscSender
         )
 
-        /** 🔥 ZENTRALER & KORREKTER BIND
-         *  – reagiert auf IP + Port
-         *  – kein Race
-         *  – kein Restart nötig
-         */
         lifecycleScope.launch {
             settingsStore.activeTarget.collect { target ->
                 oscSender.setTarget(
@@ -57,7 +51,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        /** OSC IN (Port 7000) */
         oscReceiver = OscInputReceiver(clock)
         oscReceiver.start()
 
@@ -77,7 +70,6 @@ class MainActivity : ComponentActivity() {
                     clock = clock
                 )
             }
-
 
             val clockState by clock.state.collectAsState(
                 initial = ClockState(
@@ -101,11 +93,13 @@ class MainActivity : ComponentActivity() {
                                 showBpm = false,
                                 bpm = clockState.bpm,
                                 action = actionEngine,
-                                onLongPress = { showSettings = true },
-                                onOscActivity = { handler ->
-                                    onOscActivity = handler
-                                }
+                                oscHealth = oscSender.health,
+                                clockVisualState = clock.visualState,
+                                hapticsEnabled = s.hapticsEnabled,
+                                onLongPress = { showSettings = true },          // ✅ FEHLTE
+                                onOscActivity = { handler -> onOscActivity = handler }
                             )
+
                         }
                     }
                 }

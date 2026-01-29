@@ -113,6 +113,31 @@ fun SettingsScreen(
                         }
                     }
 
+                    /* ---------- FEEDBACK ---------- */
+                    SettingsBlock("Feedback") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Haptics", color = GoblinText)
+                            Switch(
+                                checked = s.hapticsEnabled,
+                                onCheckedChange = {
+                                    scope.launch {
+                                        settingsStore.setHapticsEnabled(it)
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = GoblinAccent,
+                                    checkedTrackColor = GoblinAccent.copy(alpha = 0.4f),
+                                    uncheckedThumbColor = Color.DarkGray,
+                                    uncheckedTrackColor = GoblinBorder
+                                )
+                            )
+                        }
+                    }
+
                     /* ---------- PRESETS ---------- */
                     SettingsBlock("Resolume / OSC Presets") {
                         s.presets.forEachIndexed { index, preset ->

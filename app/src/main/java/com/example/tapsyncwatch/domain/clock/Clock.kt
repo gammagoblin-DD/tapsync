@@ -22,6 +22,11 @@ class Clock(
     )
     val state: StateFlow<ClockState> = _state.asStateFlow()
 
+    /* ================= VISUAL STATE (NEU) ================= */
+
+    private val _visualState = MutableStateFlow(ClockVisualState())
+    val visualState: StateFlow<ClockVisualState> = _visualState.asStateFlow()
+
     fun handle(event: ClockEvent) {
         when (event) {
 
@@ -43,27 +48,33 @@ class Clock(
             }
 
             /* -------------------------------------------------
-             * MULTIPLY — ONE SHOT (ONLY 1)
+             * MULTIPLY — ONE SHOT
              * ------------------------------------------------- */
             ClockEvent.Multiply -> {
                 oscSender.sendInt(
                     "/composition/tempocontroller/tempo/multiply",
                     1
                 )
+                _visualState.value = _visualState.value.copy(
+                    lastMultiplyMs = System.currentTimeMillis()
+                )
             }
 
             /* -------------------------------------------------
-             * DIVIDE — ONE SHOT (ONLY 1)
+             * DIVIDE — ONE SHOT
              * ------------------------------------------------- */
             ClockEvent.Divide -> {
                 oscSender.sendInt(
                     "/composition/tempocontroller/tempo/divide",
                     1
                 )
+                _visualState.value = _visualState.value.copy(
+                    lastDivideMs = System.currentTimeMillis()
+                )
             }
 
             /* -------------------------------------------------
-             * RESYNC — momentary (1 → 0)
+             * RESYNC — momentary
              * ------------------------------------------------- */
             ClockEvent.Resync -> {
                 scope.launch {
@@ -86,12 +97,18 @@ class Clock(
                 nudgeActivePath =
                     "/composition/tempocontroller/tempopush"
                 oscSender.sendInt(nudgeActivePath!!, 1)
+                _visualState.value = _visualState.value.copy(
+                    nudgeActive = true
+                )
             }
 
             ClockEvent.Nudge.LeftStart -> {
                 nudgeActivePath =
                     "/composition/tempocontroller/tempopull"
                 oscSender.sendInt(nudgeActivePath!!, 1)
+                _visualState.value = _visualState.value.copy(
+                    nudgeActive = true
+                )
             }
 
             ClockEvent.Nudge.Stop -> {
@@ -99,6 +116,9 @@ class Clock(
                     oscSender.sendInt(path, 0)
                 }
                 nudgeActivePath = null
+                _visualState.value = _visualState.value.copy(
+                    nudgeActive = false
+                )
             }
 
             /* -------------------------------------------------
@@ -109,7 +129,19 @@ class Clock(
                     bpm = event.bpm,
                     isRunning = true
                 )
+
+                _visualState.value = _visualState.value.copy(
+                    downbeatPulse = true
+                )
+
+                scope.launch {
+                    delay(50)
+                    _visualState.value = _visualState.value.copy(
+                        downbeatPulse = false
+                    )
+                }
             }
+
 
             /* -------------------------------------------------
              * TICK — intentionally ignored
@@ -117,4 +149,5 @@ class Clock(
             is ClockEvent.Tick -> Unit
         }
     }
+
 }

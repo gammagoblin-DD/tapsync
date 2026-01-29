@@ -9,22 +9,31 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import com.example.tapsyncwatch.R
 import com.example.tapsyncwatch.domain.action.ActionEngine
+import com.example.tapsyncwatch.domain.clock.ClockVisualState
+import com.example.tapsyncwatch.osc.OscHealth
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.*
-import androidx.compose.ui.unit.IntOffset
 
+/* ================= GOBLIN STYLE ================= */
+
+private val GoblinBrown = Color(0xFF8C5A2B)
 
 private enum class TouchZone { CENTER, RING }
 private enum class BezelDir { NONE, CW, CCW }
@@ -33,14 +42,30 @@ private enum class BezelState { IDLE, HELD }
 @Composable
 fun TapScreen(
     showOscDot: Boolean,
-    showBpm: Boolean,     // API-Stabilität (OPTION A)
-    bpm: Double,          // bleibt intern, nie angezeigt
+    showBpm: Boolean,
+    bpm: Double,
     action: ActionEngine,
+    oscHealth: StateFlow<OscHealth>,
+    clockVisualState: StateFlow<ClockVisualState>,
+    hapticsEnabled: Boolean,            // 🆕
     onLongPress: () -> Unit,
     onOscActivity: ((() -> Unit)) -> Unit
 ) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val metrics = context.resources.displayMetrics
+
+    fun lightHaptic() {
+        if (hapticsEnabled) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+    }
+
+    fun strongHaptic() {
+        if (hapticsEnabled) {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
+    }
 
     val width = metrics.widthPixels.toFloat()
     val height = metrics.heightPixels.toFloat()
@@ -71,9 +96,7 @@ fun TapScreen(
     val flashAlpha = remember { Animatable(0f) }
     var tapTrigger by remember { mutableStateOf(0) }
 
-    /* =====================================================
-     * OSC DOT PULSE (visual only)
-     * ===================================================== */
+    /* ================= OSC PULSE ================= */
 
     val oscPulse = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
@@ -81,27 +104,53 @@ fun TapScreen(
     fun pulseOsc() {
         scope.launch {
             oscPulse.snapTo(1f)
-            oscPulse.animateTo(
-                0f,
-                tween(220, easing = FastOutSlowInEasing)
-            )
+            oscPulse.animateTo(0f, tween(220, easing = FastOutSlowInEasing))
         }
     }
 
-    // Register callback ONCE
     LaunchedEffect(Unit) {
-        onOscActivity {
-            pulseOsc()
-        }
+        onOscActivity { pulseOsc() }
     }
 
-    // Watch → Resolume actions also pulse
     LaunchedEffect(tapTrigger) {
         flashAlpha.snapTo(0f)
         flashAlpha.animateTo(1f, tween(120))
         flashAlpha.animateTo(0f, tween(500))
         pulseOsc()
     }
+
+    /* ================= OSC HEALTH ================= */
+
+    val health by oscHealth.collectAsState()
+    val oscDotColor = when (health) {
+        is OscHealth.Sending -> Color(0xFF4CAF50)
+        is OscHealth.Error -> Color(0xFFE53935)
+        OscHealth.Idle -> Color(0xFFB86CFF)
+    }
+
+    /* ================= CLOCK VISUAL ================= */
+
+    val visual by clockVisualState.collectAsState()
+    val downbeatPulse = remember { Animatable(0f) }
+
+    LaunchedEffect(visual.downbeatPulse) {
+        if (visual.downbeatPulse) {
+            downbeatPulse.snapTo(1f)
+            downbeatPulse.animateTo(0f, tween(260))
+        }
+    }
+
+    fun overlayAlpha(eventMs: Long?): Float {
+        if (eventMs == null) return 0f
+        val dt = System.currentTimeMillis() - eventMs
+        return when {
+            dt < 200 -> 1f
+            dt < 800 -> 1f - (dt - 200) / 600f
+            else -> 0f
+        }
+    }
+
+    /* ================= UI ================= */
 
     Box(
         modifier = Modifier
@@ -161,6 +210,7 @@ fun TapScreen(
                                 else
                                     action.nudgePullStart()
 
+                                lightHaptic()
                                 tapTrigger++
                             }
                             return@pointerInteropFilter true
@@ -173,11 +223,13 @@ fun TapScreen(
                             if (abs(dyT) > swipeThreshold && abs(dyT) > abs(dxT)) {
                                 swipeHandled = true
                                 if (dyT < 0) action.multiply() else action.divide()
+                                lightHaptic()
                                 tapTrigger++
                                 return@pointerInteropFilter true
                             } else if (abs(dxT) > swipeThreshold && dxT < 0) {
                                 swipeHandled = true
                                 action.resync()
+                                strongHaptic()
                                 tapTrigger++
                                 return@pointerInteropFilter true
                             }
@@ -208,6 +260,7 @@ fun TapScreen(
                             else {
                                 tapTrigger++
                                 action.tap()
+                                lightHaptic()
                             }
                         }
                         true
@@ -233,62 +286,64 @@ fun TapScreen(
                 .alpha(flashAlpha.value)
         )
 
-        if (zone == TouchZone.RING) {
-            Canvas(Modifier.fillMaxSize()) {
-                drawArc(
-                    color = Color(0xFFB86CFF).copy(alpha = 0.25f),
-                    startAngle = 110f,
-                    sweepAngle = 140f,
-                    useCenter = false,
-                    topLeft = androidx.compose.ui.geometry.Offset(
-                        cx - ringOuter,
-                        cy - ringOuter
-                    ),
-                    size = androidx.compose.ui.geometry.Size(
-                        ringOuter * 2,
-                        ringOuter * 2
-                    ),
-                    style = Stroke(width = ringOuter - ringInner)
+        /* OSC DOT */
+        if (showOscDot) {
+            Canvas(
+                modifier = Modifier
+                    .size(10.dp)
+                    .offset(
+                        x = (radius * 0.30f).dp,
+                        y = (radius * 0.22f).dp
+                    )
+            ) {
+                drawCircle(
+                    color = oscDotColor,
+                    alpha = 0.35f + oscPulse.value * 0.65f
                 )
             }
         }
 
-        /* =================================================
-         * OSC STATUS DOT – legacy ring position (FINAL)
-         * ================================================= */
+        /* DOWNBEAT */
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawCircle(
+                color = GoblinBrown.copy(alpha = 0.22f * downbeatPulse.value),
+                radius = radius * (1.05f + downbeatPulse.value * 0.08f),
+                center = androidx.compose.ui.geometry.Offset(cx, cy),
+                style = Stroke(width = 12f)
+            )
+        }
 
-        if (showOscDot) {
+        /* MULTIPLY / DIVIDE */
+        val multiplyAlpha = overlayAlpha(visual.lastMultiplyMs)
+        val divideAlpha = overlayAlpha(visual.lastDivideMs)
 
-            // relative position inside ring (matches legacy pink marker)
-            val dotDx = radius * 0.30f
-            val dotDy = radius * 0.22f
-
+        if (multiplyAlpha > 0f || divideAlpha > 0f) {
             Box(
                 modifier = Modifier
-                    .fillMaxSize(),
+                    .fillMaxSize()
+                    .offset(y = (radius * 0.25f).dp),
                 contentAlignment = Alignment.Center
             ) {
-                Canvas(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .offset(
-                            x = dotDx.dp,
-                            y = dotDy.dp
-                        )
-                ) {
-                    drawCircle(
-                        color = Color(0xFFB86CFF), // grafiknah
-                        alpha = 0.35f + oscPulse.value * 0.65f
-                    )
-                }
+                Text(
+                    text = if (multiplyAlpha > divideAlpha) "×2" else "÷2",
+                    color = GoblinBrown,
+                    modifier = Modifier.alpha(max(multiplyAlpha, divideAlpha))
+                )
             }
         }
 
-
-
-
-
-
-        // BPM intentionally never rendered (OPTION A)
+        /* NUDGE */
+        if (visual.nudgeActive) {
+            Canvas(
+                modifier = Modifier
+                    .size(80.dp)
+                    .align(Alignment.Center)
+            ) {
+                drawCircle(
+                    color = GoblinBrown.copy(alpha = 0.15f),
+                    style = Stroke(width = 6f)
+                )
+            }
+        }
     }
 }
