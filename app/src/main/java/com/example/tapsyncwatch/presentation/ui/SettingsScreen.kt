@@ -24,6 +24,8 @@ import androidx.compose.ui.unit.sp
 import com.example.tapsyncwatch.presentation.data.OscTarget
 import com.example.tapsyncwatch.presentation.data.SettingsStore
 import kotlinx.coroutines.launch
+import com.example.tapsyncwatch.domain.clock.ClockMode
+
 
 /* ================= GOBLIN COLORS ================= */
 
@@ -113,8 +115,53 @@ fun SettingsScreen(
                         }
                     }
 
+                    SettingsBlock("Clock") {
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = s.clockMode == ClockMode.EXTERNAL,
+                                    onClick = {
+                                        scope.launch {
+                                            settingsStore.setClockMode(ClockMode.EXTERNAL)
+                                        }
+                                    },
+                                    colors = RadioButtonDefaults.colors(
+                                        selectedColor = GoblinAccent
+                                    )
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("External (OSC)", color = GoblinText)
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = s.clockMode == ClockMode.INTERNAL,
+                                    onClick = {
+                                        scope.launch {
+                                            settingsStore.setClockMode(ClockMode.INTERNAL)
+                                        }
+                                    },
+                                    colors = RadioButtonDefaults.colors(
+                                        selectedColor = GoblinAccent
+                                    )
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("Internal (Watch)", color = GoblinText)
+                            }
+                        }
+                    }
+
                     /* ---------- FEEDBACK ---------- */
                     SettingsBlock("Feedback") {
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -126,6 +173,31 @@ fun SettingsScreen(
                                 onCheckedChange = {
                                     scope.launch {
                                         settingsStore.setHapticsEnabled(it)
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = GoblinAccent,
+                                    checkedTrackColor = GoblinAccent.copy(alpha = 0.4f),
+                                    uncheckedThumbColor = Color.DarkGray,
+                                    uncheckedTrackColor = GoblinBorder
+                                )
+                            )
+                        }
+
+                        Spacer(Modifier.height(6.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Downbeat Haptic", color = GoblinText)
+                            Switch(
+                                checked = s.downbeatHapticsEnabled,
+                                enabled = s.hapticsEnabled,
+                                onCheckedChange = {
+                                    scope.launch {
+                                        settingsStore.setDownbeatHapticsEnabled(it)
                                     }
                                 },
                                 colors = SwitchDefaults.colors(

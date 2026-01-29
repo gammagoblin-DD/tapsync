@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.lifecycleScope
 import com.example.tapsyncwatch.domain.action.ActionEngine
 import com.example.tapsyncwatch.domain.clock.Clock
+import com.example.tapsyncwatch.domain.clock.ClockMode
 import com.example.tapsyncwatch.domain.clock.ClockState
 import com.example.tapsyncwatch.input.osc.OscInputReceiver
 import com.example.tapsyncwatch.input.osc.OscOutputSender
@@ -42,6 +43,16 @@ class MainActivity : ComponentActivity() {
             oscSender = oscSender
         )
 
+        /* ================= CLOCK MODE WIRING (🆕 WICHTIG) ================= */
+
+        lifecycleScope.launch {
+            settingsStore.settings.collect { s ->
+                clock.setMode(s.clockMode)
+            }
+        }
+
+        /* ================= OSC TARGET ================= */
+
         lifecycleScope.launch {
             settingsStore.activeTarget.collect { target ->
                 oscSender.setTarget(
@@ -50,6 +61,8 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+
+        /* ================= OSC INPUT ================= */
 
         oscReceiver = OscInputReceiver(clock)
         oscReceiver.start()
@@ -96,10 +109,12 @@ class MainActivity : ComponentActivity() {
                                 oscHealth = oscSender.health,
                                 clockVisualState = clock.visualState,
                                 hapticsEnabled = s.hapticsEnabled,
-                                onLongPress = { showSettings = true },          // ✅ FEHLTE
-                                onOscActivity = { handler -> onOscActivity = handler }
+                                downbeatHapticsEnabled = s.downbeatHapticsEnabled,
+                                onLongPress = { showSettings = true },
+                                onOscActivity = { handler ->
+                                    onOscActivity = handler
+                                }
                             )
-
                         }
                     }
                 }

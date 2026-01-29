@@ -11,7 +11,12 @@ class Clock(
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     private var nudgeActivePath: String? = null
+    private var tickJob: Job? = null
+
+    private val _mode = MutableStateFlow(ClockMode.EXTERNAL)
+    val mode: StateFlow<ClockMode> = _mode.asStateFlow()
 
     private val _state = MutableStateFlow(
         ClockState(
@@ -22,17 +27,57 @@ class Clock(
     )
     val state: StateFlow<ClockState> = _state.asStateFlow()
 
-    /* ================= VISUAL STATE (NEU) ================= */
-
-    private val _visualState = MutableStateFlow(ClockVisualState())
+    private val _visualState = MutableStateFlow(
+        ClockVisualState(
+            downbeatId = 0L
+        )
+    )
     val visualState: StateFlow<ClockVisualState> = _visualState.asStateFlow()
+
+    fun setMode(mode: ClockMode) {
+        _mode.value = mode
+
+        if (mode == ClockMode.EXTERNAL) {
+            stopInternalClock()
+        } else {
+            val bpm = _state.value.bpm.takeIf { it > 0.0 } ?: 120.0
+            startInternalClock(bpm)
+        }
+    }
+
+    private fun startInternalClock(bpm: Double) {
+        stopInternalClock()
+
+        val intervalMs = (60000.0 / bpm).toLong()
+
+        tickJob = scope.launch {
+            while (isActive) {
+                fireDownbeat()
+                delay(intervalMs)
+            }
+        }
+
+        _state.value = _state.value.copy(
+            bpm = bpm,
+            isRunning = true
+        )
+    }
+
+    private fun stopInternalClock() {
+        tickJob?.cancel()
+        tickJob = null
+        _state.value = _state.value.copy(isRunning = false)
+    }
+
+    private fun fireDownbeat() {
+        _visualState.value = _visualState.value.copy(
+            downbeatId = System.nanoTime()
+        )
+    }
 
     fun handle(event: ClockEvent) {
         when (event) {
 
-            /* -------------------------------------------------
-             * TAP — momentary (1 → 0)
-             * ------------------------------------------------- */
             is ClockEvent.Tap -> {
                 scope.launch {
                     oscSender.sendInt(
@@ -45,11 +90,12 @@ class Clock(
                         0
                     )
                 }
+
+                if (_mode.value == ClockMode.INTERNAL && tickJob == null) {
+                    startInternalClock(120.0)
+                }
             }
 
-            /* -------------------------------------------------
-             * MULTIPLY — ONE SHOT
-             * ------------------------------------------------- */
             ClockEvent.Multiply -> {
                 oscSender.sendInt(
                     "/composition/tempocontroller/tempo/multiply",
@@ -60,9 +106,6 @@ class Clock(
                 )
             }
 
-            /* -------------------------------------------------
-             * DIVIDE — ONE SHOT
-             * ------------------------------------------------- */
             ClockEvent.Divide -> {
                 oscSender.sendInt(
                     "/composition/tempocontroller/tempo/divide",
@@ -73,9 +116,6 @@ class Clock(
                 )
             }
 
-            /* -------------------------------------------------
-             * RESYNC — momentary
-             * ------------------------------------------------- */
             ClockEvent.Resync -> {
                 scope.launch {
                     oscSender.sendInt(
@@ -90,9 +130,6 @@ class Clock(
                 }
             }
 
-            /* -------------------------------------------------
-             * NUDGE — HOLD SEMANTICS
-             * ------------------------------------------------- */
             ClockEvent.Nudge.RightStart -> {
                 nudgeActivePath =
                     "/composition/tempocontroller/tempopush"
@@ -121,33 +158,24 @@ class Clock(
                 )
             }
 
-            /* -------------------------------------------------
-             * EXTERNAL BPM (UI only)
-             * ------------------------------------------------- */
             is ClockEvent.ExternalBpm -> {
+
+                if (_mode.value == ClockMode.INTERNAL) {
+                    return
+                }
+
+                stopInternalClock()
+                _mode.value = ClockMode.EXTERNAL
+
                 _state.value = _state.value.copy(
                     bpm = event.bpm,
                     isRunning = true
                 )
 
-                _visualState.value = _visualState.value.copy(
-                    downbeatPulse = true
-                )
-
-                scope.launch {
-                    delay(50)
-                    _visualState.value = _visualState.value.copy(
-                        downbeatPulse = false
-                    )
-                }
+                fireDownbeat()
             }
 
-
-            /* -------------------------------------------------
-             * TICK — intentionally ignored
-             * ------------------------------------------------- */
             is ClockEvent.Tick -> Unit
         }
     }
-
 }

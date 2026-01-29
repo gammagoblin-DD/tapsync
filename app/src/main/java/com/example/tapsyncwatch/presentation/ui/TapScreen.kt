@@ -22,7 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.zIndex
 import com.example.tapsyncwatch.R
 import com.example.tapsyncwatch.domain.action.ActionEngine
 import com.example.tapsyncwatch.domain.clock.ClockVisualState
@@ -47,7 +47,8 @@ fun TapScreen(
     action: ActionEngine,
     oscHealth: StateFlow<OscHealth>,
     clockVisualState: StateFlow<ClockVisualState>,
-    hapticsEnabled: Boolean,            // 🆕
+    hapticsEnabled: Boolean,
+    downbeatHapticsEnabled: Boolean,
     onLongPress: () -> Unit,
     onOscActivity: ((() -> Unit)) -> Unit
 ) {
@@ -57,24 +58,27 @@ fun TapScreen(
 
     fun lightHaptic() {
         if (hapticsEnabled) {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         }
     }
 
     fun strongHaptic() {
         if (hapticsEnabled) {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         }
     }
 
+    /* ===== Touch-Geometrie ===== */
+
     val width = metrics.widthPixels.toFloat()
     val height = metrics.heightPixels.toFloat()
-    val cx = width / 2f
-    val cy = height / 2f
-    val radius = min(width, height) / 2f
+    val cxTouch = width / 2f
+    val cyTouch = height / 2f
+    val radiusTouch = min(width, height) / 2f
 
-    val ringOuter = radius * 0.98f
-    val ringInner = radius * 0.50f
+    val ringOuter = radiusTouch * 0.98f
+    val ringInner = radiusTouch * 0.50f
 
     fun isInLeftBezel(angle: Float): Boolean =
         angle >= 110f || angle <= -110f
@@ -96,7 +100,7 @@ fun TapScreen(
     val flashAlpha = remember { Animatable(0f) }
     var tapTrigger by remember { mutableStateOf(0) }
 
-    /* ================= OSC PULSE ================= */
+    /* ================= OSC ================= */
 
     val oscPulse = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
@@ -119,8 +123,6 @@ fun TapScreen(
         pulseOsc()
     }
 
-    /* ================= OSC HEALTH ================= */
-
     val health by oscHealth.collectAsState()
     val oscDotColor = when (health) {
         is OscHealth.Sending -> Color(0xFF4CAF50)
@@ -133,10 +135,14 @@ fun TapScreen(
     val visual by clockVisualState.collectAsState()
     val downbeatPulse = remember { Animatable(0f) }
 
-    LaunchedEffect(visual.downbeatPulse) {
-        if (visual.downbeatPulse) {
+    LaunchedEffect(visual.downbeatId) {
+        if (visual.downbeatId != 0L) {
             downbeatPulse.snapTo(1f)
             downbeatPulse.animateTo(0f, tween(260))
+
+            if (hapticsEnabled && downbeatHapticsEnabled) {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
         }
     }
 
@@ -158,8 +164,8 @@ fun TapScreen(
             .background(Color.Black)
             .pointerInteropFilter { event ->
 
-                val dx = event.x - cx
-                val dy = event.y - cy
+                val dx = event.x - cxTouch
+                val dy = event.y - cyTouch
                 val dist = hypot(dx, dy)
 
                 when (event.actionMasked) {
@@ -190,7 +196,7 @@ fun TapScreen(
 
                         if (zone == TouchZone.RING) {
                             val angle = Math.toDegrees(
-                                atan2(event.y - cy, event.x - cx).toDouble()
+                                atan2(event.y - cyTouch, event.x - cxTouch).toDouble()
                             ).toFloat()
 
                             var delta = angle - lastAngle
@@ -292,8 +298,8 @@ fun TapScreen(
                 modifier = Modifier
                     .size(10.dp)
                     .offset(
-                        x = (radius * 0.30f).dp,
-                        y = (radius * 0.22f).dp
+                        x = (radiusTouch * 0.30f).dp,
+                        y = (radiusTouch * 0.22f).dp
                     )
             ) {
                 drawCircle(
@@ -303,15 +309,27 @@ fun TapScreen(
             }
         }
 
-        /* DOWNBEAT */
-        Canvas(modifier = Modifier.fillMaxSize()) {
+        /* ===== DOWNBEAT RING (WEAR SAFE, FINAL) ===== */
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(10f)
+        ) {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+
+            // ✅ Safe-Radius für Round Wear Displays
+            val safeRadius = min(size.width, size.height) * 0.82f / 2f
+
             drawCircle(
-                color = GoblinBrown.copy(alpha = 0.22f * downbeatPulse.value),
-                radius = radius * (1.05f + downbeatPulse.value * 0.08f),
+                color = GoblinBrown.copy(alpha = 0.28f * downbeatPulse.value),
+                radius = safeRadius * (1.0f + downbeatPulse.value * 0.06f),
                 center = androidx.compose.ui.geometry.Offset(cx, cy),
-                style = Stroke(width = 12f)
+                style = Stroke(width = 14f)
             )
         }
+
+
 
         /* MULTIPLY / DIVIDE */
         val multiplyAlpha = overlayAlpha(visual.lastMultiplyMs)
@@ -321,7 +339,7 @@ fun TapScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .offset(y = (radius * 0.25f).dp),
+                    .offset(y = (radiusTouch * 0.25f).dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(

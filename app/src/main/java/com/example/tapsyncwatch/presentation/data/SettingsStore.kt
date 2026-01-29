@@ -3,6 +3,7 @@ package com.example.tapsyncwatch.presentation.data
 import android.content.Context
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.tapsyncwatch.domain.clock.ClockMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -31,8 +32,12 @@ object SettingsKeys {
     val ACTIVE_PRESET = intPreferencesKey("active_preset")
     val SHOW_OSC_DOT = booleanPreferencesKey("show_osc_dot")
 
-    // 🆕 HAPTICS
     val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
+    val DOWNBEAT_HAPTICS_ENABLED =
+        booleanPreferencesKey("downbeat_haptics_enabled")
+
+    // 🆕 CLOCK MODE
+    val CLOCK_MODE = stringPreferencesKey("clock_mode")
 }
 
 /* =========================================================
@@ -49,7 +54,9 @@ data class SettingsState(
     val presets: List<OscTarget>,
     val activePreset: Int,
     val showOscDot: Boolean,
-    val hapticsEnabled: Boolean            // 🆕
+    val hapticsEnabled: Boolean,
+    val downbeatHapticsEnabled: Boolean,
+    val clockMode: ClockMode
 ) {
     val activeTarget: OscTarget
         get() = presets[activePreset.coerceIn(0, presets.lastIndex)]
@@ -88,7 +95,13 @@ class SettingsStore(
                 presets = presets,
                 activePreset = prefs[SettingsKeys.ACTIVE_PRESET] ?: 0,
                 showOscDot = prefs[SettingsKeys.SHOW_OSC_DOT] ?: true,
-                hapticsEnabled = prefs[SettingsKeys.HAPTICS_ENABLED] ?: true
+                hapticsEnabled = prefs[SettingsKeys.HAPTICS_ENABLED] ?: true,
+                downbeatHapticsEnabled =
+                    prefs[SettingsKeys.DOWNBEAT_HAPTICS_ENABLED] ?: false,
+                clockMode = ClockMode.valueOf(
+                    prefs[SettingsKeys.CLOCK_MODE]
+                        ?: ClockMode.EXTERNAL.name
+                )
             )
         }
 
@@ -129,10 +142,22 @@ class SettingsStore(
         }
     }
 
-    // 🆕 HAPTICS
     suspend fun setHapticsEnabled(enabled: Boolean) {
         context.dataStore.edit {
             it[SettingsKeys.HAPTICS_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setDownbeatHapticsEnabled(enabled: Boolean) {
+        context.dataStore.edit {
+            it[SettingsKeys.DOWNBEAT_HAPTICS_ENABLED] = enabled
+        }
+    }
+
+    // 🆕 CLOCK MODE
+    suspend fun setClockMode(mode: ClockMode) {
+        context.dataStore.edit {
+            it[SettingsKeys.CLOCK_MODE] = mode.name
         }
     }
 }
