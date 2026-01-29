@@ -117,6 +117,29 @@ fun SettingsScreen(
 
                     SettingsBlock("Clock") {
 
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Clock Enabled", color = GoblinText)
+                            Switch(
+                                checked = s.clockEnabled,
+                                onCheckedChange = {
+                                    scope.launch {
+                                        settingsStore.setClockEnabled(it)
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = GoblinAccent,
+                                    checkedTrackColor = GoblinAccent.copy(alpha = 0.4f),
+                                    uncheckedThumbColor = Color.DarkGray,
+                                    uncheckedTrackColor = GoblinBorder
+                                )
+                            )
+                        }
+
+
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
 
                             Row(

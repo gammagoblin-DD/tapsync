@@ -47,9 +47,11 @@ class MainActivity : ComponentActivity() {
 
         lifecycleScope.launch {
             settingsStore.settings.collect { s ->
+                clock.setEnabled(s.clockEnabled)
                 clock.setMode(s.clockMode)
             }
         }
+
 
         /* ================= OSC TARGET ================= */
 

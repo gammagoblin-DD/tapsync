@@ -1,5 +1,7 @@
 package com.example.tapsyncwatch.domain.clock
 
+import android.os.SystemClock
+import android.util.Log
 import com.example.tapsyncwatch.input.osc.OscOutputSender
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -10,17 +12,30 @@ class Clock(
     private val oscSender: OscOutputSender
 ) {
 
+    /* ================= DEBUG ================= */
+
+    private val DEBUG_CLOCK = true
+
+    private val TAG_CLOCK = "ClockTiming"
+
+    /* ================= CORE ================= */
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private var nudgeActivePath: String? = null
     private var tickJob: Job? = null
+
+    private var enabled: Boolean = true
+
+    /** 🔒 Absoluter Phasenanker (Resync-Zeitpunkt) */
+    private var phaseAnchorNs: Long? = null
 
     private val _mode = MutableStateFlow(ClockMode.EXTERNAL)
     val mode: StateFlow<ClockMode> = _mode.asStateFlow()
 
     private val _state = MutableStateFlow(
         ClockState(
-            bpm = 0.0,
+            bpm = 120.0,
             phase = 0.0,
             isRunning = false
         )
@@ -34,33 +49,81 @@ class Clock(
     )
     val visualState: StateFlow<ClockVisualState> = _visualState.asStateFlow()
 
-    fun setMode(mode: ClockMode) {
-        _mode.value = mode
+    /* ================= ENABLE ================= */
 
-        if (mode == ClockMode.EXTERNAL) {
+    fun setEnabled(value: Boolean) {
+        enabled = value
+        if (!enabled) {
             stopInternalClock()
-        } else {
-            val bpm = _state.value.bpm.takeIf { it > 0.0 } ?: 120.0
-            startInternalClock(bpm)
+            phaseAnchorNs = null
         }
     }
 
-    private fun startInternalClock(bpm: Double) {
+    /* ================= MODE ================= */
+
+    fun setMode(mode: ClockMode) {
+        _mode.value = mode
+
+        if (!enabled) {
+            stopInternalClock()
+            return
+        }
+
+        // Mode switch does NOT generate beats
+        if (mode == ClockMode.EXTERNAL) {
+            stopInternalClock()
+        }
+    }
+
+    /* ================= INTERNAL CLOCK ================= */
+
+    private fun startInternalClock() {
+        val bpm = _state.value.bpm
+        val anchor = phaseAnchorNs ?: return
+
         stopInternalClock()
 
-        val intervalMs = (60000.0 / bpm).toLong()
+        val intervalNs = (60_000_000_000.0 / bpm).toLong()
+
+        if (DEBUG_CLOCK) {
+            Log.d(TAG_CLOCK, "START internal clock bpm=$bpm anchor=$anchor")
+        }
 
         tickJob = scope.launch {
+            var beatIndex = 1L
+
             while (isActive) {
+                val targetTime = anchor + beatIndex * intervalNs
+
+                while (true) {
+                    val now = SystemClock.elapsedRealtimeNanos()
+                    val remainingNs = targetTime - now
+
+                    if (remainingNs <= 0) break
+
+                    if (remainingNs > 2_000_000) {
+                        delay(1)
+                    } else {
+                        while (SystemClock.elapsedRealtimeNanos() < targetTime) {
+                            Thread.onSpinWait()
+                        }
+                        break
+                    }
+                }
+
+                val actualTime = SystemClock.elapsedRealtimeNanos()
+                val driftUs = (actualTime - targetTime) / 1_000
+
+                if (DEBUG_CLOCK) {
+                    Log.d(TAG_CLOCK, "Beat=$beatIndex drift=${driftUs}µs")
+                }
+
                 fireDownbeat()
-                delay(intervalMs)
+                beatIndex++
             }
         }
 
-        _state.value = _state.value.copy(
-            bpm = bpm,
-            isRunning = true
-        )
+        _state.value = _state.value.copy(isRunning = true)
     }
 
     private fun stopInternalClock() {
@@ -71,11 +134,16 @@ class Clock(
 
     private fun fireDownbeat() {
         _visualState.value = _visualState.value.copy(
-            downbeatId = System.nanoTime()
+            downbeatId = SystemClock.elapsedRealtimeNanos()
         )
     }
 
+    /* ================= EVENTS ================= */
+
     fun handle(event: ClockEvent) {
+
+        if (!enabled) return
+
         when (event) {
 
             is ClockEvent.Tap -> {
@@ -90,9 +158,47 @@ class Clock(
                         0
                     )
                 }
+            }
 
-                if (_mode.value == ClockMode.INTERNAL && tickJob == null) {
-                    startInternalClock(120.0)
+            // IMPORTANT:
+            // BPM changes do NOT re-anchor phase.
+            // Only RESYNC defines the phase anchor.
+
+            is ClockEvent.ExternalBpm -> {
+                _state.value = _state.value.copy(
+                    bpm = event.bpm,
+                    isRunning = true
+                )
+
+                if (_mode.value == ClockMode.EXTERNAL) {
+                    fireDownbeat()
+                }
+            }
+
+            ClockEvent.Resync -> {
+
+                scope.launch {
+                    oscSender.sendInt(
+                        "/composition/tempocontroller/resync",
+                        1
+                    )
+                    delay(40)
+                    oscSender.sendInt(
+                        "/composition/tempocontroller/resync",
+                        0
+                    )
+                }
+
+                phaseAnchorNs = SystemClock.elapsedRealtimeNanos()
+
+                if (DEBUG_CLOCK) {
+                    Log.d(TAG_CLOCK, "RESYNC anchor=$phaseAnchorNs")
+                }
+
+                fireDownbeat()
+
+                if (_mode.value == ClockMode.INTERNAL) {
+                    startInternalClock()
                 }
             }
 
@@ -114,20 +220,6 @@ class Clock(
                 _visualState.value = _visualState.value.copy(
                     lastDivideMs = System.currentTimeMillis()
                 )
-            }
-
-            ClockEvent.Resync -> {
-                scope.launch {
-                    oscSender.sendInt(
-                        "/composition/tempocontroller/resync",
-                        1
-                    )
-                    delay(40)
-                    oscSender.sendInt(
-                        "/composition/tempocontroller/resync",
-                        0
-                    )
-                }
             }
 
             ClockEvent.Nudge.RightStart -> {
@@ -156,23 +248,6 @@ class Clock(
                 _visualState.value = _visualState.value.copy(
                     nudgeActive = false
                 )
-            }
-
-            is ClockEvent.ExternalBpm -> {
-
-                if (_mode.value == ClockMode.INTERNAL) {
-                    return
-                }
-
-                stopInternalClock()
-                _mode.value = ClockMode.EXTERNAL
-
-                _state.value = _state.value.copy(
-                    bpm = event.bpm,
-                    isRunning = true
-                )
-
-                fireDownbeat()
             }
 
             is ClockEvent.Tick -> Unit

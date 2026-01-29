@@ -36,8 +36,10 @@ object SettingsKeys {
     val DOWNBEAT_HAPTICS_ENABLED =
         booleanPreferencesKey("downbeat_haptics_enabled")
 
-    // 🆕 CLOCK MODE
     val CLOCK_MODE = stringPreferencesKey("clock_mode")
+
+    // 🆕 CLOCK ENABLE (ON / OFF)
+    val CLOCK_ENABLED = booleanPreferencesKey("clock_enabled")
 }
 
 /* =========================================================
@@ -56,7 +58,8 @@ data class SettingsState(
     val showOscDot: Boolean,
     val hapticsEnabled: Boolean,
     val downbeatHapticsEnabled: Boolean,
-    val clockMode: ClockMode
+    val clockMode: ClockMode,
+    val clockEnabled: Boolean            // 🆕
 ) {
     val activeTarget: OscTarget
         get() = presets[activePreset.coerceIn(0, presets.lastIndex)]
@@ -101,7 +104,8 @@ class SettingsStore(
                 clockMode = ClockMode.valueOf(
                     prefs[SettingsKeys.CLOCK_MODE]
                         ?: ClockMode.EXTERNAL.name
-                )
+                ),
+                clockEnabled = prefs[SettingsKeys.CLOCK_ENABLED] ?: true
             )
         }
 
@@ -154,10 +158,16 @@ class SettingsStore(
         }
     }
 
-    // 🆕 CLOCK MODE
     suspend fun setClockMode(mode: ClockMode) {
         context.dataStore.edit {
             it[SettingsKeys.CLOCK_MODE] = mode.name
+        }
+    }
+
+    // 🆕 CLOCK ENABLE
+    suspend fun setClockEnabled(enabled: Boolean) {
+        context.dataStore.edit {
+            it[SettingsKeys.CLOCK_ENABLED] = enabled
         }
     }
 }
