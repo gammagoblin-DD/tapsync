@@ -43,7 +43,7 @@ class MainActivity : ComponentActivity() {
             oscSender = oscSender
         )
 
-        /* ================= CLOCK MODE WIRING (🆕 WICHTIG) ================= */
+        /* ================= CLOCK MODE WIRING ================= */
 
         lifecycleScope.launch {
             settingsStore.settings.collect { s ->
@@ -108,6 +108,7 @@ class MainActivity : ComponentActivity() {
                                 action = actionEngine,
                                 oscHealth = oscSender.health,
                                 clockVisualState = clock.visualState,
+                                clockMode = s.clockMode,            // ✅ FIX
                                 hapticsEnabled = s.hapticsEnabled,
                                 downbeatHapticsEnabled = s.downbeatHapticsEnabled,
                                 onLongPress = { showSettings = true },

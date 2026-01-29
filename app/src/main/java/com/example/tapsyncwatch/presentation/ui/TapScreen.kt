@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.example.tapsyncwatch.R
 import com.example.tapsyncwatch.domain.action.ActionEngine
+import com.example.tapsyncwatch.domain.clock.ClockMode
 import com.example.tapsyncwatch.domain.clock.ClockVisualState
 import com.example.tapsyncwatch.osc.OscHealth
 import kotlinx.coroutines.flow.StateFlow
@@ -47,7 +48,8 @@ fun TapScreen(
     action: ActionEngine,
     oscHealth: StateFlow<OscHealth>,
     clockVisualState: StateFlow<ClockVisualState>,
-    hapticsEnabled: Boolean,
+    clockMode: ClockMode,                 // ✅ NEU
+    hapticsEnabled: Boolean,               // Settings: ON / OFF
     downbeatHapticsEnabled: Boolean,
     onLongPress: () -> Unit,
     onOscActivity: ((() -> Unit)) -> Unit
@@ -56,14 +58,19 @@ fun TapScreen(
     val haptic = LocalHapticFeedback.current
     val metrics = context.resources.displayMetrics
 
+    /* ========= UI HAPTIC GUARD (FINAL) ========= */
+
+    fun uiHapticAllowed(): Boolean =
+        clockMode == ClockMode.INTERNAL && hapticsEnabled
+
     fun lightHaptic() {
-        if (hapticsEnabled) {
+        if (uiHapticAllowed()) {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         }
     }
 
     fun strongHaptic() {
-        if (hapticsEnabled) {
+        if (uiHapticAllowed()) {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         }
@@ -140,6 +147,7 @@ fun TapScreen(
             downbeatPulse.snapTo(1f)
             downbeatPulse.animateTo(0f, tween(260))
 
+            // ❗ Downbeat-Haptik bleibt bewusst unabhängig vom ClockMode
             if (hapticsEnabled && downbeatHapticsEnabled) {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             }
@@ -309,7 +317,7 @@ fun TapScreen(
             }
         }
 
-        /* ===== DOWNBEAT RING (WEAR SAFE, FINAL) ===== */
+        /* ===== DOWNBEAT RING (WEAR SAFE) ===== */
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -317,8 +325,6 @@ fun TapScreen(
         ) {
             val cx = size.width / 2f
             val cy = size.height / 2f
-
-            // ✅ Safe-Radius für Round Wear Displays
             val safeRadius = min(size.width, size.height) * 0.82f / 2f
 
             drawCircle(
@@ -328,8 +334,6 @@ fun TapScreen(
                 style = Stroke(width = 14f)
             )
         }
-
-
 
         /* MULTIPLY / DIVIDE */
         val multiplyAlpha = overlayAlpha(visual.lastMultiplyMs)
