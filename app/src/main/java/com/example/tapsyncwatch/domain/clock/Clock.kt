@@ -11,7 +11,7 @@ class Clock(
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var nudgeJob: Job? = null
+    private var nudgeActivePath: String? = null
 
     private val _state = MutableStateFlow(
         ClockState(
@@ -25,47 +25,47 @@ class Clock(
     fun handle(event: ClockEvent) {
         when (event) {
 
-            is ClockEvent.Tick -> Unit
-
+            /* -------------------------------------------------
+             * TAP — momentary (1 → 0)
+             * ------------------------------------------------- */
             is ClockEvent.Tap -> {
+                scope.launch {
+                    oscSender.sendInt(
+                        "/composition/tempocontroller/tempotap",
+                        1
+                    )
+                    delay(40)
+                    oscSender.sendInt(
+                        "/composition/tempocontroller/tempotap",
+                        0
+                    )
+                }
+            }
+
+            /* -------------------------------------------------
+             * MULTIPLY — ONE SHOT (ONLY 1)
+             * ------------------------------------------------- */
+            ClockEvent.Multiply -> {
                 oscSender.sendInt(
-                    "/composition/tempocontroller/tempotap",
+                    "/composition/tempocontroller/tempo/multiply",
                     1
                 )
             }
 
-            ClockEvent.Multiply -> {
-                stopNudge()
-                scope.launch {
-                    oscSender.sendInt(
-                        "/composition/tempocontroller/tempo/multiply",
-                        1
-                    )
-                    delay(40)
-                    oscSender.sendInt(
-                        "/composition/tempocontroller/tempo/multiply",
-                        0
-                    )
-                }
-            }
-
+            /* -------------------------------------------------
+             * DIVIDE — ONE SHOT (ONLY 1)
+             * ------------------------------------------------- */
             ClockEvent.Divide -> {
-                stopNudge()
-                scope.launch {
-                    oscSender.sendInt(
-                        "/composition/tempocontroller/tempo/divide",
-                        1
-                    )
-                    delay(40)
-                    oscSender.sendInt(
-                        "/composition/tempocontroller/tempo/divide",
-                        0
-                    )
-                }
+                oscSender.sendInt(
+                    "/composition/tempocontroller/tempo/divide",
+                    1
+                )
             }
 
+            /* -------------------------------------------------
+             * RESYNC — momentary (1 → 0)
+             * ------------------------------------------------- */
             ClockEvent.Resync -> {
-                stopNudge()
                 scope.launch {
                     oscSender.sendInt(
                         "/composition/tempocontroller/resync",
@@ -79,38 +79,42 @@ class Clock(
                 }
             }
 
-            ClockEvent.Nudge.RightStart ->
-                startNudge("/composition/tempocontroller/tempopush")
+            /* -------------------------------------------------
+             * NUDGE — HOLD SEMANTICS
+             * ------------------------------------------------- */
+            ClockEvent.Nudge.RightStart -> {
+                nudgeActivePath =
+                    "/composition/tempocontroller/tempopush"
+                oscSender.sendInt(nudgeActivePath!!, 1)
+            }
 
-            ClockEvent.Nudge.LeftStart ->
-                startNudge("/composition/tempocontroller/tempopull")
+            ClockEvent.Nudge.LeftStart -> {
+                nudgeActivePath =
+                    "/composition/tempocontroller/tempopull"
+                oscSender.sendInt(nudgeActivePath!!, 1)
+            }
 
-            ClockEvent.Nudge.Stop ->
-                stopNudge()
+            ClockEvent.Nudge.Stop -> {
+                nudgeActivePath?.let { path ->
+                    oscSender.sendInt(path, 0)
+                }
+                nudgeActivePath = null
+            }
 
+            /* -------------------------------------------------
+             * EXTERNAL BPM (UI only)
+             * ------------------------------------------------- */
             is ClockEvent.ExternalBpm -> {
                 _state.value = _state.value.copy(
-                    bpm = event.bpm.toDouble(),
+                    bpm = event.bpm,
                     isRunning = true
                 )
             }
-        }
-    }
 
-    private fun startNudge(path: String) {
-        stopNudge()
-        nudgeJob = scope.launch {
-            while (isActive) {
-                oscSender.sendInt(path, 1)
-                delay(30)
-                oscSender.sendInt(path, 0)
-                delay(180)
-            }
+            /* -------------------------------------------------
+             * TICK — intentionally ignored
+             * ------------------------------------------------- */
+            is ClockEvent.Tick -> Unit
         }
-    }
-
-    private fun stopNudge() {
-        nudgeJob?.cancel()
-        nudgeJob = null
     }
 }

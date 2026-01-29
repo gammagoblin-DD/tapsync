@@ -1,112 +1,62 @@
 package com.example.tapsyncwatch.domain.action
 
-import com.example.tapsyncwatch.presentation.network.OscSender
-import kotlinx.coroutines.*
+import com.example.tapsyncwatch.domain.clock.Clock
+import com.example.tapsyncwatch.domain.clock.ClockEvent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 class ActionEngine(
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val clock: Clock
 ) {
 
-    // =====================================================
-    // HELFER: Momentary INT Button (1 → 0)
-    // =====================================================
-    private suspend fun momentaryInt(path: String) {
-        OscSender.sendInt(path, 1)
-        delay(40)
-        OscSender.sendInt(path, 0)
-    }
-
-    // =====================================================
-    // TAP
-    // ALT: 1 → delay → 0
-    // =====================================================
     fun tap() {
         scope.launch {
-            momentaryInt(
-                "/composition/tempocontroller/tempotap"
+            clock.handle(
+                ClockEvent.Tap(System.currentTimeMillis())
             )
         }
     }
 
-    // =====================================================
-    // MULTIPLY ×2
-    // ALT: INT = 1, KEIN 0
-    // =====================================================
     fun multiply() {
         scope.launch {
-            OscSender.sendInt(
-                "/composition/tempocontroller/tempo/multiply",
-                1
-            )
+            clock.handle(ClockEvent.Multiply)
         }
     }
 
-    // =====================================================
-    // DIVIDE ÷2
-    // ALT: INT = 1, KEIN 0
-    // =====================================================
     fun divide() {
         scope.launch {
-            OscSender.sendInt(
-                "/composition/tempocontroller/tempo/divide",
-                1
-            )
+            clock.handle(ClockEvent.Divide)
         }
     }
 
-    // =====================================================
-    // RESYNC
-    // ALT: 1 → delay → 0
-    // =====================================================
     fun resync() {
         scope.launch {
-            momentaryInt(
-                "/composition/tempocontroller/resync"
-            )
+            clock.handle(ClockEvent.Resync)
         }
     }
 
-    // =====================================================
-    // NUDGE PUSH  (Tempo +)
-    // ALT: Button HOLD
-    // =====================================================
     fun nudgePushStart() {
         scope.launch {
-            OscSender.sendInt(
-                "/composition/tempocontroller/tempopush",
-                1
-            )
+            clock.handle(ClockEvent.Nudge.RightStart)
         }
     }
 
     fun nudgePushEnd() {
         scope.launch {
-            OscSender.sendInt(
-                "/composition/tempocontroller/tempopush",
-                0
-            )
+            clock.handle(ClockEvent.Nudge.Stop)
         }
     }
 
-    // =====================================================
-    // NUDGE PULL  (Tempo −)
-    // ALT: Button HOLD
-    // =====================================================
     fun nudgePullStart() {
         scope.launch {
-            OscSender.sendInt(
-                "/composition/tempocontroller/tempopull",
-                1
-            )
+            clock.handle(ClockEvent.Nudge.LeftStart)
         }
     }
 
     fun nudgePullEnd() {
         scope.launch {
-            OscSender.sendInt(
-                "/composition/tempocontroller/tempopull",
-                0
-            )
+            clock.handle(ClockEvent.Nudge.Stop)
         }
     }
 }

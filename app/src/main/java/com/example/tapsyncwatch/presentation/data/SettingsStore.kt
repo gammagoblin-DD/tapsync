@@ -16,7 +16,6 @@ private val Context.dataStore by preferencesDataStore(
 
 object SettingsKeys {
 
-    // Presets (A/B/C)
     val PRESET_A_NAME = stringPreferencesKey("preset_a_name")
     val PRESET_A_IP = stringPreferencesKey("preset_a_ip")
     val PRESET_A_PORT = intPreferencesKey("preset_a_port")
@@ -31,7 +30,6 @@ object SettingsKeys {
 
     val ACTIVE_PRESET = intPreferencesKey("active_preset")
 
-    // UI
     val SHOW_OSC_DOT = booleanPreferencesKey("show_osc_dot")
 }
 
@@ -67,19 +65,19 @@ class SettingsStore(
 
             val presets = listOf(
                 OscTarget(
-                    name = prefs[SettingsKeys.PRESET_A_NAME] ?: "Preset A",
-                    ip = prefs[SettingsKeys.PRESET_A_IP] ?: "192.168.178.24",
-                    port = prefs[SettingsKeys.PRESET_A_PORT] ?: 7002
+                    prefs[SettingsKeys.PRESET_A_NAME] ?: "Preset A",
+                    prefs[SettingsKeys.PRESET_A_IP] ?: "192.168.178.24",
+                    prefs[SettingsKeys.PRESET_A_PORT] ?: 7002
                 ),
                 OscTarget(
-                    name = prefs[SettingsKeys.PRESET_B_NAME] ?: "Preset B",
-                    ip = prefs[SettingsKeys.PRESET_B_IP] ?: "192.168.178.25",
-                    port = prefs[SettingsKeys.PRESET_B_PORT] ?: 7002
+                    prefs[SettingsKeys.PRESET_B_NAME] ?: "Preset B",
+                    prefs[SettingsKeys.PRESET_B_IP] ?: "192.168.178.25",
+                    prefs[SettingsKeys.PRESET_B_PORT] ?: 7002
                 ),
                 OscTarget(
-                    name = prefs[SettingsKeys.PRESET_C_NAME] ?: "Preset C",
-                    ip = prefs[SettingsKeys.PRESET_C_IP] ?: "192.168.178.26",
-                    port = prefs[SettingsKeys.PRESET_C_PORT] ?: 7002
+                    prefs[SettingsKeys.PRESET_C_NAME] ?: "Preset C",
+                    prefs[SettingsKeys.PRESET_C_IP] ?: "192.168.178.26",
+                    prefs[SettingsKeys.PRESET_C_PORT] ?: 7002
                 )
             )
 
@@ -90,7 +88,9 @@ class SettingsStore(
             )
         }
 
-    /* -------- Preset Handling -------- */
+    /** 🔑 Runtime-relevanter Flow */
+    val activeTarget: Flow<OscTarget> =
+        settings.map { it.activeTarget }
 
     suspend fun setActivePreset(index: Int) {
         context.dataStore.edit {
@@ -120,9 +120,9 @@ class SettingsStore(
         }
     }
 
-    /* -------- UI -------- */
-
     suspend fun setShowOscDot(show: Boolean) {
-        context.dataStore.edit { it[SettingsKeys.SHOW_OSC_DOT] = show }
+        context.dataStore.edit {
+            it[SettingsKeys.SHOW_OSC_DOT] = show
+        }
     }
 }

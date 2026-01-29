@@ -11,39 +11,37 @@ import java.util.concurrent.Executors
 
 class OscOutputSender(
     host: String,
-    private val port: Int
+    port: Int
 ) {
 
-    private val address: InetAddress = InetAddress.getByName(host)
+    @Volatile
+    private var address: InetAddress = InetAddress.getByName(host)
+
+    @Volatile
+    private var port: Int = port
 
     private var socket: DatagramSocket? = null
 
     private val executor: ExecutorService =
         Executors.newSingleThreadExecutor()
 
-    // -------------------------------------------------
-    // PUBLIC API (exakt wie alte Version)
-    // -------------------------------------------------
+    /** 🔁 Runtime-Rebind */
+    fun setTarget(host: String, port: Int) {
+        this.address = InetAddress.getByName(host)
+        this.port = port
+    }
 
     fun sendInt(path: String, value: Int) {
         sendAsync(
-            buildOscMessage(path, ",i") { bb ->
-                bb.putInt(value)
-            }
+            buildOscMessage(path, ",i") { it.putInt(value) }
         )
     }
 
     fun sendFloat(path: String, value: Float) {
         sendAsync(
-            buildOscMessage(path, ",f") { bb ->
-                bb.putFloat(value)
-            }
+            buildOscMessage(path, ",f") { it.putFloat(value) }
         )
     }
-
-    // -------------------------------------------------
-    // Core send (Background Thread)
-    // -------------------------------------------------
 
     private fun sendAsync(data: ByteArray) {
         executor.execute {
@@ -70,10 +68,6 @@ class OscOutputSender(
             }
         }
     }
-
-    // -------------------------------------------------
-    // OSC Message Builder
-    // -------------------------------------------------
 
     private fun buildOscMessage(
         path: String,

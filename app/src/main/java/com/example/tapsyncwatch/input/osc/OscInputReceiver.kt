@@ -3,6 +3,8 @@ package com.example.tapsyncwatch.input.osc
 import android.util.Log
 import com.example.tapsyncwatch.domain.clock.Clock
 import com.example.tapsyncwatch.domain.clock.ClockEvent
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.*
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -13,6 +15,12 @@ class OscInputReceiver(
     private val clock: Clock,
     private val port: Int = 7000
 ) {
+
+    // 🔔 UI-only activity pulse (legacy semantics)
+    private val _oscActivity = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 8
+    )
+    val oscActivity: SharedFlow<Unit> = _oscActivity
 
     private var socket: DatagramSocket? = null
     private var running = false
@@ -53,7 +61,7 @@ class OscInputReceiver(
     }
 
     // =====================================================
-    // OSC PARSER (Message + Bundle)
+    // OSC PARSER
     // =====================================================
 
     private fun parseElement(bb: ByteBuffer) {
@@ -62,12 +70,8 @@ class OscInputReceiver(
         val startPos = bb.position()
         val address = readOscString(bb) ?: return
 
-        // -------- OSC BUNDLE --------
         if (address == "#bundle") {
-            // Skip timetag (8 bytes)
-            if (bb.remaining() >= 8) {
-                bb.position(bb.position() + 8)
-            }
+            if (bb.remaining() >= 8) bb.position(bb.position() + 8)
 
             while (bb.remaining() >= 4) {
                 val size = bb.int
@@ -76,14 +80,15 @@ class OscInputReceiver(
                 val slice = bb.slice()
                 slice.limit(size)
                 parseElement(slice)
-
                 bb.position(bb.position() + size)
             }
-        }
-        // -------- OSC MESSAGE --------
-        else {
+        } else {
             val typeTags = readOscString(bb) ?: return
             Log.d("OSC-IN", "addr=$address types=$typeTags")
+
+            // 🔔 ANY OSC MESSAGE = activity pulse
+            _oscActivity.tryEmit(Unit)
+
             handleMessage(address, typeTags, bb)
         }
 
@@ -99,7 +104,7 @@ class OscInputReceiver(
             "/composition/tempocontroller/tempo" -> {
                 val factor = readFirstNumber(typeTags, bb)
                 if (factor != null) {
-                    val baseBpm = 120.0   // ← exakt wie bpm-clock
+                    val baseBpm = 120.0
                     val bpm = factor * baseBpm
 
                     Log.d("OSC-IN", "tempoFactor=$factor bpm=$bpm")
@@ -109,11 +114,10 @@ class OscInputReceiver(
                     }
                 }
             }
+
+            // all other messages intentionally ignored
         }
     }
-
-
-
 
     // =====================================================
     // HELPERS
@@ -142,11 +146,7 @@ class OscInputReceiver(
                 bb.get(bytes)
                 bb.position(end + 1)
 
-                // 4-byte alignment
-                while (bb.position() % 4 != 0 && bb.hasRemaining()) {
-                    bb.get()
-                }
-
+                while (bb.position() % 4 != 0 && bb.hasRemaining()) bb.get()
                 return String(bytes)
             }
         }

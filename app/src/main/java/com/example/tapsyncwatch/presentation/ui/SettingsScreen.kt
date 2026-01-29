@@ -1,27 +1,39 @@
 package com.example.tapsyncwatch.presentation.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.Button
-import androidx.compose.material.ButtonDefaults
-import androidx.compose.material.Switch
-import androidx.compose.material.Text
+import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.tapsyncwatch.presentation.data.OscTarget
 import com.example.tapsyncwatch.presentation.data.SettingsStore
 import kotlinx.coroutines.launch
+
+/* ================= GOBLIN COLORS ================= */
+
+private val GoblinBg = Color(0xFF0E0B08)
+private val GoblinAccent = Color(0xFF8C5A2B)
+private val GoblinBorder = Color(0xFF2A1C12)
+private val GoblinButton = Color(0xFF1A120C)
+private val GoblinText = Color(0xFFE6D3B1)
+
+/* ================= SCREEN ================= */
 
 @Composable
 fun SettingsScreen(
@@ -32,10 +44,26 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
+    /** 🔑 Pending Preset Commit */
+    var pendingCommit by remember {
+        mutableStateOf<PendingPresetCommit?>(null)
+    }
+
+    /** 🔒 EINZIGE Stelle mit suspend-Aufruf */
+    LaunchedEffect(pendingCommit) {
+        val commit = pendingCommit ?: return@LaunchedEffect
+        settingsStore.updatePreset(commit.index, commit.preset)
+        pendingCommit = null
+        onClose()
+    }
+
+    /** 🔙 Hardware-Back = Close ohne Preset-Commit */
+    BackHandler { onClose() }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(GoblinBg)
     ) {
         Column(
             modifier = Modifier
@@ -45,33 +73,47 @@ fun SettingsScreen(
 
             Text(
                 text = "SETTINGS",
-                color = Color.White,
+                color = GoblinText,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
+                modifier = Modifier.fillMaxWidth()
             )
 
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth()
                     .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 settings?.let { s ->
 
+                    /* ---------- DISPLAY ---------- */
                     SettingsBlock("Display") {
-                        SettingToggle(
-                            label = "OSC Statuspunkt",
-                            checked = s.showOscDot
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            scope.launch { settingsStore.setShowOscDot(it) }
+                            Text("OSC Statuspunkt", color = GoblinText)
+                            Switch(
+                                checked = s.showOscDot,
+                                onCheckedChange = {
+                                    scope.launch {
+                                        settingsStore.setShowOscDot(it)
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = GoblinAccent,
+                                    checkedTrackColor = GoblinAccent.copy(alpha = 0.4f),
+                                    uncheckedThumbColor = Color.DarkGray,
+                                    uncheckedTrackColor = GoblinBorder
+                                )
+                            )
                         }
                     }
 
+                    /* ---------- PRESETS ---------- */
                     SettingsBlock("Resolume / OSC Presets") {
                         s.presets.forEachIndexed { index, preset ->
                             PresetRow(
@@ -82,9 +124,16 @@ fun SettingsScreen(
                                         settingsStore.setActivePreset(index)
                                     }
                                 },
-                                onUpdate = { updated ->
-                                    scope.launch {
-                                        settingsStore.updatePreset(index, updated)
+                                onDone = { name, ip, port ->
+                                    port.toIntOrNull()?.let { p ->
+                                        pendingCommit = PendingPresetCommit(
+                                            index,
+                                            preset.copy(
+                                                name = name,
+                                                ip = ip,
+                                                port = p
+                                            )
+                                        )
                                     }
                                 }
                             )
@@ -93,76 +142,107 @@ fun SettingsScreen(
                 }
             }
 
+            /* ---------- SAVE & CLOSE (GLOBAL SETTINGS) ---------- */
             Button(
-                onClick = onClose,
+                onClick = { onClose() },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(44.dp),
+                    .height(46.dp),
                 colors = ButtonDefaults.buttonColors(
-                    backgroundColor = Color(0xFF2A2A2A),
-                    contentColor = Color.White
+                    backgroundColor = GoblinButton,
+                    contentColor = GoblinText
                 ),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(14.dp)
             ) {
-                Text("Save & Close", fontSize = 14.sp)
+                Text("Save & Close", fontWeight = FontWeight.Bold)
             }
         }
     }
 }
 
-/* ---------------- PRESET ROW ---------------- */
+/* ================= DATA ================= */
+
+private data class PendingPresetCommit(
+    val index: Int,
+    val preset: OscTarget
+)
+
+/* ================= PRESET ROW ================= */
 
 @Composable
 private fun PresetRow(
     preset: OscTarget,
     active: Boolean,
     onActivate: () -> Unit,
-    onUpdate: (OscTarget) -> Unit
+    onDone: (name: String, ip: String, port: String) -> Unit
 ) {
+    var editOpen by remember { mutableStateOf(false) }
+    var editName by remember { mutableStateOf(preset.name) }
+    var editIp by remember { mutableStateOf(preset.ip) }
+    var editPort by remember { mutableStateOf(preset.port.toString()) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .border(
-                1.dp,
-                if (active) Color(0xFFFF4DA6) else Color(0xFF333333),
-                RoundedCornerShape(10.dp)
+                2.dp,
+                if (active) GoblinAccent else GoblinBorder,
+                RoundedCornerShape(12.dp)
             )
-            .padding(8.dp)
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { onActivate() })
+            }
+            .padding(12.dp)
     ) {
 
-        LabeledField("Name", preset.name) {
-            onUpdate(preset.copy(name = it))
-        }
-
-        Spacer(Modifier.height(4.dp))
-
-        LabeledField("IP", preset.ip) {
-            onUpdate(preset.copy(ip = it))
-        }
-
-        Spacer(Modifier.height(4.dp))
-
-        LabeledField("Port", preset.port.toString()) {
-            it.toIntOrNull()?.let { p ->
-                onUpdate(preset.copy(port = p))
-            }
-        }
+        Text(
+            text = preset.name,
+            color = GoblinText,
+            fontWeight = FontWeight.Bold
+        )
 
         Spacer(Modifier.height(6.dp))
 
         Button(
-            onClick = onActivate,
+            onClick = { editOpen = !editOpen },
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(
-                backgroundColor = if (active) Color(0xFFFF4DA6) else Color(0xFF2A2A2A)
+                backgroundColor = GoblinButton,
+                contentColor = GoblinText
             )
         ) {
-            Text(if (active) "Active" else "Use Preset", fontSize = 12.sp)
+            Text(if (editOpen) "Close Edit" else "Edit")
+        }
+
+        if (editOpen) {
+            Spacer(Modifier.height(8.dp))
+
+            GoblinField("Name", editName, KeyboardType.Text) {
+                editName = it
+            }
+            GoblinField("IP", editIp, KeyboardType.Text) {
+                editIp = it
+            }
+            GoblinField("Port", editPort, KeyboardType.Number) {
+                editPort = it
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Button(
+                onClick = { onDone(editName, editIp, editPort) },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    backgroundColor = GoblinAccent,
+                    contentColor = GoblinBg
+                )
+            ) {
+                Text("Done", fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
 
-/* ---------------- UI HELPERS ---------------- */
+/* ================= UI HELPERS ================= */
 
 @Composable
 private fun SettingsBlock(
@@ -172,59 +252,45 @@ private fun SettingsBlock(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFF333333), RoundedCornerShape(12.dp))
+            .border(1.dp, GoblinBorder, RoundedCornerShape(14.dp))
             .padding(12.dp)
     ) {
         Text(
-            text = title,
-            color = Color.White,
-            fontSize = 13.sp,
+            title,
+            color = GoblinAccent,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 8.dp)
+            fontSize = 13.sp
         )
+        Spacer(Modifier.height(8.dp))
         content()
     }
 }
 
 @Composable
-private fun SettingToggle(
-    label: String,
-    checked: Boolean,
-    onToggle: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(40.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(label, color = Color.White, fontSize = 14.sp)
-        Switch(checked = checked, onCheckedChange = onToggle)
-    }
-}
-
-@Composable
-private fun LabeledField(
+private fun GoblinField(
     label: String,
     value: String,
+    keyboardType: KeyboardType,
     onChange: (String) -> Unit
 ) {
     Column {
-        Text(label, color = Color.Gray, fontSize = 12.sp)
-        Spacer(Modifier.height(4.dp))
-        BasicTextField(
+        Text(label, color = GoblinText.copy(alpha = 0.7f), fontSize = 12.sp)
+        OutlinedTextField(
             value = value,
             onValueChange = onChange,
             singleLine = true,
-            textStyle = androidx.compose.ui.text.TextStyle(
-                color = Color.White,
-                fontSize = 14.sp
+            keyboardOptions = KeyboardOptions(
+                keyboardType = keyboardType,
+                imeAction = ImeAction.Done
             ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
-                .padding(8.dp)
+            textStyle = LocalTextStyle.current.copy(color = GoblinText),
+            colors = TextFieldDefaults.outlinedTextFieldColors(
+                textColor = GoblinText,
+                focusedBorderColor = GoblinAccent,
+                unfocusedBorderColor = GoblinBorder,
+                cursorColor = GoblinAccent
+            ),
+            modifier = Modifier.fillMaxWidth()
         )
     }
 }
