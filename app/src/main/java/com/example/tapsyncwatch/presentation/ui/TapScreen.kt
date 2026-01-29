@@ -18,13 +18,13 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.material.Text
 import com.example.tapsyncwatch.R
 import com.example.tapsyncwatch.domain.action.ActionEngine
+import kotlinx.coroutines.launch
 import kotlin.math.*
+import androidx.compose.ui.unit.IntOffset
+
 
 private enum class TouchZone { CENTER, RING }
 private enum class BezelDir { NONE, CW, CCW }
@@ -32,11 +32,12 @@ private enum class BezelState { IDLE, HELD }
 
 @Composable
 fun TapScreen(
-    showBpm: Boolean,
     showOscDot: Boolean,
-    bpm: Double,
+    showBpm: Boolean,     // API-Stabilität (OPTION A)
+    bpm: Double,          // bleibt intern, nie angezeigt
     action: ActionEngine,
-    onLongPress: () -> Unit
+    onLongPress: () -> Unit,
+    onOscActivity: ((() -> Unit)) -> Unit
 ) {
     val context = LocalContext.current
     val metrics = context.resources.displayMetrics
@@ -70,10 +71,36 @@ fun TapScreen(
     val flashAlpha = remember { Animatable(0f) }
     var tapTrigger by remember { mutableStateOf(0) }
 
+    /* =====================================================
+     * OSC DOT PULSE (visual only)
+     * ===================================================== */
+
+    val oscPulse = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+
+    fun pulseOsc() {
+        scope.launch {
+            oscPulse.snapTo(1f)
+            oscPulse.animateTo(
+                0f,
+                tween(220, easing = FastOutSlowInEasing)
+            )
+        }
+    }
+
+    // Register callback ONCE
+    LaunchedEffect(Unit) {
+        onOscActivity {
+            pulseOsc()
+        }
+    }
+
+    // Watch → Resolume actions also pulse
     LaunchedEffect(tapTrigger) {
         flashAlpha.snapTo(0f)
-        flashAlpha.animateTo(1f, tween(120, easing = FastOutSlowInEasing))
-        flashAlpha.animateTo(0f, tween(500, easing = LinearOutSlowInEasing))
+        flashAlpha.animateTo(1f, tween(120))
+        flashAlpha.animateTo(0f, tween(500))
+        pulseOsc()
     }
 
     Box(
@@ -133,6 +160,8 @@ fun TapScreen(
                                     action.nudgePushStart()
                                 else
                                     action.nudgePullStart()
+
+                                tapTrigger++
                             }
                             return@pointerInteropFilter true
                         }
@@ -144,10 +173,12 @@ fun TapScreen(
                             if (abs(dyT) > swipeThreshold && abs(dyT) > abs(dxT)) {
                                 swipeHandled = true
                                 if (dyT < 0) action.multiply() else action.divide()
+                                tapTrigger++
                                 return@pointerInteropFilter true
                             } else if (abs(dxT) > swipeThreshold && dxT < 0) {
                                 swipeHandled = true
                                 action.resync()
+                                tapTrigger++
                                 return@pointerInteropFilter true
                             }
                         }
@@ -166,6 +197,7 @@ fun TapScreen(
 
                             bezelState = BezelState.IDLE
                             bezelDir = BezelDir.NONE
+                            tapTrigger++
                             return@pointerInteropFilter true
                         }
 
@@ -204,7 +236,7 @@ fun TapScreen(
         if (zone == TouchZone.RING) {
             Canvas(Modifier.fillMaxSize()) {
                 drawArc(
-                    color = Color.Red.copy(alpha = 0.25f),
+                    color = Color(0xFFB86CFF).copy(alpha = 0.25f),
                     startAngle = 110f,
                     sweepAngle = 140f,
                     useCenter = false,
@@ -221,40 +253,42 @@ fun TapScreen(
             }
         }
 
-        if (showOscDot) {
-            Canvas(
-                modifier = Modifier
-                    .size(14.dp)
-                    .align(Alignment.TopCenter)
-                    .offset(y = 16.dp)
-            ) {
-                drawCircle(Color.Magenta)
-                drawCircle(
-                    color = Color.White,
-                    style = Stroke(width = 2f)
-                )
-            }
-        }
+        /* =================================================
+         * OSC STATUS DOT – legacy ring position (FINAL)
+         * ================================================= */
 
-        // ====================================================
-        // BPM OVERLAY (drawn last → always visible)
-        // ====================================================
-        if (showBpm && bpm > 0.0) {
+        if (showOscDot) {
+
+            // relative position inside ring (matches legacy pink marker)
+            val dotDx = radius * 0.30f
+            val dotDy = radius * 0.22f
+
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = 6.dp),
-                contentAlignment = Alignment.TopCenter
+                    .fillMaxSize(),
+                contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "${bpm.toInt()} BPM",
-                    color = Color.White,
-                    fontSize = 14.sp
-                )
+                Canvas(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .offset(
+                            x = dotDx.dp,
+                            y = dotDy.dp
+                        )
+                ) {
+                    drawCircle(
+                        color = Color(0xFFB86CFF), // grafiknah
+                        alpha = 0.35f + oscPulse.value * 0.65f
+                    )
+                }
             }
         }
 
+
+
+
+
+
+        // BPM intentionally never rendered (OPTION A)
     }
-
-
 }
