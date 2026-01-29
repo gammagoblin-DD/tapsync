@@ -142,9 +142,11 @@ class Clock(
 
     fun handle(event: ClockEvent) {
 
-        if (!enabled) return
-
         when (event) {
+
+            /* =====================================================
+             * TRANSPORT EVENTS — IMMER ERLAUBT (OSC)
+             * ===================================================== */
 
             is ClockEvent.Tap -> {
                 scope.launch {
@@ -157,48 +159,6 @@ class Clock(
                         "/composition/tempocontroller/tempotap",
                         0
                     )
-                }
-            }
-
-            // IMPORTANT:
-            // BPM changes do NOT re-anchor phase.
-            // Only RESYNC defines the phase anchor.
-
-            is ClockEvent.ExternalBpm -> {
-                _state.value = _state.value.copy(
-                    bpm = event.bpm,
-                    isRunning = true
-                )
-
-                if (_mode.value == ClockMode.EXTERNAL) {
-                    fireDownbeat()
-                }
-            }
-
-            ClockEvent.Resync -> {
-
-                scope.launch {
-                    oscSender.sendInt(
-                        "/composition/tempocontroller/resync",
-                        1
-                    )
-                    delay(40)
-                    oscSender.sendInt(
-                        "/composition/tempocontroller/resync",
-                        0
-                    )
-                }
-
-                phaseAnchorNs = SystemClock.elapsedRealtimeNanos()
-
-                if (DEBUG_CLOCK) {
-                    Log.d(TAG_CLOCK, "RESYNC anchor=$phaseAnchorNs")
-                }
-
-                fireDownbeat()
-
-                if (_mode.value == ClockMode.INTERNAL) {
-                    startInternalClock()
                 }
             }
 
@@ -250,7 +210,59 @@ class Clock(
                 )
             }
 
-            is ClockEvent.Tick -> Unit
+            /* =====================================================
+             * RESYNC — OSC IMMER, INTERNAL NUR WENN ENABLED
+             * ===================================================== */
+
+            ClockEvent.Resync -> {
+
+                scope.launch {
+                    oscSender.sendInt(
+                        "/composition/tempocontroller/resync",
+                        1
+                    )
+                    delay(40)
+                    oscSender.sendInt(
+                        "/composition/tempocontroller/resync",
+                        0
+                    )
+                }
+
+                // ⛔ interne Clock nur wenn enabled
+                if (!enabled) return
+
+                phaseAnchorNs = SystemClock.elapsedRealtimeNanos()
+
+                if (DEBUG_CLOCK) {
+                    Log.d(TAG_CLOCK, "RESYNC anchor=$phaseAnchorNs")
+                }
+
+                fireDownbeat()
+
+                if (_mode.value == ClockMode.INTERNAL) {
+                    startInternalClock()
+                }
+            }
+
+            /* =====================================================
+             * ENGINE EVENTS — NUR INTERN
+             * ===================================================== */
+
+            is ClockEvent.ExternalBpm -> {
+                _state.value = _state.value.copy(
+                    bpm = event.bpm,
+                    isRunning = true
+                )
+
+                if (_mode.value == ClockMode.EXTERNAL) {
+                    fireDownbeat()
+                }
+            }
+
+            is ClockEvent.Tick -> {
+                if (!enabled) return
+            }
         }
     }
+
 }

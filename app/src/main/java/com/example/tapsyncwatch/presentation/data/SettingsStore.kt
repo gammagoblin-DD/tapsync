@@ -66,6 +66,25 @@ data class SettingsState(
 }
 
 /* =========================================================
+ * DEFAULT STATE (für UI-Initialisierung)
+ * ========================================================= */
+
+val DEFAULT_SETTINGS_STATE = SettingsState(
+    presets = listOf(
+        OscTarget("Preset A", "192.168.178.24", 7002),
+        OscTarget("Preset B", "192.168.178.25", 7002),
+        OscTarget("Preset C", "192.168.178.26", 7002)
+    ),
+    activePreset = 0,
+    showOscDot = true,
+    hapticsEnabled = true,
+    downbeatHapticsEnabled = false,
+    clockMode = ClockMode.EXTERNAL,
+    clockEnabled = true
+)
+
+
+/* =========================================================
  * STORE
  * ========================================================= */
 

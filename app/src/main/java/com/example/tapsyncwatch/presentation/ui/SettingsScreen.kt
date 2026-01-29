@@ -25,6 +25,8 @@ import com.example.tapsyncwatch.presentation.data.OscTarget
 import com.example.tapsyncwatch.presentation.data.SettingsStore
 import kotlinx.coroutines.launch
 import com.example.tapsyncwatch.domain.clock.ClockMode
+import com.example.tapsyncwatch.presentation.data.DEFAULT_SETTINGS_STATE
+
 
 
 /* ================= GOBLIN COLORS ================= */
@@ -42,7 +44,12 @@ fun SettingsScreen(
     settingsStore: SettingsStore,
     onClose: () -> Unit
 ) {
-    val settings by settingsStore.settings.collectAsState(initial = null)
+    val settings by settingsStore.settings.collectAsState(
+        initial = DEFAULT_SETTINGS_STATE
+    )
+
+
+
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
@@ -115,14 +122,20 @@ fun SettingsScreen(
                         }
                     }
 
-                    SettingsBlock("Clock") {
+                    SettingsBlock("Internal Clock") {
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Clock Enabled", color = GoblinText)
+                            Text(
+                                if (s.clockEnabled)
+                                    "Internal Clock ON"
+                                else
+                                    "Internal Clock OFF",
+                                color = GoblinText
+                            )
                             Switch(
                                 checked = s.clockEnabled,
                                 onCheckedChange = {
@@ -138,6 +151,7 @@ fun SettingsScreen(
                                 )
                             )
                         }
+
 
 
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
