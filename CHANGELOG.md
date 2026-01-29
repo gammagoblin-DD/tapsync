@@ -1,5 +1,60 @@
 # Changelog
 
+All notable changes to TapSyncWatch are documented in this file.
+
+This project follows [Semantic Versioning](https://semver.org/).
+
+---
+
+## [2.0.0] — Architecture Stable Release
+
+### Added
+- Single authoritative clock model
+- Explicit clock event model (Tap, Resync, Multiply, Divide, Nudge, Tick)
+- Absolute-time-based timing engine
+- Clear Internal Clock ON / OFF UI semantics
+- Stable default settings state to avoid UI blocking
+
+### Changed
+- Internal clock and transport responsibilities fully decoupled
+- Clock ON / OFF now controls internal beat generation only
+- External BPM input handled as an event, not as a parallel clock
+- Settings UI now renders immediately using a defined default state
+- Naming clarified: “Clock” → “Internal Clock”
+
+### Fixed
+- Implicit coupling between clock state and OSC transport
+- Double clock sources causing timing instability
+- Phase drift caused by incremental scheduling
+- Settings screen lag on first open
+- Ambiguous UI labels implying transport deactivation
+
+### Removed
+- Parallel or implicit external clock logic
+- Hidden side effects tied to clock enablement
+- Accumulated delay–based timing logic
+
+---
+
+## [1.0.1] — Stability & Labeling
+
+### Fixed
+- Minor UI labeling inconsistencies
+- Build configuration issues on Wear OS
+
+---
+
+## [1.0.0] — Initial Release
+
+### Added
+- Tap Tempo via OSC
+- Resync (phase reset)
+- Tempo Multiply / Divide
+- Nudge Push / Pull
+- Optional internal clock
+- Wear OS haptics feedback
+- OSC (UDP) transport for Resolume
+
 ## [v1.0.1] – FINAL (2026-01-24)
 
 ### Fixed / Verified
