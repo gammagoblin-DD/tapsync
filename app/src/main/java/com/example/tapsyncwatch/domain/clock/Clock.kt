@@ -9,8 +9,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class Clock(
-    private val oscSender: OscOutputSender
-) {
+    internal val oscSender: OscOutputSender
+)
+ {
 
     /* ================= DEBUG ================= */
 

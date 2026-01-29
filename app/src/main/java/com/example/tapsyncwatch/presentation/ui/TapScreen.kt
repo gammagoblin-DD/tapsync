@@ -31,6 +31,8 @@ import com.example.tapsyncwatch.osc.OscHealth
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.*
+import com.example.tapsyncwatch.domain.transport.TransportFeedback
+
 
 /* ================= GOBLIN STYLE ================= */
 
@@ -116,6 +118,16 @@ fun TapScreen(
         scope.launch {
             oscPulse.snapTo(1f)
             oscPulse.animateTo(0f, tween(220, easing = FastOutSlowInEasing))
+        }
+    }
+
+    /* ================= TRANSPORT FEEDBACK (ADDIV) ================= */
+
+    LaunchedEffect(Unit) {
+        action.oscSender.transportFeedback.collect { feedback ->
+            // ⚠️ bewusst NUR visuelles Feedback
+            // Touch-Haptics bleiben unverändert an den bestehenden Stellen
+            pulseOsc()
         }
     }
 

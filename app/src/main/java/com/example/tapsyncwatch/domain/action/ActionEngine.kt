@@ -2,6 +2,7 @@ package com.example.tapsyncwatch.domain.action
 
 import com.example.tapsyncwatch.domain.clock.Clock
 import com.example.tapsyncwatch.domain.clock.ClockEvent
+import com.example.tapsyncwatch.input.osc.OscOutputSender
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -9,6 +10,9 @@ class ActionEngine(
     private val scope: CoroutineScope,
     private val clock: Clock
 ) {
+
+    val oscSender: OscOutputSender
+        get() = clock.oscSender
 
     fun tap() {
         scope.launch {

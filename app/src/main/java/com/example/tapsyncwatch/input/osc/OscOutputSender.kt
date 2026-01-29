@@ -1,6 +1,7 @@
 package com.example.tapsyncwatch.input.osc
 
 import android.util.Log
+import com.example.tapsyncwatch.domain.transport.TransportFeedback
 import com.example.tapsyncwatch.osc.OscHealth
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -9,8 +10,11 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class OscOutputSender(
@@ -34,9 +38,16 @@ class OscOutputSender(
     private val _health = MutableStateFlow<OscHealth>(OscHealth.Idle)
     val health: StateFlow<OscHealth> = _health.asStateFlow()
 
+    /* ================= TRANSPORT FEEDBACK ================= */
+
+    private val _transportFeedback =
+        MutableSharedFlow<TransportFeedback>(extraBufferCapacity = 16)
+
+    val transportFeedback: SharedFlow<TransportFeedback> =
+        _transportFeedback.asSharedFlow()
+
     /* ================= TARGET ================= */
 
-    /** 🔁 Runtime-Rebind */
     fun setTarget(host: String, port: Int) {
         this.address = InetAddress.getByName(host)
         this.port = port
@@ -76,6 +87,8 @@ class OscOutputSender(
 
                 socket?.send(packet)
 
+                emitTransportFeedback(data)
+
                 Log.d(
                     "OSC",
                     "SEND ${data.size} bytes → ${address.hostAddress}:$port"
@@ -84,6 +97,40 @@ class OscOutputSender(
                 _health.value = OscHealth.Error(e)
                 Log.e("OSC", "SEND FAILED", e)
             }
+        }
+    }
+
+    /* ================= FEEDBACK ================= */
+
+    private fun emitTransportFeedback(data: ByteArray) {
+        val path = extractOscPath(data) ?: return
+
+        when (path) {
+            "/composition/tempocontroller/tempotap" ->
+                _transportFeedback.tryEmit(TransportFeedback.Tap)
+
+            "/composition/tempocontroller/resync" ->
+                _transportFeedback.tryEmit(TransportFeedback.Resync)
+
+            "/composition/tempocontroller/tempo/multiply" ->
+                _transportFeedback.tryEmit(TransportFeedback.Multiply)
+
+            "/composition/tempocontroller/tempo/divide" ->
+                _transportFeedback.tryEmit(TransportFeedback.Divide)
+
+            "/composition/tempocontroller/tempopush",
+            "/composition/tempocontroller/tempopull" ->
+                _transportFeedback.tryEmit(TransportFeedback.NudgeStart)
+        }
+    }
+
+    private fun extractOscPath(data: ByteArray): String? {
+        val zeroIndex = data.indexOf(0)
+        if (zeroIndex <= 0) return null
+        return try {
+            String(data, 0, zeroIndex, Charsets.UTF_8)
+        } catch (_: Exception) {
+            null
         }
     }
 
