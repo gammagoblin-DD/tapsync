@@ -17,22 +17,21 @@ private val Context.dataStore by preferencesDataStore(
 object SettingsKeys {
 
     // Presets (A/B/C)
+    val PRESET_A_NAME = stringPreferencesKey("preset_a_name")
     val PRESET_A_IP = stringPreferencesKey("preset_a_ip")
     val PRESET_A_PORT = intPreferencesKey("preset_a_port")
-    val PRESET_A_NAME = stringPreferencesKey("preset_a_name")
 
+    val PRESET_B_NAME = stringPreferencesKey("preset_b_name")
     val PRESET_B_IP = stringPreferencesKey("preset_b_ip")
     val PRESET_B_PORT = intPreferencesKey("preset_b_port")
-    val PRESET_B_NAME = stringPreferencesKey("preset_b_name")
 
+    val PRESET_C_NAME = stringPreferencesKey("preset_c_name")
     val PRESET_C_IP = stringPreferencesKey("preset_c_ip")
     val PRESET_C_PORT = intPreferencesKey("preset_c_port")
-    val PRESET_C_NAME = stringPreferencesKey("preset_c_name")
 
     val ACTIVE_PRESET = intPreferencesKey("active_preset")
 
     // UI
-    val SHOW_BPM = booleanPreferencesKey("show_bpm")
     val SHOW_OSC_DOT = booleanPreferencesKey("show_osc_dot")
 }
 
@@ -49,7 +48,6 @@ data class OscTarget(
 data class SettingsState(
     val presets: List<OscTarget>,
     val activePreset: Int,
-    val showBpm: Boolean,
     val showOscDot: Boolean
 ) {
     val activeTarget: OscTarget
@@ -88,12 +86,11 @@ class SettingsStore(
             SettingsState(
                 presets = presets,
                 activePreset = prefs[SettingsKeys.ACTIVE_PRESET] ?: 0,
-                showBpm = prefs[SettingsKeys.SHOW_BPM] ?: true,
                 showOscDot = prefs[SettingsKeys.SHOW_OSC_DOT] ?: true
             )
         }
 
-    /* -------- Preset Updates -------- */
+    /* -------- Preset Handling -------- */
 
     suspend fun setActivePreset(index: Int) {
         context.dataStore.edit {
@@ -124,10 +121,6 @@ class SettingsStore(
     }
 
     /* -------- UI -------- */
-
-    suspend fun setShowBpm(show: Boolean) {
-        context.dataStore.edit { it[SettingsKeys.SHOW_BPM] = show }
-    }
 
     suspend fun setShowOscDot(show: Boolean) {
         context.dataStore.edit { it[SettingsKeys.SHOW_OSC_DOT] = show }

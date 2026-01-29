@@ -21,10 +21,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.Text
 import com.example.tapsyncwatch.R
 import com.example.tapsyncwatch.domain.action.ActionEngine
 import kotlin.math.*
-import androidx.compose.material.Text
 
 private enum class TouchZone { CENTER, RING }
 private enum class BezelDir { NONE, CW, CCW }
@@ -33,6 +33,8 @@ private enum class BezelState { IDLE, HELD }
 @Composable
 fun TapScreen(
     showBpm: Boolean,
+    showOscDot: Boolean,
+    bpm: Double,
     action: ActionEngine,
     onLongPress: () -> Unit
 ) {
@@ -110,7 +112,6 @@ fun TapScreen(
 
                     MotionEvent.ACTION_MOVE -> {
 
-                        /* ---------- BEZEL / NUDGE ---------- */
                         if (zone == TouchZone.RING) {
                             val angle = Math.toDegrees(
                                 atan2(event.y - cy, event.x - cx).toDouble()
@@ -136,7 +137,6 @@ fun TapScreen(
                             return@pointerInteropFilter true
                         }
 
-                        /* ---------- CENTER: SWIPE / RESYNC ---------- */
                         if (!swipeHandled && zone == TouchZone.CENTER) {
                             val dxT = event.x - startX
                             val dyT = event.y - startY
@@ -221,14 +221,40 @@ fun TapScreen(
             }
         }
 
-        if (showBpm) {
-            Text(
-                text = "",
-                color = Color.White,
-                fontSize = 14.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.offset(y = 90.dp)
-            )
+        if (showOscDot) {
+            Canvas(
+                modifier = Modifier
+                    .size(14.dp)
+                    .align(Alignment.TopCenter)
+                    .offset(y = 16.dp)
+            ) {
+                drawCircle(Color.Magenta)
+                drawCircle(
+                    color = Color.White,
+                    style = Stroke(width = 2f)
+                )
+            }
         }
+
+        // ====================================================
+        // BPM OVERLAY (drawn last → always visible)
+        // ====================================================
+        if (showBpm && bpm > 0.0) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 6.dp),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                Text(
+                    text = "${bpm.toInt()} BPM",
+                    color = Color.White,
+                    fontSize = 14.sp
+                )
+            }
+        }
+
     }
+
+
 }

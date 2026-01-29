@@ -2,23 +2,31 @@ package com.example.tapsyncwatch.domain.clock
 
 import com.example.tapsyncwatch.input.osc.OscOutputSender
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class Clock(
-    private val oscSender: OscOutputSender,
-    private val onBpmChanged: (Float) -> Unit
+    private val oscSender: OscOutputSender
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var nudgeJob: Job? = null
+
+    private val _state = MutableStateFlow(
+        ClockState(
+            bpm = 0.0,
+            phase = 0.0,
+            isRunning = false
+        )
+    )
+    val state: StateFlow<ClockState> = _state.asStateFlow()
 
     fun handle(event: ClockEvent) {
         when (event) {
 
             is ClockEvent.Tick -> Unit
 
-            // -----------------------------
-            // TAP  (NUR EIN IMPULS!)
-            // -----------------------------
             is ClockEvent.Tap -> {
                 oscSender.sendInt(
                     "/composition/tempocontroller/tempotap",
@@ -26,9 +34,6 @@ class Clock(
                 )
             }
 
-            // -----------------------------
-            // MULTIPLY ×2  (INT-Button!)
-            // -----------------------------
             ClockEvent.Multiply -> {
                 stopNudge()
                 scope.launch {
@@ -44,9 +49,6 @@ class Clock(
                 }
             }
 
-            // -----------------------------
-            // DIVIDE ÷2  (INT-Button!)
-            // -----------------------------
             ClockEvent.Divide -> {
                 stopNudge()
                 scope.launch {
@@ -62,9 +64,6 @@ class Clock(
                 }
             }
 
-            // -----------------------------
-            // RESYNC
-            // -----------------------------
             ClockEvent.Resync -> {
                 stopNudge()
                 scope.launch {
@@ -80,9 +79,6 @@ class Clock(
                 }
             }
 
-            // -----------------------------
-            // NUDGE (diskrete Steps)
-            // -----------------------------
             ClockEvent.Nudge.RightStart ->
                 startNudge("/composition/tempocontroller/tempopush")
 
@@ -92,21 +88,17 @@ class Clock(
             ClockEvent.Nudge.Stop ->
                 stopNudge()
 
-            // -----------------------------
-            // EXTERNAL BPM (optional)
-            // -----------------------------
             is ClockEvent.ExternalBpm -> {
-                onBpmChanged(event.bpm.toFloat())
+                _state.value = _state.value.copy(
+                    bpm = event.bpm.toDouble(),
+                    isRunning = true
+                )
             }
         }
     }
 
-    // ============================================
-    // NUDGE = STEP-BASIERT (1 → 0 pro Schritt)
-    // ============================================
     private fun startNudge(path: String) {
         stopNudge()
-
         nudgeJob = scope.launch {
             while (isActive) {
                 oscSender.sendInt(path, 1)
