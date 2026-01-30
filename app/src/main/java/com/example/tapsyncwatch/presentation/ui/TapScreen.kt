@@ -134,7 +134,7 @@ fun TapScreen(
     fun pulseOsc() {
         scope.launch {
             oscPulse.snapTo(1f)
-            oscPulse.animateTo(0f, tween(220, easing = FastOutSlowInEasing))
+            oscPulse.animateTo(0f, tween(160, easing = FastOutSlowInEasing))
         }
     }
 
@@ -389,14 +389,15 @@ fun TapScreen(
                 modifier = Modifier
                     .size(10.dp)
                     .offset(
-                        x = (radiusTouch * 0.30f).dp,
-                        y = (radiusTouch * 0.22f).dp
+                        x = (radiusTouch * 0.36f).dp,
+                        y = (radiusTouch * 0.28f).dp
                     )
             ) {
                 drawCircle(
                     color = oscDotColor,
-                    alpha = 0.35f + oscPulse.value * 0.65f
+                    alpha = 0.18f + oscPulse.value * 0.82f
                 )
+
             }
         }
 
