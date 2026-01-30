@@ -7,11 +7,19 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+
 
 class Clock(
     internal val oscSender: OscOutputSender
-)
- {
+) {
+
+    private val _externalActivity = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1
+    )
+    val externalActivity = _externalActivity.asSharedFlow()
+
 
     /* ================= DEBUG ================= */
 
@@ -258,7 +266,9 @@ class Clock(
                 if (_mode.value == ClockMode.EXTERNAL) {
                     fireDownbeat()
                 }
+                _externalActivity.tryEmit(Unit)
             }
+
 
             is ClockEvent.Tick -> {
                 if (!enabled) return

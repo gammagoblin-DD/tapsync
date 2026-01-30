@@ -82,18 +82,19 @@ class MainActivity : ComponentActivity() {
                 } else {
                     // 🟢 TAP UI
                     TapScreen(
+                        externalClockActivity = clock.externalActivity,
                         showOscDot = s.showOscDot,
                         showBpm = false,
                         bpm = clockState.bpm,
                         action = actionEngine,
                         oscHealth = oscSender.health,
                         clockVisualState = clock.visualState,
+                        externalActivity = clock.externalActivity,
                         clockMode = s.clockMode,
                         hapticsEnabled = s.hapticsEnabled,
                         downbeatHapticsEnabled = s.downbeatHapticsEnabled,
                         transportHapticsEnabled = s.transportHapticsEnabled,
                         onLongPress = { showSettings = true }, // ✅ JETZT WIRKSAM
-                        onOscActivity = { }
                     )
                 }
             }

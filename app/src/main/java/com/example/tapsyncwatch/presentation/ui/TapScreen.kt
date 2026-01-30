@@ -31,6 +31,8 @@ import com.example.tapsyncwatch.osc.OscHealth
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.*
+import kotlinx.coroutines.flow.Flow
+
 
 
 
@@ -62,13 +64,14 @@ fun TapScreen(
     bpm: Double,
     action: ActionEngine,
     oscHealth: StateFlow<OscHealth>,
+    externalClockActivity: Flow<Unit>,
     clockVisualState: StateFlow<ClockVisualState>,
+    externalActivity: Flow<Unit>, // 🆕
     clockMode: ClockMode,
     hapticsEnabled: Boolean,
     downbeatHapticsEnabled: Boolean,
     transportHapticsEnabled: Boolean, // 🆕 A)
-    onLongPress: () -> Unit,
-    onOscActivity: ((() -> Unit)) -> Unit
+    onLongPress: () -> Unit
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -135,6 +138,16 @@ fun TapScreen(
         }
     }
 
+
+    LaunchedEffect(Unit) {
+        externalActivity.collect {
+            pulseOsc()
+        }
+    }
+
+
+
+
     /* ================= TRANSPORT FEEDBACK (A + B) ================= */
 
     val transportLimiter = remember {
@@ -163,9 +176,14 @@ fun TapScreen(
         }
     }
 
+
+
     LaunchedEffect(Unit) {
-        onOscActivity { pulseOsc() }
+        externalClockActivity.collect {
+            pulseOsc()
+        }
     }
+
 
     LaunchedEffect(tapTrigger) {
         flashAlpha.snapTo(0f)
