@@ -28,7 +28,6 @@ import com.example.tapsyncwatch.domain.clock.ClockMode
 import com.example.tapsyncwatch.presentation.data.DEFAULT_SETTINGS_STATE
 
 
-
 /* ================= GOBLIN COLORS ================= */
 
 private val GoblinBg = Color(0xFF0E0B08)
@@ -48,8 +47,6 @@ fun SettingsScreen(
         initial = DEFAULT_SETTINGS_STATE
     )
 
-
-
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
@@ -61,7 +58,15 @@ fun SettingsScreen(
     /** 🔒 EINZIGE Stelle mit suspend-Aufruf */
     LaunchedEffect(pendingCommit) {
         val commit = pendingCommit ?: return@LaunchedEffect
-        settingsStore.updatePreset(commit.index, commit.preset)
+        val index = commit.index // Zuordnung des index
+        val target = commit.preset // Zuordnung des target
+        settingsStore.updatePreset(
+            index = index,
+            name = target.name,
+            ip = target.ip,
+            port = target.port
+        )
+
         pendingCommit = null
         onClose()
     }
@@ -151,8 +156,6 @@ fun SettingsScreen(
                                 )
                             )
                         }
-
-
 
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
 
@@ -247,8 +250,7 @@ fun SettingsScreen(
                         }
                     }
 
-                    /* ---------- PRESETS ---------- */
-                    SettingsBlock("Resolume / OSC Presets") {
+                    SettingsBlock("OSC Presets") {
                         s.presets.forEachIndexed { index, preset ->
                             PresetRow(
                                 preset = preset,
@@ -294,14 +296,10 @@ fun SettingsScreen(
     }
 }
 
-/* ================= DATA ================= */
-
 private data class PendingPresetCommit(
     val index: Int,
     val preset: OscTarget
 )
-
-/* ================= PRESET ROW ================= */
 
 @Composable
 private fun PresetRow(
@@ -328,7 +326,6 @@ private fun PresetRow(
             }
             .padding(12.dp)
     ) {
-
         Text(
             text = preset.name,
             color = GoblinText,
@@ -375,8 +372,6 @@ private fun PresetRow(
         }
     }
 }
-
-/* ================= UI HELPERS ================= */
 
 @Composable
 private fun SettingsBlock(

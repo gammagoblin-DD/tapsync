@@ -1,5 +1,4 @@
 @file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
-
 package com.example.tapsyncwatch.presentation.ui
 
 import android.os.SystemClock
@@ -27,11 +26,12 @@ import com.example.tapsyncwatch.R
 import com.example.tapsyncwatch.domain.action.ActionEngine
 import com.example.tapsyncwatch.domain.clock.ClockMode
 import com.example.tapsyncwatch.domain.clock.ClockVisualState
+import com.example.tapsyncwatch.domain.transport.TransportFeedback
 import com.example.tapsyncwatch.osc.OscHealth
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.*
-import com.example.tapsyncwatch.domain.transport.TransportFeedback
+
 
 
 /* ================= GOBLIN STYLE ================= */
@@ -42,6 +42,19 @@ private enum class TouchZone { CENTER, RING }
 private enum class BezelDir { NONE, CW, CCW }
 private enum class BezelState { IDLE, HELD }
 
+/* ================= RATE LIMITER (NEU) ================= */
+
+private class HapticRateLimiter(
+    private val minIntervalMs: Long
+) {
+    private var lastMs: Long = 0L
+    fun allow(nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (nowMs - lastMs < minIntervalMs) return false
+        lastMs = nowMs
+        return true
+    }
+}
+
 @Composable
 fun TapScreen(
     showOscDot: Boolean,
@@ -50,9 +63,10 @@ fun TapScreen(
     action: ActionEngine,
     oscHealth: StateFlow<OscHealth>,
     clockVisualState: StateFlow<ClockVisualState>,
-    clockMode: ClockMode,                 // ✅ NEU
-    hapticsEnabled: Boolean,               // Settings: ON / OFF
+    clockMode: ClockMode,
+    hapticsEnabled: Boolean,
     downbeatHapticsEnabled: Boolean,
+    transportHapticsEnabled: Boolean, // 🆕 A)
     onLongPress: () -> Unit,
     onOscActivity: ((() -> Unit)) -> Unit
 ) {
@@ -60,7 +74,7 @@ fun TapScreen(
     val haptic = LocalHapticFeedback.current
     val metrics = context.resources.displayMetrics
 
-    /* ========= UI HAPTIC GUARD (FINAL) ========= */
+    /* ========= UI HAPTIC GUARD (UNVERÄNDERT) ========= */
 
     fun uiHapticAllowed(): Boolean =
         clockMode == ClockMode.INTERNAL && hapticsEnabled
@@ -121,13 +135,31 @@ fun TapScreen(
         }
     }
 
-    /* ================= TRANSPORT FEEDBACK (ADDIV) ================= */
+    /* ================= TRANSPORT FEEDBACK (A + B) ================= */
+
+    val transportLimiter = remember {
+        HapticRateLimiter(minIntervalMs = 140) // 🆕 B)
+    }
 
     LaunchedEffect(Unit) {
         action.oscSender.transportFeedback.collect { feedback ->
-            // ⚠️ bewusst NUR visuelles Feedback
-            // Touch-Haptics bleiben unverändert an den bestehenden Stellen
+
+            // visuelles Feedback immer
             pulseOsc()
+
+            // optionale Transport-Haptics
+            if (!transportHapticsEnabled) return@collect
+            if (!uiHapticAllowed()) return@collect
+            if (!transportLimiter.allow()) return@collect
+
+            when (feedback) {
+                TransportFeedback.Resync -> strongHaptic()
+                TransportFeedback.Tap,
+                TransportFeedback.Multiply,
+                TransportFeedback.Divide,
+                TransportFeedback.NudgeStart -> lightHaptic()
+                TransportFeedback.NudgeStop -> Unit
+            }
         }
     }
 
@@ -159,7 +191,7 @@ fun TapScreen(
             downbeatPulse.snapTo(1f)
             downbeatPulse.animateTo(0f, tween(260))
 
-            // ❗ Downbeat-Haptik bleibt bewusst unabhängig vom ClockMode
+            // ❗ Downbeat-Haptik bleibt bewusst unabhängig
             if (hapticsEnabled && downbeatHapticsEnabled) {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             }
@@ -175,7 +207,6 @@ fun TapScreen(
             else -> 0f
         }
     }
-
     /* ================= UI ================= */
 
     Box(
@@ -232,9 +263,9 @@ fun TapScreen(
                                 bezelState = BezelState.HELD
 
                                 if (bezelDir == BezelDir.CW)
-                                    action.nudgePushStart()
+                                    action.nudgeRightStart()
                                 else
-                                    action.nudgePullStart()
+                                    action.nudgeLeftStart()
 
                                 lightHaptic()
                                 tapTrigger++
@@ -269,9 +300,9 @@ fun TapScreen(
 
                         if (zone == TouchZone.RING && bezelState == BezelState.HELD) {
                             if (bezelDir == BezelDir.CW)
-                                action.nudgePushEnd()
+                                action.nudgeStop()
                             else
-                                action.nudgePullEnd()
+                                action.nudgeStop()
 
                             bezelState = BezelState.IDLE
                             bezelDir = BezelDir.NONE
@@ -365,6 +396,8 @@ fun TapScreen(
                 )
             }
         }
+
+
 
         /* NUDGE */
         if (visual.nudgeActive) {

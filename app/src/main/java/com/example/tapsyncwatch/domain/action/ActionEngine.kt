@@ -2,65 +2,48 @@ package com.example.tapsyncwatch.domain.action
 
 import com.example.tapsyncwatch.domain.clock.Clock
 import com.example.tapsyncwatch.domain.clock.ClockEvent
-import com.example.tapsyncwatch.input.osc.OscOutputSender
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 
 class ActionEngine(
     private val scope: CoroutineScope,
-    private val clock: Clock
+    private val clock: Clock,
+    private val haptics: HapticEventListener
 ) {
 
-    val oscSender: OscOutputSender
-        get() = clock.oscSender
-
     fun tap() {
-        scope.launch {
-            clock.handle(
-                ClockEvent.Tap(System.currentTimeMillis())
-            )
-        }
+        haptics.onTap()
+        clock.handle(ClockEvent.Tap(System.currentTimeMillis()))
     }
 
     fun multiply() {
-        scope.launch {
-            clock.handle(ClockEvent.Multiply)
-        }
+        haptics.onMultiplyDivide()
+        clock.handle(ClockEvent.Multiply)
     }
 
     fun divide() {
-        scope.launch {
-            clock.handle(ClockEvent.Divide)
-        }
+        haptics.onMultiplyDivide()
+        clock.handle(ClockEvent.Divide)
     }
 
     fun resync() {
-        scope.launch {
-            clock.handle(ClockEvent.Resync)
-        }
+        haptics.onResync()
+        clock.handle(ClockEvent.Resync)
     }
 
-    fun nudgePushStart() {
-        scope.launch {
-            clock.handle(ClockEvent.Nudge.RightStart)
-        }
+    fun nudgeLeftStart() {
+        haptics.onNudge()
+        clock.handle(ClockEvent.Nudge.LeftStart)
     }
 
-    fun nudgePushEnd() {
-        scope.launch {
-            clock.handle(ClockEvent.Nudge.Stop)
-        }
+    fun nudgeRightStart() {
+        haptics.onNudge()
+        clock.handle(ClockEvent.Nudge.RightStart)
     }
 
-    fun nudgePullStart() {
-        scope.launch {
-            clock.handle(ClockEvent.Nudge.LeftStart)
-        }
+    fun nudgeStop() {
+        clock.handle(ClockEvent.Nudge.Stop)
     }
+    // 🔧 Compatibility für TapScreen (legacy)
+    val oscSender get() = clock.oscSender
 
-    fun nudgePullEnd() {
-        scope.launch {
-            clock.handle(ClockEvent.Nudge.Stop)
-        }
-    }
 }

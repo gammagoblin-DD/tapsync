@@ -36,9 +36,11 @@ object SettingsKeys {
     val DOWNBEAT_HAPTICS_ENABLED =
         booleanPreferencesKey("downbeat_haptics_enabled")
 
-    val CLOCK_MODE = stringPreferencesKey("clock_mode")
+    // 🆕 Transport-Haptics (OSC Send)
+    val TRANSPORT_HAPTICS_ENABLED =
+        booleanPreferencesKey("transport_haptics_enabled")
 
-    // 🆕 CLOCK ENABLE (ON / OFF)
+    val CLOCK_MODE = stringPreferencesKey("clock_mode")
     val CLOCK_ENABLED = booleanPreferencesKey("clock_enabled")
 }
 
@@ -58,15 +60,16 @@ data class SettingsState(
     val showOscDot: Boolean,
     val hapticsEnabled: Boolean,
     val downbeatHapticsEnabled: Boolean,
+    val transportHapticsEnabled: Boolean, // 🆕
     val clockMode: ClockMode,
-    val clockEnabled: Boolean            // 🆕
+    val clockEnabled: Boolean
 ) {
     val activeTarget: OscTarget
         get() = presets[activePreset.coerceIn(0, presets.lastIndex)]
 }
 
 /* =========================================================
- * DEFAULT STATE (für UI-Initialisierung)
+ * DEFAULT STATE
  * ========================================================= */
 
 val DEFAULT_SETTINGS_STATE = SettingsState(
@@ -79,10 +82,10 @@ val DEFAULT_SETTINGS_STATE = SettingsState(
     showOscDot = true,
     hapticsEnabled = true,
     downbeatHapticsEnabled = false,
+    transportHapticsEnabled = false, // 🆕 default OFF
     clockMode = ClockMode.EXTERNAL,
     clockEnabled = true
 )
-
 
 /* =========================================================
  * STORE
@@ -120,6 +123,8 @@ class SettingsStore(
                 hapticsEnabled = prefs[SettingsKeys.HAPTICS_ENABLED] ?: true,
                 downbeatHapticsEnabled =
                     prefs[SettingsKeys.DOWNBEAT_HAPTICS_ENABLED] ?: false,
+                transportHapticsEnabled =
+                    prefs[SettingsKeys.TRANSPORT_HAPTICS_ENABLED] ?: false,
                 clockMode = ClockMode.valueOf(
                     prefs[SettingsKeys.CLOCK_MODE]
                         ?: ClockMode.EXTERNAL.name
@@ -130,34 +135,6 @@ class SettingsStore(
 
     val activeTarget: Flow<OscTarget> =
         settings.map { it.activeTarget }
-
-    suspend fun setActivePreset(index: Int) {
-        context.dataStore.edit {
-            it[SettingsKeys.ACTIVE_PRESET] = index.coerceIn(0, 2)
-        }
-    }
-
-    suspend fun updatePreset(index: Int, target: OscTarget) {
-        context.dataStore.edit {
-            when (index) {
-                0 -> {
-                    it[SettingsKeys.PRESET_A_NAME] = target.name
-                    it[SettingsKeys.PRESET_A_IP] = target.ip
-                    it[SettingsKeys.PRESET_A_PORT] = target.port
-                }
-                1 -> {
-                    it[SettingsKeys.PRESET_B_NAME] = target.name
-                    it[SettingsKeys.PRESET_B_IP] = target.ip
-                    it[SettingsKeys.PRESET_B_PORT] = target.port
-                }
-                2 -> {
-                    it[SettingsKeys.PRESET_C_NAME] = target.name
-                    it[SettingsKeys.PRESET_C_IP] = target.ip
-                    it[SettingsKeys.PRESET_C_PORT] = target.port
-                }
-            }
-        }
-    }
 
     suspend fun setShowOscDot(show: Boolean) {
         context.dataStore.edit {
@@ -177,16 +154,60 @@ class SettingsStore(
         }
     }
 
+    // 🆕 Transport-Haptics
+    suspend fun setTransportHapticsEnabled(enabled: Boolean) {
+        context.dataStore.edit {
+            it[SettingsKeys.TRANSPORT_HAPTICS_ENABLED] = enabled
+        }
+    }
+
     suspend fun setClockMode(mode: ClockMode) {
         context.dataStore.edit {
             it[SettingsKeys.CLOCK_MODE] = mode.name
         }
     }
 
-    // 🆕 CLOCK ENABLE
     suspend fun setClockEnabled(enabled: Boolean) {
         context.dataStore.edit {
             it[SettingsKeys.CLOCK_ENABLED] = enabled
         }
     }
+
+
+
+    /* ================= PRESETS (FIX) ================= */
+
+    suspend fun setActivePreset(index: Int) {
+        context.dataStore.edit {
+            it[SettingsKeys.ACTIVE_PRESET] = index
+        }
+    }
+
+    suspend fun updatePreset(
+        index: Int,
+        name: String,
+        ip: String,
+        port: Int
+    ) {
+        context.dataStore.edit {
+            when (index) {
+                0 -> {
+                    it[SettingsKeys.PRESET_A_NAME] = name
+                    it[SettingsKeys.PRESET_A_IP] = ip
+                    it[SettingsKeys.PRESET_A_PORT] = port
+                }
+                1 -> {
+                    it[SettingsKeys.PRESET_B_NAME] = name
+                    it[SettingsKeys.PRESET_B_IP] = ip
+                    it[SettingsKeys.PRESET_B_PORT] = port
+                }
+                2 -> {
+                    it[SettingsKeys.PRESET_C_NAME] = name
+                    it[SettingsKeys.PRESET_C_IP] = ip
+                    it[SettingsKeys.PRESET_C_PORT] = port
+                }
+            }
+        }
+    }
 }
+

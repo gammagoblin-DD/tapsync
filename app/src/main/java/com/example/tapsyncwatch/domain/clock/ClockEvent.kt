@@ -1,3 +1,4 @@
+
 package com.example.tapsyncwatch.domain.clock
 
 sealed interface ClockEvent {
@@ -16,3 +17,4 @@ sealed interface ClockEvent {
         object Stop : Nudge
     }
 }
+
