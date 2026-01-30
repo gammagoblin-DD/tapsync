@@ -248,12 +248,17 @@ fun TapScreen(
     LaunchedEffect(visual.downbeatId) {
         if (visual.downbeatId != 0L) {
             downbeatPulse.snapTo(1f)
-            downbeatPulse.animateTo(0f, tween(260))
+            downbeatPulse.animateTo(0f, tween(300))
 
             // ❗ Downbeat-Haptik bleibt bewusst unabhängig
-            if (hapticsEnabled && downbeatHapticsEnabled) {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            if (
+                clockMode == ClockMode.INTERNAL &&
+                hapticsEnabled &&
+                downbeatHapticsEnabled
+            ) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             }
+
         }
     }
 
@@ -321,10 +326,17 @@ fun TapScreen(
                                     if (delta > 0) BezelDir.CW else BezelDir.CCW
                                 bezelState = BezelState.HELD
 
-                                if (bezelDir == BezelDir.CW)
-                                    action.nudgeRightStart()
-                                else
-                                    action.nudgeLeftStart()
+                                if (bezelDir == BezelDir.CW) {
+                                    if (clockMode == ClockMode.INTERNAL) {
+                                        action.nudgeRightStart()
+                                    }
+                                } else {
+                                    if (clockMode == ClockMode.INTERNAL) {
+                                        action.nudgeLeftStart()
+                                    }
+                                }
+
+
 
                                 lightHaptic()
                                 tapTrigger++
@@ -338,13 +350,19 @@ fun TapScreen(
 
                             if (abs(dyT) > swipeThreshold && abs(dyT) > abs(dxT)) {
                                 swipeHandled = true
-                                if (dyT < 0) action.multiply() else action.divide()
+                                if (clockMode == ClockMode.INTERNAL) {
+                                    if (dyT < 0) action.multiply() else action.divide()
+                                }
+
                                 lightHaptic()
                                 tapTrigger++
                                 return@pointerInteropFilter true
                             } else if (abs(dxT) > swipeThreshold && dxT < 0) {
                                 swipeHandled = true
-                                action.resync()
+                                if (clockMode == ClockMode.INTERNAL) {
+                                    action.resync()
+                                }
+
                                 strongHaptic()
                                 tapTrigger++
                                 return@pointerInteropFilter true
@@ -358,10 +376,9 @@ fun TapScreen(
                     MotionEvent.ACTION_CANCEL -> {
 
                         if (zone == TouchZone.RING && bezelState == BezelState.HELD) {
-                            if (bezelDir == BezelDir.CW)
+                            if (clockMode == ClockMode.INTERNAL) {
                                 action.nudgeStop()
-                            else
-                                action.nudgeStop()
+                            }
 
                             bezelState = BezelState.IDLE
                             bezelDir = BezelDir.NONE
@@ -375,8 +392,13 @@ fun TapScreen(
                                 onLongPress()
                             else {
                                 tapTrigger++
-                                action.tap()
-                                lightHaptic()
+                                if (clockMode == ClockMode.INTERNAL) {
+                                    action.tap()
+                                }
+
+                                if (clockMode == ClockMode.INTERNAL) {
+                                    lightHaptic()
+                                }
                             }
                         }
                         true
@@ -446,7 +468,7 @@ fun TapScreen(
 
             drawCircle(
                 color = GoblinBrown.copy(alpha = 0.28f * downbeatPulse.value),
-                radius = safeRadius * (1.0f + downbeatPulse.value * 0.06f),
+                radius = safeRadius * (1.0f + downbeatPulse.value * 0.09f),
                 center = androidx.compose.ui.geometry.Offset(cx, cy),
                 style = Stroke(width = 14f)
             )
