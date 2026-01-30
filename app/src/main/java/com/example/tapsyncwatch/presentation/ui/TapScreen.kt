@@ -33,12 +33,25 @@ import kotlinx.coroutines.launch
 import kotlin.math.*
 import kotlinx.coroutines.flow.Flow
 
+// ================= OSC DOT TUNING =================
+
+private const val OSC_DOT_X_FACTOR = 0.365f
+private const val OSC_DOT_Y_FACTOR = 0.255f
+
+private val OSC_DOT_FINE_X = 1.dp
+private val OSC_DOT_FINE_Y = (-1).dp
+
+// ================= OSC DOT COLORS =================
+
+
+private val GoblinBrown = Color(0xFF8C5A2B)
+private val OscIdleColor = GoblinBrown.copy(alpha = 0.55f)   // 🟤 Idle
+private val OscOutColor  = Color(0xFF4CAF50)                 // 🟢 Watch → PC
+private val OscInColor   = Color(0xFFD46BFF)                 // 🟣 PC → Watch
 
 
 
 /* ================= GOBLIN STYLE ================= */
-
-private val GoblinBrown = Color(0xFF8C5A2B)
 
 private enum class TouchZone { CENTER, RING }
 private enum class BezelDir { NONE, CW, CCW }
@@ -134,7 +147,13 @@ fun TapScreen(
     fun pulseOsc() {
         scope.launch {
             oscPulse.snapTo(1f)
-            oscPulse.animateTo(0f, tween(160, easing = FastOutSlowInEasing))
+            oscPulse.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = 360,
+                    easing = FastOutSlowInEasing
+                )
+            )
         }
     }
 
@@ -387,16 +406,30 @@ fun TapScreen(
         if (showOscDot) {
             Canvas(
                 modifier = Modifier
-                    .size(10.dp)
+                    .size(8.dp)
                     .offset(
-                        x = (radiusTouch * 0.36f).dp,
-                        y = (radiusTouch * 0.28f).dp
+
+                        x = (radiusTouch * OSC_DOT_X_FACTOR).dp + OSC_DOT_FINE_X,
+                        y = (radiusTouch * OSC_DOT_Y_FACTOR).dp + OSC_DOT_FINE_Y
+
                     )
             ) {
+                val pulse = oscPulse.value
+
+                // Glow-Aura (weich, größer)
                 drawCircle(
                     color = oscDotColor,
-                    alpha = 0.18f + oscPulse.value * 0.82f
+                    radius = size.minDimension / 2f * (1.6f + pulse * 0.6f),
+                    alpha = 0.12f * pulse
                 )
+
+                // Core-Dot (präzise)
+                drawCircle(
+                    color = oscDotColor,
+                    radius = size.minDimension / 2f,
+                    alpha = 0.45f + pulse * 0.55f
+                )
+
 
             }
         }
