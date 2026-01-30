@@ -204,6 +204,28 @@ fun TapScreen(
     val visual by clockVisualState.collectAsState()
     val downbeatPulse = remember { Animatable(0f) }
 
+    /* ===== NUDGE VISUAL ===== */
+
+    val nudgePulse = remember { Animatable(0f) }
+
+    LaunchedEffect(visual.nudgeActive) {
+        if (visual.nudgeActive) {
+            while (true) {
+                nudgePulse.animateTo(
+                    1f,
+                    tween(durationMillis = 420, easing = FastOutSlowInEasing)
+                )
+                nudgePulse.animateTo(
+                    0f,
+                    tween(durationMillis = 420, easing = FastOutSlowInEasing)
+                )
+            }
+        } else {
+            nudgePulse.snapTo(0f)
+        }
+    }
+
+
     LaunchedEffect(visual.downbeatId) {
         if (visual.downbeatId != 0L) {
             downbeatPulse.snapTo(1f)
@@ -415,20 +437,26 @@ fun TapScreen(
             }
         }
 
-
-
-        /* NUDGE */
+        /* ===== NUDGE VISUAL (DEUTLICH) ===== */
         if (visual.nudgeActive) {
             Canvas(
                 modifier = Modifier
-                    .size(80.dp)
-                    .align(Alignment.Center)
+                    .fillMaxSize()
+                    .zIndex(9f)
             ) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val baseRadius = min(size.width, size.height) * 0.32f
+                val pulse = nudgePulse.value
+
                 drawCircle(
-                    color = GoblinBrown.copy(alpha = 0.15f),
-                    style = Stroke(width = 6f)
+                    color = GoblinBrown.copy(alpha = 0.22f + pulse * 0.18f),
+                    radius = baseRadius * (1.0f + pulse * 0.06f),
+                    center = androidx.compose.ui.geometry.Offset(cx, cy),
+                    style = Stroke(width = 12f)
                 )
             }
         }
+
     }
 }
