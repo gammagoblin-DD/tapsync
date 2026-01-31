@@ -32,6 +32,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.*
 import kotlinx.coroutines.flow.Flow
+import com.example.tapsyncwatch.domain.settings.TransportRingIntensity
+
 
 
 
@@ -44,6 +46,12 @@ private enum class TouchZone { CENTER, RING }
 private enum class BezelDir { NONE, CW, CCW }
 private enum class BezelState { IDLE, HELD }
 
+private enum class TransportRingIntensity {
+    OFF,
+    LOW,
+    NORMAL
+}
+
 /* ================= RATE LIMITER (NEU) ================= */
 
 private class HapticRateLimiter(
@@ -54,6 +62,20 @@ private class HapticRateLimiter(
         if (nowMs - lastMs < minIntervalMs) return false
         lastMs = nowMs
         return true
+    }
+}
+
+
+
+private fun doublePulseAlpha(eventMs: Long?): Float {
+    if (eventMs == null) return 0f
+
+    val dt = (System.currentTimeMillis() - eventMs).toFloat()
+
+    return when {
+        dt < 120f -> 1f - dt / 120f
+        dt in 200f..320f -> 1f - (dt - 200f) / 120f
+        else -> 0f
     }
 }
 
@@ -71,11 +93,17 @@ fun TapScreen(
     hapticsEnabled: Boolean,
     downbeatHapticsEnabled: Boolean,
     transportHapticsEnabled: Boolean, // 🆕 A)
+    transportRingIntensity: StateFlow<TransportRingIntensity>,
     onLongPress: () -> Unit
-) {
+
+
+
+    ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val metrics = context.resources.displayMetrics
+    val ringIntensity by transportRingIntensity.collectAsState()
+
 
     /* ========= UI HAPTIC GUARD (UNVERÄNDERT) ========= */
 
@@ -247,6 +275,22 @@ fun TapScreen(
             else -> 0f
         }
     }
+
+    /* ===== TRANSPORT VISUAL HELPERS ===== */
+
+    val (tapFactor, resyncFactor) = when (ringIntensity) {
+        TransportRingIntensity.OFF -> 0f to 0f
+        TransportRingIntensity.LOW -> 0.25f to 0.6f
+        TransportRingIntensity.NORMAL -> 0.6f to 1.0f
+    }
+
+    val tapRingAlpha = overlayAlpha(visual.lastTapMs) * tapFactor
+    val resyncRingAlpha = overlayAlpha(visual.lastResyncMs) * resyncFactor
+    val multiplyPulse: Float = doublePulseAlpha(visual.lastMultiplyMs)
+    val dividePulse: Float = doublePulseAlpha(visual.lastDivideMs)
+    val mdPulse: Float = kotlin.math.max(multiplyPulse, dividePulse)
+
+
     /* ================= UI ================= */
 
     Box(
@@ -401,7 +445,7 @@ fun TapScreen(
             }
         }
 
-        /* ===== DOWNBEAT RING (WEAR SAFE) ===== */
+        /* ===== DOWNBEAT + TRANSPORT RING (WEAR SAFE) ===== */
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -411,17 +455,67 @@ fun TapScreen(
             val cy = size.height / 2f
             val safeRadius = min(size.width, size.height) * 0.82f / 2f
 
+            // Basis: Downbeat
+            val baseAlpha = 0.28f * downbeatPulse.value
+
+            // Transport (sehr dezent)
+            val transportAlpha =
+                tapRingAlpha * 0.18f +
+                        resyncRingAlpha * 0.45f +
+                        mdPulse * 0.22f
+
+            val finalAlpha = (baseAlpha + transportAlpha).coerceAtMost(1f)
+
+            val scale =
+                1.0f +
+                        downbeatPulse.value * 0.06f +
+                        tapRingAlpha * 0.015f +
+                        resyncRingAlpha * 0.035f +
+                        mdPulse * 0.025f
+
             drawCircle(
-                color = GoblinBrown.copy(alpha = 0.28f * downbeatPulse.value),
-                radius = safeRadius * (1.0f + downbeatPulse.value * 0.06f),
+                color = GoblinBrown.copy(alpha = finalAlpha),
+                radius = safeRadius * scale,
                 center = androidx.compose.ui.geometry.Offset(cx, cy),
                 style = Stroke(width = 14f)
             )
         }
 
+
+
         /* MULTIPLY / DIVIDE */
         val multiplyAlpha = overlayAlpha(visual.lastMultiplyMs)
         val divideAlpha = overlayAlpha(visual.lastDivideMs)
+
+        val doublePulseAlpha: (Long?) -> Float = { eventMs ->
+            if (eventMs == null) 0f
+            else {
+                val dt = (System.currentTimeMillis() - eventMs).toFloat()
+
+                when {
+                    dt < 120f -> 1f - dt / 120f
+                    dt in 200f..320f -> 1f - (dt - 200f) / 120f
+                    else -> 0f
+                }
+            }
+        }
+
+        val dividePulse = doublePulseAlpha(visual.lastDivideMs)
+        val mdPulse = max(multiplyPulse, dividePulse)
+
+
+        fun doublePulseAlpha(eventMs: Long?): Float {
+            if (eventMs == null) return 0f
+            val dt = System.currentTimeMillis() - eventMs
+
+            // Zwei kurze Pulse: 0–120 ms und 200–320 ms
+            return when {
+                dt < 120 -> 1f - dt / 120f
+                dt in 200..320 -> 1f - (dt - 200) / 120f
+                else -> 0f
+            }
+        }
+
 
         if (multiplyAlpha > 0f || divideAlpha > 0f) {
             Box(

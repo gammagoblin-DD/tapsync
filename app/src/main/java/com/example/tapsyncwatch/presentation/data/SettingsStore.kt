@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.tapsyncwatch.domain.clock.ClockMode
+import com.example.tapsyncwatch.domain.settings.TransportRingIntensity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -36,9 +37,13 @@ object SettingsKeys {
     val DOWNBEAT_HAPTICS_ENABLED =
         booleanPreferencesKey("downbeat_haptics_enabled")
 
-    // 🆕 Transport-Haptics (OSC Send)
+    // Transport-Haptics (OSC Send)
     val TRANSPORT_HAPTICS_ENABLED =
         booleanPreferencesKey("transport_haptics_enabled")
+
+    // 🆕 Transport Ring Intensity
+    val TRANSPORT_RING_INTENSITY =
+        stringPreferencesKey("transport_ring_intensity")
 
     val CLOCK_MODE = stringPreferencesKey("clock_mode")
     val CLOCK_ENABLED = booleanPreferencesKey("clock_enabled")
@@ -60,9 +65,10 @@ data class SettingsState(
     val showOscDot: Boolean,
     val hapticsEnabled: Boolean,
     val downbeatHapticsEnabled: Boolean,
-    val transportHapticsEnabled: Boolean, // 🆕
+    val transportHapticsEnabled: Boolean,
     val clockMode: ClockMode,
-    val clockEnabled: Boolean
+    val clockEnabled: Boolean,
+    val transportRingIntensity: TransportRingIntensity
 ) {
     val activeTarget: OscTarget
         get() = presets[activePreset.coerceIn(0, presets.lastIndex)]
@@ -82,9 +88,10 @@ val DEFAULT_SETTINGS_STATE = SettingsState(
     showOscDot = true,
     hapticsEnabled = true,
     downbeatHapticsEnabled = false,
-    transportHapticsEnabled = false, // 🆕 default OFF
+    transportHapticsEnabled = false,
     clockMode = ClockMode.EXTERNAL,
-    clockEnabled = true
+    clockEnabled = true,
+    transportRingIntensity = TransportRingIntensity.LOW
 )
 
 /* =========================================================
@@ -129,7 +136,15 @@ class SettingsStore(
                     prefs[SettingsKeys.CLOCK_MODE]
                         ?: ClockMode.EXTERNAL.name
                 ),
-                clockEnabled = prefs[SettingsKeys.CLOCK_ENABLED] ?: true
+                clockEnabled = prefs[SettingsKeys.CLOCK_ENABLED] ?: true,
+                transportRingIntensity = runCatching {
+                    TransportRingIntensity.valueOf(
+                        prefs[SettingsKeys.TRANSPORT_RING_INTENSITY]
+                            ?: TransportRingIntensity.LOW.name
+                    )
+                }.getOrElse {
+                    TransportRingIntensity.LOW
+                }
             )
         }
 
@@ -154,7 +169,6 @@ class SettingsStore(
         }
     }
 
-    // 🆕 Transport-Haptics
     suspend fun setTransportHapticsEnabled(enabled: Boolean) {
         context.dataStore.edit {
             it[SettingsKeys.TRANSPORT_HAPTICS_ENABLED] = enabled
@@ -173,9 +187,15 @@ class SettingsStore(
         }
     }
 
+    suspend fun setTransportRingIntensity(
+        value: TransportRingIntensity
+    ) {
+        context.dataStore.edit {
+            it[SettingsKeys.TRANSPORT_RING_INTENSITY] = value.name
+        }
+    }
 
-
-    /* ================= PRESETS (FIX) ================= */
+    /* ================= PRESETS ================= */
 
     suspend fun setActivePreset(index: Int) {
         context.dataStore.edit {
@@ -210,4 +230,3 @@ class SettingsStore(
         }
     }
 }
-

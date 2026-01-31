@@ -158,6 +158,11 @@ class Clock(
              * ===================================================== */
 
             is ClockEvent.Tap -> {
+                // NEW: visual tap feedback timestamp
+                _visualState.value = _visualState.value.copy(
+                    lastTapMs = System.currentTimeMillis()
+                )
+
                 scope.launch {
                     oscSender.sendInt(
                         "/composition/tempocontroller/tempotap",
@@ -225,6 +230,11 @@ class Clock(
 
             ClockEvent.Resync -> {
 
+                // NEW: visual resync feedback timestamp
+                _visualState.value = _visualState.value.copy(
+                    lastResyncMs = System.currentTimeMillis()
+                )
+
                 scope.launch {
                     oscSender.sendInt(
                         "/composition/tempocontroller/resync",
@@ -269,11 +279,9 @@ class Clock(
                 _externalActivity.tryEmit(Unit)
             }
 
-
             is ClockEvent.Tick -> {
                 if (!enabled) return
             }
         }
     }
-
 }

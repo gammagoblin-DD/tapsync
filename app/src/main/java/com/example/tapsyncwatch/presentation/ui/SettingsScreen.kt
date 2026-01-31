@@ -250,6 +250,97 @@ fun SettingsScreen(
                         }
                     }
 
+                    SettingsBlock("Transport Ring") {
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .pointerInput(Unit) {
+                                        detectTapGestures {
+                                            scope.launch {
+                                                settingsStore.setTransportRingIntensity(
+                                                    com.example.tapsyncwatch.domain.settings
+                                                        .TransportRingIntensity.OFF
+                                                )
+                                            }
+                                        }
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = s.transportRingIntensity ==
+                                            com.example.tapsyncwatch.domain.settings
+                                                .TransportRingIntensity.OFF,
+                                    onClick = null,
+                                    colors = RadioButtonDefaults.colors(
+                                        selectedColor = GoblinAccent
+                                    )
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("Aus", color = GoblinText)
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .pointerInput(Unit) {
+                                        detectTapGestures {
+                                            scope.launch {
+                                                settingsStore.setTransportRingIntensity(
+                                                    com.example.tapsyncwatch.domain.settings
+                                                        .TransportRingIntensity.LOW
+                                                )
+                                            }
+                                        }
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = s.transportRingIntensity ==
+                                            com.example.tapsyncwatch.domain.settings
+                                                .TransportRingIntensity.LOW,
+                                    onClick = null,
+                                    colors = RadioButtonDefaults.colors(
+                                        selectedColor = GoblinAccent
+                                    )
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("Dezent", color = GoblinText)
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .pointerInput(Unit) {
+                                        detectTapGestures {
+                                            scope.launch {
+                                                settingsStore.setTransportRingIntensity(
+                                                    com.example.tapsyncwatch.domain.settings
+                                                        .TransportRingIntensity.NORMAL
+                                                )
+                                            }
+                                        }
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = s.transportRingIntensity ==
+                                            com.example.tapsyncwatch.domain.settings
+                                                .TransportRingIntensity.NORMAL,
+                                    onClick = null,
+                                    colors = RadioButtonDefaults.colors(
+                                        selectedColor = GoblinAccent
+                                    )
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("Stark", color = GoblinText)
+                            }
+                        }
+                    }
+
+
                     SettingsBlock("OSC Presets") {
                         s.presets.forEachIndexed { index, preset ->
                             PresetRow(
