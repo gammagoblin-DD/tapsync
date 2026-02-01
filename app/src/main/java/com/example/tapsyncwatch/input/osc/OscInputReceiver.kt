@@ -3,6 +3,7 @@ package com.example.tapsyncwatch.input.osc
 import android.util.Log
 import com.example.tapsyncwatch.domain.clock.Clock
 import com.example.tapsyncwatch.domain.clock.ClockEvent
+import com.example.tapsyncwatch.domain.transport.TransportFeedback
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.*
@@ -21,6 +22,12 @@ class OscInputReceiver(
         extraBufferCapacity = 8
     )
     val oscActivity: SharedFlow<Unit> = _oscActivity
+
+    // 🎛️ UI-only transport feedback for incoming OSC (REMOTE events)
+    private val _transportIn = MutableSharedFlow<TransportFeedback>(
+        extraBufferCapacity = 16
+    )
+    val transportIn: SharedFlow<TransportFeedback> = _transportIn
 
     private var socket: DatagramSocket? = null
     private var running = false
@@ -97,6 +104,29 @@ class OscInputReceiver(
 
     private fun handleMessage(address: String, typeTags: String, bb: ByteBuffer) {
         when (address) {
+
+            // =================================================
+            // Resolume Tempo Controller (transport events)
+            // These are UI-only signals: they DO NOT change the clock.
+            // =================================================
+            "/composition/tempocontroller/tempotap" -> {
+                _transportIn.tryEmit(TransportFeedback.Tap)
+            }
+            "/composition/tempocontroller/resync" -> {
+                _transportIn.tryEmit(TransportFeedback.Resync)
+            }
+            "/composition/tempocontroller/tempo/multiply" -> {
+                _transportIn.tryEmit(TransportFeedback.Multiply)
+            }
+            "/composition/tempocontroller/tempo/divide" -> {
+                _transportIn.tryEmit(TransportFeedback.Divide)
+            }
+            "/composition/tempocontroller/tempopush" -> {
+                _transportIn.tryEmit(TransportFeedback.NudgeStart)
+            }
+            "/composition/tempocontroller/tempopull" -> {
+                _transportIn.tryEmit(TransportFeedback.NudgeStart)
+            }
 
             // =================================================
             // Resolume Tempo Controller (bpm-clock compatible)

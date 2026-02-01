@@ -17,7 +17,6 @@ import com.example.tapsyncwatch.presentation.ui.TapScreen
 import kotlinx.coroutines.launch
 import com.example.tapsyncwatch.presentation.ui.SettingsScreen
 
-
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -83,6 +82,7 @@ class MainActivity : ComponentActivity() {
                     // 🟢 TAP UI
                     TapScreen(
                         externalClockActivity = clock.externalActivity,
+                        externalTransportIn = oscReceiver.transportIn,
                         showOscDot = s.showOscDot,
                         showBpm = false,
                         bpm = clockState.bpm,
@@ -99,7 +99,5 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-
-
     }
 }

@@ -3,16 +3,29 @@ package com.example.tapsyncwatch.presentation.ui
 
 import android.os.SystemClock
 import android.view.MotionEvent
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -28,23 +41,32 @@ import com.example.tapsyncwatch.domain.clock.ClockMode
 import com.example.tapsyncwatch.domain.clock.ClockVisualState
 import com.example.tapsyncwatch.domain.transport.TransportFeedback
 import com.example.tapsyncwatch.osc.OscHealth
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
-import kotlin.math.*
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-
-
-
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.min
 
 /* ================= GOBLIN STYLE ================= */
 
 private val GoblinBrown = Color(0xFF8C5A2B)
 
-private enum class TouchZone { CENTER, RING }
-private enum class BezelDir { NONE, CW, CCW }
-private enum class BezelState { IDLE, HELD }
+private enum class TouchZone { CENTER, LEFT }
+private enum class Voice { LOCAL, REMOTE }
 
-/* ================= RATE LIMITER (NEU) ================= */
+private enum class RippleKind {
+    TAP,
+    MULTIPLY,
+    DIVIDE,
+    RESYNC,
+    NUDGE_PLUS,
+    NUDGE_MINUS
+}
+
+/* ================= RATE LIMITER ================= */
 
 private class HapticRateLimiter(
     private val minIntervalMs: Long
@@ -65,19 +87,21 @@ fun TapScreen(
     action: ActionEngine,
     oscHealth: StateFlow<OscHealth>,
     externalClockActivity: Flow<Unit>,
+    externalTransportIn: Flow<TransportFeedback>,
     clockVisualState: StateFlow<ClockVisualState>,
-    externalActivity: Flow<Unit>, // 🆕
+    externalActivity: Flow<Unit>,
     clockMode: ClockMode,
     hapticsEnabled: Boolean,
     downbeatHapticsEnabled: Boolean,
-    transportHapticsEnabled: Boolean, // 🆕 A)
+    transportHapticsEnabled: Boolean,
     onLongPress: () -> Unit
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val metrics = context.resources.displayMetrics
+    val scope = rememberCoroutineScope()
 
-    /* ========= UI HAPTIC GUARD (UNVERÄNDERT) ========= */
+    /* ========= UI HAPTIC GUARD ========= */
 
     fun uiHapticAllowed(): Boolean =
         clockMode == ClockMode.INTERNAL && hapticsEnabled
@@ -95,41 +119,25 @@ fun TapScreen(
         }
     }
 
-    /* ===== Touch-Geometrie ===== */
+    /* ===== Touch geometry (px) ===== */
 
-    val width = metrics.widthPixels.toFloat()
-    val height = metrics.heightPixels.toFloat()
-    val cxTouch = width / 2f
-    val cyTouch = height / 2f
-    val radiusTouch = min(width, height) / 2f
+    val widthPx = metrics.widthPixels.toFloat()
+    val heightPx = metrics.heightPixels.toFloat()
+    val leftZoneEdgePx = widthPx * 0.25f
 
-    val ringOuter = radiusTouch * 0.98f
-    val ringInner = radiusTouch * 0.50f
+    /* ===== Input thresholds (px/ms) ===== */
 
-    fun isInLeftBezel(angle: Float): Boolean =
-        angle >= 110f || angle <= -110f
-
-    var zone by remember { mutableStateOf(TouchZone.CENTER) }
-    var bezelDir by remember { mutableStateOf(BezelDir.NONE) }
-    var bezelState by remember { mutableStateOf(BezelState.IDLE) }
-    var nudgeStarted by remember { mutableStateOf(false) }
-    var lastAngle by remember { mutableStateOf(0f) }
-
-    var downTime by remember { mutableStateOf(0L) }
-    var startX by remember { mutableStateOf(0f) }
-    var startY by remember { mutableStateOf(0f) }
-    var swipeHandled by remember { mutableStateOf(false) }
-
-    val swipeThreshold = 70f
     val longPressMs = 600L
+    val swipeMinDist = 70f
+    val swipeMaxOffAxis = 30f
+    val axisDominanceMargin = 20f
+    val swipeArmDist = 12f
+    val tapMaxMove = 10f
+    val nudgeArmDist = 12f
 
-    val flashAlpha = remember { Animatable(0f) }
-    var tapTrigger by remember { mutableStateOf(0) }
-
-    /* ================= OSC ================= */
+    /* ================= OSC pulse dot ================= */
 
     val oscPulse = remember { Animatable(0f) }
-    val scope = rememberCoroutineScope()
 
     fun pulseOsc() {
         scope.launch {
@@ -138,29 +146,24 @@ fun TapScreen(
         }
     }
 
-
+    // Any external activity (legacy) -> pulse dot
     LaunchedEffect(Unit) {
-        externalActivity.collect {
-            pulseOsc()
-        }
+        externalActivity.collect { pulseOsc() }
+    }
+    LaunchedEffect(Unit) {
+        externalClockActivity.collect { pulseOsc() }
     }
 
+    /* ================= Transport feedback (OUTGOING) ================= */
 
-
-
-    /* ================= TRANSPORT FEEDBACK (A + B) ================= */
-
-    val transportLimiter = remember {
-        HapticRateLimiter(minIntervalMs = 140) // 🆕 B)
-    }
+    val transportLimiter = remember { HapticRateLimiter(minIntervalMs = 140) }
 
     LaunchedEffect(Unit) {
         action.oscSender.transportFeedback.collect { feedback ->
-
-            // visuelles Feedback immer
+            // Visual: activity dot always
             pulseOsc()
 
-            // optionale Transport-Haptics
+            // Optional transport haptics
             if (!transportHapticsEnabled) return@collect
             if (!uiHapticAllowed()) return@collect
             if (!transportLimiter.allow()) return@collect
@@ -176,21 +179,133 @@ fun TapScreen(
         }
     }
 
+    /* ================= Goblin Flash (LOCAL TAP only) ================= */
 
+    val goblinFlashAlpha = remember { Animatable(0f) }
+    var goblinFlashTrigger by remember { mutableStateOf(0) }
 
-    LaunchedEffect(Unit) {
-        externalClockActivity.collect {
-            pulseOsc()
+    LaunchedEffect(goblinFlashTrigger) {
+        if (goblinFlashTrigger == 0) return@LaunchedEffect
+        goblinFlashAlpha.snapTo(0f)
+        goblinFlashAlpha.animateTo(1f, tween(110, easing = FastOutSlowInEasing))
+        goblinFlashAlpha.animateTo(0f, tween(560, easing = FastOutSlowInEasing))
+    }
+
+    /* ================= Ripple controller (LOCAL + REMOTE) ================= */
+
+    val localRipple = remember { Animatable(0f) }   // progress 0..1
+    val remoteRipple = remember { Animatable(0f) }  // progress 0..1
+    var localKind by remember { mutableStateOf<RippleKind?>(null) }
+    var remoteKind by remember { mutableStateOf<RippleKind?>(null) }
+    var localHold by remember { mutableStateOf(false) }
+    var remoteHold by remember { mutableStateOf(false) }
+    var localNudgePlus by remember { mutableStateOf(true) }
+
+    var localRippleJob by remember { mutableStateOf<Job?>(null) }
+    var remoteRippleJob by remember { mutableStateOf<Job?>(null) }
+    var localHoldArmJob by remember { mutableStateOf<Job?>(null) }
+
+    fun startRipple(
+        voice: Voice,
+        kind: RippleKind,
+        hold: Boolean,
+        nudgePlus: Boolean = true
+    ) {
+        val anim = if (voice == Voice.LOCAL) localRipple else remoteRipple
+
+        // Cancel running job for this voice so stop is immediate
+        if (voice == Voice.LOCAL) {
+            localRippleJob?.cancel()
+            localRippleJob = null
+        } else {
+            remoteRippleJob?.cancel()
+            remoteRippleJob = null
+        }
+
+        if (voice == Voice.LOCAL) {
+            localKind = kind
+            localHold = hold
+            if (kind == RippleKind.NUDGE_PLUS || kind == RippleKind.NUDGE_MINUS) {
+                localNudgePlus = nudgePlus
+            }
+        } else {
+            remoteKind = kind
+            remoteHold = hold
+        }
+
+        val newJob = scope.launch {
+            anim.snapTo(0f)
+
+            if (hold) {
+                // One-direction loop: 0 -> 1, restart (no ping-pong)
+                val loopMs = 900
+                while (isActive && (if (voice == Voice.LOCAL) localHold else remoteHold)) {
+                    anim.snapTo(0f)
+                    anim.animateTo(1f, tween(loopMs, easing = FastOutSlowInEasing))
+                }
+                anim.snapTo(0f)
+            } else {
+                val ms = when (kind) {
+                    RippleKind.TAP -> 520
+                    RippleKind.MULTIPLY, RippleKind.DIVIDE -> 760
+                    RippleKind.RESYNC -> 900
+                    RippleKind.NUDGE_PLUS, RippleKind.NUDGE_MINUS -> 560
+                }
+                anim.snapTo(0f)
+                anim.animateTo(1f, tween(ms, easing = FastOutSlowInEasing))
+                anim.snapTo(0f)
+            }
+        }
+
+        if (voice == Voice.LOCAL) localRippleJob = newJob else remoteRippleJob = newJob
+    }
+
+    fun stopHoldRipple(voice: Voice) {
+        if (voice == Voice.LOCAL) {
+            localHold = false
+            localRippleJob?.cancel()
+            localRippleJob = null
+            scope.launch { localRipple.snapTo(0f) }
+        } else {
+            remoteHold = false
+            remoteRippleJob?.cancel()
+            remoteRippleJob = null
+            scope.launch { remoteRipple.snapTo(0f) }
         }
     }
 
-
-    LaunchedEffect(tapTrigger) {
-        flashAlpha.snapTo(0f)
-        flashAlpha.animateTo(1f, tween(120))
-        flashAlpha.animateTo(0f, tween(500))
-        pulseOsc()
+    fun mapTransportToRippleKind(feedback: TransportFeedback, nudgePlus: Boolean?): RippleKind? {
+        return when (feedback) {
+            TransportFeedback.Tap -> RippleKind.TAP
+            TransportFeedback.Multiply -> RippleKind.MULTIPLY
+            TransportFeedback.Divide -> RippleKind.DIVIDE
+            TransportFeedback.Resync -> RippleKind.RESYNC
+            TransportFeedback.NudgeStart -> {
+                if (nudgePlus == true) RippleKind.NUDGE_PLUS else RippleKind.NUDGE_MINUS
+            }
+            TransportFeedback.NudgeStop -> null
+        }
     }
+
+    // Remote transport in (Resolume -> Watch): NO goblin flash
+    LaunchedEffect(Unit) {
+        externalTransportIn.collect { fb ->
+            pulseOsc()
+            when (fb) {
+                TransportFeedback.NudgeStop -> stopHoldRipple(Voice.REMOTE)
+                TransportFeedback.NudgeStart -> {
+                    // remote nudge direction is unknown; choose a stable default (minus)
+                    startRipple(Voice.REMOTE, RippleKind.NUDGE_MINUS, hold = true)
+                }
+                else -> {
+                    val kind = mapTransportToRippleKind(fb, nudgePlus = null) ?: return@collect
+                    startRipple(Voice.REMOTE, kind, hold = false)
+                }
+            }
+        }
+    }
+
+    /* ================= CLOCK VISUAL ================= */
 
     val health by oscHealth.collectAsState()
     val oscDotColor = when (health) {
@@ -199,65 +314,47 @@ fun TapScreen(
         OscHealth.Idle -> Color(0xFFB86CFF)
     }
 
-    /* ================= CLOCK VISUAL ================= */
-
     val visual by clockVisualState.collectAsState()
     val downbeatPulse = remember { Animatable(0f) }
-
-    /* ===== NUDGE VISUAL ===== */
-
-    val nudgePulse = remember { Animatable(0f) }
-
-    LaunchedEffect(visual.nudgeActive) {
-        if (visual.nudgeActive) {
-            while (true) {
-                nudgePulse.animateTo(
-                    1f,
-                    tween(durationMillis = 420, easing = FastOutSlowInEasing)
-                )
-                nudgePulse.animateTo(
-                    0f,
-                    tween(durationMillis = 420, easing = FastOutSlowInEasing)
-                )
-            }
-        } else {
-            nudgePulse.snapTo(0f)
-        }
-    }
-
 
     LaunchedEffect(visual.downbeatId) {
         if (visual.downbeatId != 0L) {
             downbeatPulse.snapTo(1f)
-            downbeatPulse.animateTo(0f, tween(260))
+            downbeatPulse.animateTo(0f, tween(260, easing = FastOutSlowInEasing))
 
-            // ❗ Downbeat-Haptik bleibt bewusst unabhängig
+            // Downbeat haptics stays independent (as before)
             if (hapticsEnabled && downbeatHapticsEnabled) {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             }
         }
     }
 
-    fun overlayAlpha(eventMs: Long?): Float {
-        if (eventMs == null) return 0f
-        val dt = System.currentTimeMillis() - eventMs
-        return when {
-            dt < 200 -> 1f
-            dt < 800 -> 1f - (dt - 200) / 600f
-            else -> 0f
-        }
-    }
-    /* ================= UI ================= */
+    /* ================= Swipe helpers ================= */
+
+    fun isHorizontalSwipe(dx: Float, dy: Float): Boolean =
+        (abs(dx) - abs(dy)) >= axisDominanceMargin
+
+    fun isVerticalSwipe(dx: Float, dy: Float): Boolean =
+        (abs(dy) - abs(dx)) >= axisDominanceMargin
+
+    /* ================= UI / INPUT ================= */
+
+    var zone by remember { mutableStateOf(TouchZone.CENTER) }
+    var downTime by remember { mutableStateOf(0L) }
+    var startX by remember { mutableStateOf(0f) }
+    var startY by remember { mutableStateOf(0f) }
+    var swipeHandled by remember { mutableStateOf(false) }
+    var tapCanceled by remember { mutableStateOf(false) }
+
+    var nudgeStarted by remember { mutableStateOf(false) }
+    var nudgePlus by remember { mutableStateOf(true) } // Up = Push
+    var nudgeDownMs by remember { mutableStateOf(0L) }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
             .pointerInteropFilter { event ->
-
-                val dx = event.x - cxTouch
-                val dy = event.y - cyTouch
-                val dist = hypot(dx, dy)
 
                 when (event.actionMasked) {
 
@@ -266,68 +363,86 @@ fun TapScreen(
                         startX = event.x
                         startY = event.y
                         swipeHandled = false
+                        tapCanceled = false
                         nudgeStarted = false
-
-                        val angle =
-                            Math.toDegrees(atan2(dy, dx).toDouble()).toFloat()
-
-                        zone =
-                            if (dist in ringInner..ringOuter && isInLeftBezel(angle))
-                                TouchZone.RING
-                            else
-                                TouchZone.CENTER
-
-                        lastAngle = angle
-                        bezelDir = BezelDir.NONE
-                        bezelState = BezelState.IDLE
+                        zone = if (event.x <= leftZoneEdgePx) TouchZone.LEFT else TouchZone.CENTER
+                        if (zone == TouchZone.LEFT) {
+                            nudgeDownMs = SystemClock.elapsedRealtime()
+                        }
                         true
                     }
 
                     MotionEvent.ACTION_MOVE -> {
 
-                        if (zone == TouchZone.RING) {
-                            val angle = Math.toDegrees(
-                                atan2(event.y - cyTouch, event.x - cxTouch).toDouble()
-                            ).toFloat()
+                        val dxT = event.x - startX
+                        val dyT = event.y - startY
 
-                            var delta = angle - lastAngle
-                            lastAngle = angle
+                        // Arm distance cancels tap/long-press once you start swiping/dragging
+                        if (!tapCanceled && (abs(dxT) > swipeArmDist || abs(dyT) > swipeArmDist)) {
+                            tapCanceled = true
+                        }
 
-                            if (delta > 180f) delta -= 360f
-                            if (delta < -180f) delta += 360f
-
-                            if (!nudgeStarted && abs(delta) > 3f) {
+                        if (zone == TouchZone.LEFT) {
+                            if (!nudgeStarted && abs(dyT) > nudgeArmDist) {
                                 nudgeStarted = true
-                                bezelDir =
-                                    if (delta > 0) BezelDir.CW else BezelDir.CCW
-                                bezelState = BezelState.HELD
+                                nudgePlus = (dyT < 0) // Up => Push
 
-                                if (bezelDir == BezelDir.CW)
-                                    action.nudgeRightStart()
-                                else
-                                    action.nudgeLeftStart()
-
+                                if (nudgePlus) action.nudgeRightStart() else action.nudgeLeftStart()
                                 lightHaptic()
-                                tapTrigger++
+
+                                val kind = if (nudgePlus) RippleKind.NUDGE_PLUS else RippleKind.NUDGE_MINUS
+
+                                // 1) Always play a single one-shot ripple immediately (short nudge)
+                                startRipple(
+                                    voice = Voice.LOCAL,
+                                    kind = kind,
+                                    hold = false,
+                                    nudgePlus = nudgePlus
+                                )
+
+                                // 2) Arm the hold-loop after threshold (cancelable)
+                                localHoldArmJob?.cancel()
+                                localHoldArmJob = scope.launch {
+                                    delay(260L)
+                                    if (nudgeStarted) {
+                                        startRipple(
+                                            voice = Voice.LOCAL,
+                                            kind = kind,
+                                            hold = true,
+                                            nudgePlus = nudgePlus
+                                        )
+                                    }
+                                }
                             }
                             return@pointerInteropFilter true
                         }
 
+                        // CENTER swipes
                         if (!swipeHandled && zone == TouchZone.CENTER) {
-                            val dxT = event.x - startX
-                            val dyT = event.y - startY
+                            val absX = abs(dxT)
+                            val absY = abs(dyT)
 
-                            if (abs(dyT) > swipeThreshold && abs(dyT) > abs(dxT)) {
+                            // Multiply/Divide (vertical dominant)
+                            if (isVerticalSwipe(dxT, dyT) && absY > swipeMinDist && absX < swipeMaxOffAxis) {
                                 swipeHandled = true
-                                if (dyT < 0) action.multiply() else action.divide()
-                                lightHaptic()
-                                tapTrigger++
+                                if (dyT < 0) {
+                                    action.multiply()
+                                    lightHaptic()
+                                    startRipple(Voice.LOCAL, RippleKind.MULTIPLY, hold = false)
+                                } else {
+                                    action.divide()
+                                    lightHaptic()
+                                    startRipple(Voice.LOCAL, RippleKind.DIVIDE, hold = false)
+                                }
                                 return@pointerInteropFilter true
-                            } else if (abs(dxT) > swipeThreshold && dxT < 0) {
+                            }
+
+                            // Resync (right -> left, horizontal dominant)
+                            if (isHorizontalSwipe(dxT, dyT) && absX > swipeMinDist && dxT < 0 && absY < swipeMaxOffAxis) {
                                 swipeHandled = true
                                 action.resync()
                                 strongHaptic()
-                                tapTrigger++
+                                startRipple(Voice.LOCAL, RippleKind.RESYNC, hold = false)
                                 return@pointerInteropFilter true
                             }
                         }
@@ -338,26 +453,39 @@ fun TapScreen(
                     MotionEvent.ACTION_UP,
                     MotionEvent.ACTION_CANCEL -> {
 
-                        if (zone == TouchZone.RING && bezelState == BezelState.HELD) {
-                            if (bezelDir == BezelDir.CW)
+                        if (zone == TouchZone.LEFT) {
+                            if (nudgeStarted) {
                                 action.nudgeStop()
-                            else
-                                action.nudgeStop()
+                            }
+                            nudgeStarted = false
 
-                            bezelState = BezelState.IDLE
-                            bezelDir = BezelDir.NONE
-                            tapTrigger++
+                            localHoldArmJob?.cancel()
+                            localHoldArmJob = null
+
+                            stopHoldRipple(Voice.LOCAL)
                             return@pointerInteropFilter true
                         }
 
-                        if (!swipeHandled && zone == TouchZone.CENTER) {
-                            val now = SystemClock.elapsedRealtime()
-                            if (now - downTime >= longPressMs)
+                        // CENTER: long press -> settings
+                        val now = SystemClock.elapsedRealtime()
+                        val heldLong = (now - downTime) >= longPressMs
+
+                        if (zone == TouchZone.CENTER && !swipeHandled) {
+                            // Don't treat as tap if moved too much
+                            val dxT = event.x - startX
+                            val dyT = event.y - startY
+                            val movedTooMuch = abs(dxT) > tapMaxMove || abs(dyT) > tapMaxMove
+
+                            if (heldLong && !movedTooMuch) {
                                 onLongPress()
-                            else {
-                                tapTrigger++
+                            } else if (!heldLong && !movedTooMuch) {
+                                // LOCAL TAP: goblin flash is dominant (and ONLY here)
+                                goblinFlashTrigger++
                                 action.tap()
                                 lightHaptic()
+
+                                // Complementary ripple, deliberately subtle
+                                startRipple(Voice.LOCAL, RippleKind.TAP, hold = false)
                             }
                         }
                         true
@@ -369,22 +497,25 @@ fun TapScreen(
         contentAlignment = Alignment.Center
     ) {
 
+        // Base art
         Image(
             painter = painterResource(R.drawable.goblin),
             contentDescription = null,
             modifier = Modifier.fillMaxSize()
         )
 
+        // Dominant goblin flash: LOCAL tap only
         Image(
             painter = painterResource(R.drawable.goblin_flash),
             contentDescription = null,
             modifier = Modifier
                 .fillMaxSize()
-                .alpha(flashAlpha.value)
+                .alpha(goblinFlashAlpha.value)
         )
 
         /* OSC DOT */
         if (showOscDot) {
+            val radiusTouch = min(widthPx, heightPx) / 2f
             Canvas(
                 modifier = Modifier
                     .size(10.dp)
@@ -397,8 +528,102 @@ fun TapScreen(
                     color = oscDotColor,
                     alpha = 0.18f + oscPulse.value * 0.82f
                 )
-
             }
+        }
+
+        /* ===== Ripple overlay (LOCAL + REMOTE) ===== */
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(8f)
+        ) {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+
+            // Bigger + more physical (so grow/shrink reads clearly)
+            val maxRadius = min(size.width, size.height) * 0.90f / 2f
+            val overscan = maxRadius * 1.12f
+            val stroke = 14f
+
+            fun intensityFor(voice: Voice, kind: RippleKind): Float {
+                // Goblin flash is dominant, so local tap ripple must be subtle
+                val base = when (kind) {
+                    RippleKind.TAP -> 0.35f
+                    RippleKind.MULTIPLY, RippleKind.DIVIDE -> 0.55f
+                    RippleKind.RESYNC -> 0.60f
+                    RippleKind.NUDGE_PLUS, RippleKind.NUDGE_MINUS -> 0.45f
+                }
+                return if (voice == Voice.LOCAL) base else base * 0.35f
+            }
+
+            fun drawRipple(voice: Voice, kind: RippleKind?, p: Float) {
+                if (kind == null || p <= 0f) return
+
+                // LOCAL:
+                //   TAP/MULTIPLY/NUDGE+ = center -> edge (grow)
+                //   DIVIDE/NUDGE- = outside -> center (shrink)
+                //   RESYNC = multi ripple center -> edge
+                //
+                // REMOTE: invert direction for same family (EXCEPT nudge, to avoid ghost direction)
+                val invert = (voice == Voice.REMOTE)
+
+                fun isGrowLocal(k: RippleKind): Boolean = when (k) {
+                    RippleKind.TAP, RippleKind.MULTIPLY, RippleKind.NUDGE_PLUS, RippleKind.RESYNC -> true
+                    RippleKind.DIVIDE, RippleKind.NUDGE_MINUS -> false
+                }
+
+                val allowInvert = kind != RippleKind.NUDGE_PLUS && kind != RippleKind.NUDGE_MINUS
+                val grow = if (invert && allowInvert) !isGrowLocal(kind) else isGrowLocal(kind)
+
+                fun fadeLate(p: Float): Float {
+                    // stays strong until ~80%, then fades to 0 by 100%
+                    val t = ((p - 0.80f) / 0.20f).coerceIn(0f, 1f)
+                    return 1f - (t * t)
+                }
+
+                val alpha = intensityFor(voice, kind) * fadeLate(p)
+
+                if (kind == RippleKind.RESYNC) {
+                    // 3 rings: "send" ripple
+                    val offsets = listOf(0.0f, 0.14f, 0.28f)
+                    val intens = listOf(1.0f, 0.72f, 0.52f)
+
+                    for (i in offsets.indices) {
+                        val pi = (p - offsets[i]).coerceIn(0f, 1f)
+                        if (pi <= 0f) continue
+
+                        val a = alpha * intens[i]
+                        val r = if (grow) maxRadius * pi else overscan * (1f - pi)
+
+                        drawCircle(
+                            color = GoblinBrown.copy(alpha = a),
+                            radius = r,
+                            center = Offset(cx, cy),
+                            style = Stroke(width = stroke)
+                        )
+                    }
+                    return
+                }
+
+                // smooth radius curve: feels more "through-running" than linear
+                val pr = (p * p * (3f - 2f * p)) // smoothstep 0..1
+
+                val radius = if (grow) {
+                    maxRadius * pr
+                } else {
+                    overscan * (1f - pr)
+                }
+
+                drawCircle(
+                    color = GoblinBrown.copy(alpha = alpha),
+                    radius = radius,
+                    center = Offset(cx, cy),
+                    style = Stroke(width = stroke)
+                )
+            }
+
+            drawRipple(Voice.LOCAL, localKind, localRipple.value)
+            drawRipple(Voice.REMOTE, remoteKind, remoteRipple.value)
         }
 
         /* ===== DOWNBEAT RING (WEAR SAFE) ===== */
@@ -414,50 +639,18 @@ fun TapScreen(
             drawCircle(
                 color = GoblinBrown.copy(alpha = 0.28f * downbeatPulse.value),
                 radius = safeRadius * (1.0f + downbeatPulse.value * 0.06f),
-                center = androidx.compose.ui.geometry.Offset(cx, cy),
+                center = Offset(cx, cy),
                 style = Stroke(width = 14f)
             )
         }
 
-        /* MULTIPLY / DIVIDE */
-        val multiplyAlpha = overlayAlpha(visual.lastMultiplyMs)
-        val divideAlpha = overlayAlpha(visual.lastDivideMs)
-
-        if (multiplyAlpha > 0f || divideAlpha > 0f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .offset(y = (radiusTouch * 0.25f).dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = if (multiplyAlpha > divideAlpha) "×2" else "÷2",
-                    color = GoblinBrown,
-                    modifier = Modifier.alpha(max(multiplyAlpha, divideAlpha))
-                )
-            }
+        // Optional BPM text (keeps the feature alive if you want it later)
+        if (showBpm) {
+            Text(
+                text = "%.1f".format(bpm),
+                color = GoblinBrown,
+                modifier = Modifier.zIndex(11f)
+            )
         }
-
-        /* ===== NUDGE VISUAL (DEUTLICH) ===== */
-        if (visual.nudgeActive) {
-            Canvas(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .zIndex(9f)
-            ) {
-                val cx = size.width / 2f
-                val cy = size.height / 2f
-                val baseRadius = min(size.width, size.height) * 0.32f
-                val pulse = nudgePulse.value
-
-                drawCircle(
-                    color = GoblinBrown.copy(alpha = 0.22f + pulse * 0.18f),
-                    radius = baseRadius * (1.0f + pulse * 0.06f),
-                    center = androidx.compose.ui.geometry.Offset(cx, cy),
-                    style = Stroke(width = 12f)
-                )
-            }
-        }
-
     }
 }
