@@ -9,7 +9,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-
+import com.example.tapsyncwatch.domain.transport.TransportEchoGuard
+import com.example.tapsyncwatch.domain.transport.TransportType
 
 class Clock(
     internal val oscSender: OscOutputSender
@@ -20,11 +21,9 @@ class Clock(
     )
     val externalActivity = _externalActivity.asSharedFlow()
 
-
     /* ================= DEBUG ================= */
 
     private val DEBUG_CLOCK = true
-
     private val TAG_CLOCK = "ClockTiming"
 
     /* ================= CORE ================= */
@@ -159,6 +158,7 @@ class Clock(
 
             is ClockEvent.Tap -> {
                 scope.launch {
+                    TransportEchoGuard.markSent(TransportType.TAP)
                     oscSender.sendInt(
                         "/composition/tempocontroller/tempotap",
                         1
@@ -172,6 +172,7 @@ class Clock(
             }
 
             ClockEvent.Multiply -> {
+                TransportEchoGuard.markSent(TransportType.MULTIPLY)
                 oscSender.sendInt(
                     "/composition/tempocontroller/tempo/multiply",
                     1
@@ -182,6 +183,7 @@ class Clock(
             }
 
             ClockEvent.Divide -> {
+                TransportEchoGuard.markSent(TransportType.DIVIDE)
                 oscSender.sendInt(
                     "/composition/tempocontroller/tempo/divide",
                     1
@@ -194,6 +196,7 @@ class Clock(
             ClockEvent.Nudge.RightStart -> {
                 nudgeActivePath =
                     "/composition/tempocontroller/tempopush"
+                TransportEchoGuard.markSent(TransportType.NUDGE_START)
                 oscSender.sendInt(nudgeActivePath!!, 1)
                 _visualState.value = _visualState.value.copy(
                     nudgeActive = true
@@ -203,6 +206,7 @@ class Clock(
             ClockEvent.Nudge.LeftStart -> {
                 nudgeActivePath =
                     "/composition/tempocontroller/tempopull"
+                TransportEchoGuard.markSent(TransportType.NUDGE_START)
                 oscSender.sendInt(nudgeActivePath!!, 1)
                 _visualState.value = _visualState.value.copy(
                     nudgeActive = true
@@ -211,6 +215,7 @@ class Clock(
 
             ClockEvent.Nudge.Stop -> {
                 nudgeActivePath?.let { path ->
+                    TransportEchoGuard.markSent(TransportType.NUDGE_STOP)
                     oscSender.sendInt(path, 0)
                 }
                 nudgeActivePath = null
@@ -226,6 +231,7 @@ class Clock(
             ClockEvent.Resync -> {
 
                 scope.launch {
+                    TransportEchoGuard.markSent(TransportType.RESYNC)
                     oscSender.sendInt(
                         "/composition/tempocontroller/resync",
                         1
@@ -269,11 +275,9 @@ class Clock(
                 _externalActivity.tryEmit(Unit)
             }
 
-
             is ClockEvent.Tick -> {
                 if (!enabled) return
             }
         }
     }
-
 }

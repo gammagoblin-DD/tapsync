@@ -11,6 +11,11 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import com.example.tapsyncwatch.domain.transport.TransportEchoGuard
+import com.example.tapsyncwatch.domain.transport.TransportType
+private var remoteNudgeActivePush = false
+private var remoteNudgeActivePull = false
+
 
 class OscInputReceiver(
     private val clock: Clock,
@@ -110,23 +115,75 @@ class OscInputReceiver(
             // These are UI-only signals: they DO NOT change the clock.
             // =================================================
             "/composition/tempocontroller/tempotap" -> {
-                _transportIn.tryEmit(TransportFeedback.Tap)
+                val v = readFirstNumber(typeTags, bb)?.toInt() ?: 1
+                if (v == 1 && !TransportEchoGuard.shouldSuppress(TransportType.TAP)) {
+                    _transportIn.tryEmit(TransportFeedback.Tap)
+                }
             }
+
             "/composition/tempocontroller/resync" -> {
-                _transportIn.tryEmit(TransportFeedback.Resync)
+                val v = readFirstNumber(typeTags, bb)?.toInt() ?: 1
+                if (v == 1 && !TransportEchoGuard.shouldSuppress(TransportType.RESYNC)) {
+                    _transportIn.tryEmit(TransportFeedback.Resync)
+                }
             }
+
             "/composition/tempocontroller/tempo/multiply" -> {
-                _transportIn.tryEmit(TransportFeedback.Multiply)
+                val v = readFirstNumber(typeTags, bb)?.toInt() ?: 1
+                if (v == 1 && !TransportEchoGuard.shouldSuppress(TransportType.MULTIPLY)) {
+                    _transportIn.tryEmit(TransportFeedback.Multiply)
+                }
             }
+
             "/composition/tempocontroller/tempo/divide" -> {
-                _transportIn.tryEmit(TransportFeedback.Divide)
+                val v = readFirstNumber(typeTags, bb)?.toInt() ?: 1
+                if (v == 1 && !TransportEchoGuard.shouldSuppress(TransportType.DIVIDE)) {
+                    _transportIn.tryEmit(TransportFeedback.Divide)
+                }
             }
+
+
+            // NUDGE: nur Start bei 1, Stop bei 0 (wichtig gegen Loop)
             "/composition/tempocontroller/tempopush" -> {
-                _transportIn.tryEmit(TransportFeedback.NudgeStart)
+                val v = readFirstNumber(typeTags, bb)?.toInt() ?: 1
+
+                if (v == 1) {
+                    if (!remoteNudgeActivePush) {
+                        remoteNudgeActivePush = true
+                        if (!TransportEchoGuard.shouldSuppress(TransportType.NUDGE_START)) {
+                            _transportIn.tryEmit(TransportFeedback.NudgeStart)
+                        }
+                    }
+                } else { // v == 0
+                    if (remoteNudgeActivePush) {
+                        remoteNudgeActivePush = false
+                        if (!TransportEchoGuard.shouldSuppress(TransportType.NUDGE_STOP)) {
+                            _transportIn.tryEmit(TransportFeedback.NudgeStop)
+                        }
+                    }
+                }
             }
+
             "/composition/tempocontroller/tempopull" -> {
-                _transportIn.tryEmit(TransportFeedback.NudgeStart)
+                val v = readFirstNumber(typeTags, bb)?.toInt() ?: 1
+
+                if (v == 1) {
+                    if (!remoteNudgeActivePull) {
+                        remoteNudgeActivePull = true
+                        if (!TransportEchoGuard.shouldSuppress(TransportType.NUDGE_START)) {
+                            _transportIn.tryEmit(TransportFeedback.NudgeStart)
+                        }
+                    }
+                } else {
+                    if (remoteNudgeActivePull) {
+                        remoteNudgeActivePull = false
+                        if (!TransportEchoGuard.shouldSuppress(TransportType.NUDGE_STOP)) {
+                            _transportIn.tryEmit(TransportFeedback.NudgeStop)
+                        }
+                    }
+                }
             }
+
 
             // =================================================
             // Resolume Tempo Controller (bpm-clock compatible)

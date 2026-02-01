@@ -42,6 +42,14 @@ object SettingsKeys {
 
     val CLOCK_MODE = stringPreferencesKey("clock_mode")
     val CLOCK_ENABLED = booleanPreferencesKey("clock_enabled")
+
+    // 🆕 Animations
+    val ANIMATIONS_ENABLED = booleanPreferencesKey("animations_enabled")
+    val REMOTE_ANIMATIONS_ENABLED = booleanPreferencesKey("remote_animations_enabled")
+    val REMOTE_GHOST_MODE_ENABLED = booleanPreferencesKey("remote_ghost_mode_enabled")
+    val GOBLIN_FLASH_ENABLED = booleanPreferencesKey("goblin_flash_enabled")
+    val RIPPLE_ENABLED = booleanPreferencesKey("ripple_enabled")
+    val OSC_PULSE_ENABLED = booleanPreferencesKey("osc_pulse_enabled")
 }
 
 /* =========================================================
@@ -58,6 +66,15 @@ data class SettingsState(
     val presets: List<OscTarget>,
     val activePreset: Int,
     val showOscDot: Boolean,
+
+    // UI motion
+    val animationsEnabled: Boolean,
+    val remoteAnimationsEnabled: Boolean,
+    val remoteGhostModeEnabled: Boolean,
+    val goblinFlashEnabled: Boolean,
+    val rippleEnabled: Boolean,
+    val oscPulseEnabled: Boolean,
+
     val hapticsEnabled: Boolean,
     val downbeatHapticsEnabled: Boolean,
     val transportHapticsEnabled: Boolean, // 🆕
@@ -80,6 +97,14 @@ val DEFAULT_SETTINGS_STATE = SettingsState(
     ),
     activePreset = 0,
     showOscDot = true,
+
+    animationsEnabled = true,
+    remoteAnimationsEnabled = true,
+    remoteGhostModeEnabled = true,
+    goblinFlashEnabled = true,
+    rippleEnabled = true,
+    oscPulseEnabled = true,
+
     hapticsEnabled = true,
     downbeatHapticsEnabled = false,
     transportHapticsEnabled = false, // 🆕 default OFF
@@ -120,6 +145,14 @@ class SettingsStore(
                 presets = presets,
                 activePreset = prefs[SettingsKeys.ACTIVE_PRESET] ?: 0,
                 showOscDot = prefs[SettingsKeys.SHOW_OSC_DOT] ?: true,
+
+                animationsEnabled = prefs[SettingsKeys.ANIMATIONS_ENABLED] ?: true,
+                remoteAnimationsEnabled = prefs[SettingsKeys.REMOTE_ANIMATIONS_ENABLED] ?: true,
+                remoteGhostModeEnabled = prefs[SettingsKeys.REMOTE_GHOST_MODE_ENABLED] ?: true,
+                goblinFlashEnabled = prefs[SettingsKeys.GOBLIN_FLASH_ENABLED] ?: true,
+                rippleEnabled = prefs[SettingsKeys.RIPPLE_ENABLED] ?: true,
+                oscPulseEnabled = prefs[SettingsKeys.OSC_PULSE_ENABLED] ?: true,
+
                 hapticsEnabled = prefs[SettingsKeys.HAPTICS_ENABLED] ?: true,
                 downbeatHapticsEnabled =
                     prefs[SettingsKeys.DOWNBEAT_HAPTICS_ENABLED] ?: false,
@@ -139,6 +172,43 @@ class SettingsStore(
     suspend fun setShowOscDot(show: Boolean) {
         context.dataStore.edit {
             it[SettingsKeys.SHOW_OSC_DOT] = show
+        }
+    }
+
+    // 🆕 Animations
+    suspend fun setAnimationsEnabled(enabled: Boolean) {
+        context.dataStore.edit {
+            it[SettingsKeys.ANIMATIONS_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setRemoteAnimationsEnabled(enabled: Boolean) {
+        context.dataStore.edit {
+            it[SettingsKeys.REMOTE_ANIMATIONS_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setRemoteGhostModeEnabled(enabled: Boolean) {
+        context.dataStore.edit {
+            it[SettingsKeys.REMOTE_GHOST_MODE_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setGoblinFlashEnabled(enabled: Boolean) {
+        context.dataStore.edit {
+            it[SettingsKeys.GOBLIN_FLASH_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setRippleEnabled(enabled: Boolean) {
+        context.dataStore.edit {
+            it[SettingsKeys.RIPPLE_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setOscPulseEnabled(enabled: Boolean) {
+        context.dataStore.edit {
+            it[SettingsKeys.OSC_PULSE_ENABLED] = enabled
         }
     }
 
@@ -173,10 +243,6 @@ class SettingsStore(
         }
     }
 
-
-
-    /* ================= PRESETS (FIX) ================= */
-
     suspend fun setActivePreset(index: Int) {
         context.dataStore.edit {
             it[SettingsKeys.ACTIVE_PRESET] = index
@@ -189,25 +255,24 @@ class SettingsStore(
         ip: String,
         port: Int
     ) {
-        context.dataStore.edit {
+        context.dataStore.edit { prefs ->
             when (index) {
                 0 -> {
-                    it[SettingsKeys.PRESET_A_NAME] = name
-                    it[SettingsKeys.PRESET_A_IP] = ip
-                    it[SettingsKeys.PRESET_A_PORT] = port
+                    prefs[SettingsKeys.PRESET_A_NAME] = name
+                    prefs[SettingsKeys.PRESET_A_IP] = ip
+                    prefs[SettingsKeys.PRESET_A_PORT] = port
                 }
                 1 -> {
-                    it[SettingsKeys.PRESET_B_NAME] = name
-                    it[SettingsKeys.PRESET_B_IP] = ip
-                    it[SettingsKeys.PRESET_B_PORT] = port
+                    prefs[SettingsKeys.PRESET_B_NAME] = name
+                    prefs[SettingsKeys.PRESET_B_IP] = ip
+                    prefs[SettingsKeys.PRESET_B_PORT] = port
                 }
                 2 -> {
-                    it[SettingsKeys.PRESET_C_NAME] = name
-                    it[SettingsKeys.PRESET_C_IP] = ip
-                    it[SettingsKeys.PRESET_C_PORT] = port
+                    prefs[SettingsKeys.PRESET_C_NAME] = name
+                    prefs[SettingsKeys.PRESET_C_IP] = ip
+                    prefs[SettingsKeys.PRESET_C_PORT] = port
                 }
             }
         }
     }
 }
-

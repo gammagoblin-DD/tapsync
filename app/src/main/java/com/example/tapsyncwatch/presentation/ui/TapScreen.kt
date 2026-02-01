@@ -66,6 +66,20 @@ private enum class RippleKind {
     NUDGE_MINUS
 }
 
+/* ================= PULSE LIMITER ================= */
+
+private class PulseLimiter(
+    private val minIntervalMs: Long
+) {
+    private var lastMs: Long = 0L
+
+    fun allow(nowMs: Long = SystemClock.elapsedRealtime()): Boolean {
+        if (nowMs - lastMs < minIntervalMs) return false
+        lastMs = nowMs
+        return true
+    }
+}
+
 /* ================= RATE LIMITER ================= */
 
 private class HapticRateLimiter(
@@ -84,6 +98,15 @@ fun TapScreen(
     showOscDot: Boolean,
     showBpm: Boolean,
     bpm: Double,
+
+    // UI motion
+    animationsEnabled: Boolean,
+    remoteAnimationsEnabled: Boolean,
+    remoteGhostModeEnabled: Boolean,
+    goblinFlashEnabled: Boolean,
+    rippleEnabled: Boolean,
+    oscPulseEnabled: Boolean,
+
     action: ActionEngine,
     oscHealth: StateFlow<OscHealth>,
     externalClockActivity: Flow<Unit>,
@@ -100,8 +123,8 @@ fun TapScreen(
     val haptic = LocalHapticFeedback.current
     val metrics = context.resources.displayMetrics
     val scope = rememberCoroutineScope()
-
-    /* ========= UI HAPTIC GUARD ========= */
+    val oscPulseLimiter = remember { PulseLimiter(minIntervalMs = 120) }
+    val remoteTransportLimiter = remember { PulseLimiter(minIntervalMs = 180) }
 
     fun uiHapticAllowed(): Boolean =
         clockMode == ClockMode.INTERNAL && hapticsEnabled
@@ -119,13 +142,9 @@ fun TapScreen(
         }
     }
 
-    /* ===== Touch geometry (px) ===== */
-
     val widthPx = metrics.widthPixels.toFloat()
     val heightPx = metrics.heightPixels.toFloat()
     val leftZoneEdgePx = widthPx * 0.25f
-
-    /* ===== Input thresholds (px/ms) ===== */
 
     val longPressMs = 600L
     val swipeMinDist = 70f
@@ -140,19 +159,18 @@ fun TapScreen(
     val oscPulse = remember { Animatable(0f) }
 
     fun pulseOsc() {
+        if (!animationsEnabled) return
+        if (!oscPulseEnabled) return
+        if (!oscPulseLimiter.allow()) return
+
         scope.launch {
             oscPulse.snapTo(1f)
-            oscPulse.animateTo(0f, tween(160, easing = FastOutSlowInEasing))
+            oscPulse.animateTo(0f, tween(180, easing = FastOutSlowInEasing))
         }
     }
 
-    // Any external activity (legacy) -> pulse dot
-    LaunchedEffect(Unit) {
-        externalActivity.collect { pulseOsc() }
-    }
-    LaunchedEffect(Unit) {
-        externalClockActivity.collect { pulseOsc() }
-    }
+    LaunchedEffect(Unit) { externalActivity.collect { pulseOsc() } }
+    LaunchedEffect(Unit) { externalClockActivity.collect { pulseOsc() } }
 
     /* ================= Transport feedback (OUTGOING) ================= */
 
@@ -160,10 +178,8 @@ fun TapScreen(
 
     LaunchedEffect(Unit) {
         action.oscSender.transportFeedback.collect { feedback ->
-            // Visual: activity dot always
             pulseOsc()
 
-            // Optional transport haptics
             if (!transportHapticsEnabled) return@collect
             if (!uiHapticAllowed()) return@collect
             if (!transportLimiter.allow()) return@collect
@@ -193,8 +209,8 @@ fun TapScreen(
 
     /* ================= Ripple controller (LOCAL + REMOTE) ================= */
 
-    val localRipple = remember { Animatable(0f) }   // progress 0..1
-    val remoteRipple = remember { Animatable(0f) }  // progress 0..1
+    val localRipple = remember { Animatable(0f) }
+    val remoteRipple = remember { Animatable(0f) }
     var localKind by remember { mutableStateOf<RippleKind?>(null) }
     var remoteKind by remember { mutableStateOf<RippleKind?>(null) }
     var localHold by remember { mutableStateOf(false) }
@@ -211,15 +227,16 @@ fun TapScreen(
         hold: Boolean,
         nudgePlus: Boolean = true
     ) {
+        if (!animationsEnabled) return
+        if (!rippleEnabled) return
+        if (voice == Voice.REMOTE && !remoteAnimationsEnabled) return
+
         val anim = if (voice == Voice.LOCAL) localRipple else remoteRipple
 
-        // Cancel running job for this voice so stop is immediate
         if (voice == Voice.LOCAL) {
-            localRippleJob?.cancel()
-            localRippleJob = null
+            localRippleJob?.cancel(); localRippleJob = null
         } else {
-            remoteRippleJob?.cancel()
-            remoteRippleJob = null
+            remoteRippleJob?.cancel(); remoteRippleJob = null
         }
 
         if (voice == Voice.LOCAL) {
@@ -237,7 +254,6 @@ fun TapScreen(
             anim.snapTo(0f)
 
             if (hold) {
-                // One-direction loop: 0 -> 1, restart (no ping-pong)
                 val loopMs = 900
                 while (isActive && (if (voice == Voice.LOCAL) localHold else remoteHold)) {
                     anim.snapTo(0f)
@@ -245,15 +261,36 @@ fun TapScreen(
                 }
                 anim.snapTo(0f)
             } else {
-                val ms = when (kind) {
-                    RippleKind.TAP -> 520
-                    RippleKind.MULTIPLY, RippleKind.DIVIDE -> 760
-                    RippleKind.RESYNC -> 900
-                    RippleKind.NUDGE_PLUS, RippleKind.NUDGE_MINUS -> 560
+                if (kind == RippleKind.MULTIPLY || kind == RippleKind.DIVIDE) {
+
+                    // REMOTE: ghosty "breath" (avoid noisy double-triggers)
+                    if (voice == Voice.REMOTE && remoteGhostModeEnabled) {
+                        val breathMs = 820
+                        anim.snapTo(0f)
+                        anim.animateTo(1f, tween(breathMs, easing = FastOutSlowInEasing))
+                        anim.snapTo(0f)
+                    } else {
+                        val pulseMs = 520
+                        val gapMs = 140L
+
+                        anim.snapTo(0f)
+                        anim.animateTo(1f, tween(pulseMs, easing = FastOutSlowInEasing))
+                        anim.snapTo(0f)
+                        delay(gapMs)
+                        anim.animateTo(1f, tween(pulseMs, easing = FastOutSlowInEasing))
+                        anim.snapTo(0f)
+                    }
+                } else {
+                    val ms = when (kind) {
+                        RippleKind.TAP -> 520
+                        RippleKind.RESYNC -> 900
+                        RippleKind.NUDGE_PLUS, RippleKind.NUDGE_MINUS -> 560
+                        RippleKind.MULTIPLY, RippleKind.DIVIDE -> 760
+                    }
+                    anim.snapTo(0f)
+                    anim.animateTo(1f, tween(ms, easing = FastOutSlowInEasing))
+                    anim.snapTo(0f)
                 }
-                anim.snapTo(0f)
-                anim.animateTo(1f, tween(ms, easing = FastOutSlowInEasing))
-                anim.snapTo(0f)
             }
         }
 
@@ -263,13 +300,11 @@ fun TapScreen(
     fun stopHoldRipple(voice: Voice) {
         if (voice == Voice.LOCAL) {
             localHold = false
-            localRippleJob?.cancel()
-            localRippleJob = null
+            localRippleJob?.cancel(); localRippleJob = null
             scope.launch { localRipple.snapTo(0f) }
         } else {
             remoteHold = false
-            remoteRippleJob?.cancel()
-            remoteRippleJob = null
+            remoteRippleJob?.cancel(); remoteRippleJob = null
             scope.launch { remoteRipple.snapTo(0f) }
         }
     }
@@ -288,14 +323,21 @@ fun TapScreen(
     }
 
     // Remote transport in (Resolume -> Watch): NO goblin flash
-    LaunchedEffect(Unit) {
+    LaunchedEffect(remoteAnimationsEnabled, animationsEnabled, rippleEnabled, remoteGhostModeEnabled) {
         externalTransportIn.collect { fb ->
             pulseOsc()
+            if (!animationsEnabled || !remoteAnimationsEnabled || !rippleEnabled) return@collect
+            if (!remoteTransportLimiter.allow()) return@collect
+
             when (fb) {
                 TransportFeedback.NudgeStop -> stopHoldRipple(Voice.REMOTE)
                 TransportFeedback.NudgeStart -> {
-                    // remote nudge direction is unknown; choose a stable default (minus)
-                    startRipple(Voice.REMOTE, RippleKind.NUDGE_MINUS, hold = true)
+                    // ghost: kein Hold, nur eine ruhige One-shot (Reads: external)
+                    startRipple(
+                        Voice.REMOTE,
+                        RippleKind.NUDGE_MINUS,
+                        hold = !remoteGhostModeEnabled
+                    )
                 }
                 else -> {
                     val kind = mapTransportToRippleKind(fb, nudgePlus = null) ?: return@collect
@@ -319,10 +361,11 @@ fun TapScreen(
 
     LaunchedEffect(visual.downbeatId) {
         if (visual.downbeatId != 0L) {
-            downbeatPulse.snapTo(1f)
-            downbeatPulse.animateTo(0f, tween(260, easing = FastOutSlowInEasing))
+            if (animationsEnabled) {
+                downbeatPulse.snapTo(1f)
+                downbeatPulse.animateTo(0f, tween(260, easing = FastOutSlowInEasing))
+            }
 
-            // Downbeat haptics stays independent (as before)
             if (hapticsEnabled && downbeatHapticsEnabled) {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             }
@@ -347,7 +390,7 @@ fun TapScreen(
     var tapCanceled by remember { mutableStateOf(false) }
 
     var nudgeStarted by remember { mutableStateOf(false) }
-    var nudgePlus by remember { mutableStateOf(true) } // Up = Push
+    var nudgePlus by remember { mutableStateOf(true) }
     var nudgeDownMs by remember { mutableStateOf(0L) }
 
     Box(
@@ -377,7 +420,6 @@ fun TapScreen(
                         val dxT = event.x - startX
                         val dyT = event.y - startY
 
-                        // Arm distance cancels tap/long-press once you start swiping/dragging
                         if (!tapCanceled && (abs(dxT) > swipeArmDist || abs(dyT) > swipeArmDist)) {
                             tapCanceled = true
                         }
@@ -385,14 +427,13 @@ fun TapScreen(
                         if (zone == TouchZone.LEFT) {
                             if (!nudgeStarted && abs(dyT) > nudgeArmDist) {
                                 nudgeStarted = true
-                                nudgePlus = (dyT < 0) // Up => Push
+                                nudgePlus = (dyT < 0)
 
                                 if (nudgePlus) action.nudgeRightStart() else action.nudgeLeftStart()
                                 lightHaptic()
 
                                 val kind = if (nudgePlus) RippleKind.NUDGE_PLUS else RippleKind.NUDGE_MINUS
 
-                                // 1) Always play a single one-shot ripple immediately (short nudge)
                                 startRipple(
                                     voice = Voice.LOCAL,
                                     kind = kind,
@@ -400,7 +441,6 @@ fun TapScreen(
                                     nudgePlus = nudgePlus
                                 )
 
-                                // 2) Arm the hold-loop after threshold (cancelable)
                                 localHoldArmJob?.cancel()
                                 localHoldArmJob = scope.launch {
                                     delay(260L)
@@ -417,12 +457,10 @@ fun TapScreen(
                             return@pointerInteropFilter true
                         }
 
-                        // CENTER swipes
                         if (!swipeHandled && zone == TouchZone.CENTER) {
                             val absX = abs(dxT)
                             val absY = abs(dyT)
 
-                            // Multiply/Divide (vertical dominant)
                             if (isVerticalSwipe(dxT, dyT) && absY > swipeMinDist && absX < swipeMaxOffAxis) {
                                 swipeHandled = true
                                 if (dyT < 0) {
@@ -437,7 +475,6 @@ fun TapScreen(
                                 return@pointerInteropFilter true
                             }
 
-                            // Resync (right -> left, horizontal dominant)
                             if (isHorizontalSwipe(dxT, dyT) && absX > swipeMinDist && dxT < 0 && absY < swipeMaxOffAxis) {
                                 swipeHandled = true
                                 action.resync()
@@ -466,12 +503,10 @@ fun TapScreen(
                             return@pointerInteropFilter true
                         }
 
-                        // CENTER: long press -> settings
                         val now = SystemClock.elapsedRealtime()
                         val heldLong = (now - downTime) >= longPressMs
 
                         if (zone == TouchZone.CENTER && !swipeHandled) {
-                            // Don't treat as tap if moved too much
                             val dxT = event.x - startX
                             val dyT = event.y - startY
                             val movedTooMuch = abs(dxT) > tapMaxMove || abs(dyT) > tapMaxMove
@@ -479,12 +514,9 @@ fun TapScreen(
                             if (heldLong && !movedTooMuch) {
                                 onLongPress()
                             } else if (!heldLong && !movedTooMuch) {
-                                // LOCAL TAP: goblin flash is dominant (and ONLY here)
-                                goblinFlashTrigger++
+                                if (animationsEnabled && goblinFlashEnabled) goblinFlashTrigger++
                                 action.tap()
                                 lightHaptic()
-
-                                // Complementary ripple, deliberately subtle
                                 startRipple(Voice.LOCAL, RippleKind.TAP, hold = false)
                             }
                         }
@@ -497,14 +529,12 @@ fun TapScreen(
         contentAlignment = Alignment.Center
     ) {
 
-        // Base art
         Image(
             painter = painterResource(R.drawable.goblin),
             contentDescription = null,
             modifier = Modifier.fillMaxSize()
         )
 
-        // Dominant goblin flash: LOCAL tap only
         Image(
             painter = painterResource(R.drawable.goblin_flash),
             contentDescription = null,
@@ -513,7 +543,6 @@ fun TapScreen(
                 .alpha(goblinFlashAlpha.value)
         )
 
-        /* OSC DOT */
         if (showOscDot) {
             val radiusTouch = min(widthPx, heightPx) / 2f
             Canvas(
@@ -531,7 +560,6 @@ fun TapScreen(
             }
         }
 
-        /* ===== Ripple overlay (LOCAL + REMOTE) ===== */
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -540,31 +568,23 @@ fun TapScreen(
             val cx = size.width / 2f
             val cy = size.height / 2f
 
-            // Bigger + more physical (so grow/shrink reads clearly)
             val maxRadius = min(size.width, size.height) * 0.90f / 2f
             val overscan = maxRadius * 1.12f
             val stroke = 14f
 
             fun intensityFor(voice: Voice, kind: RippleKind): Float {
-                // Goblin flash is dominant, so local tap ripple must be subtle
                 val base = when (kind) {
                     RippleKind.TAP -> 0.35f
                     RippleKind.MULTIPLY, RippleKind.DIVIDE -> 0.55f
                     RippleKind.RESYNC -> 0.60f
                     RippleKind.NUDGE_PLUS, RippleKind.NUDGE_MINUS -> 0.45f
                 }
-                return if (voice == Voice.LOCAL) base else base * 0.35f
+                return if (voice == Voice.LOCAL) base else if (remoteGhostModeEnabled) base * 0.18f else base * 0.35f
             }
 
             fun drawRipple(voice: Voice, kind: RippleKind?, p: Float) {
                 if (kind == null || p <= 0f) return
 
-                // LOCAL:
-                //   TAP/MULTIPLY/NUDGE+ = center -> edge (grow)
-                //   DIVIDE/NUDGE- = outside -> center (shrink)
-                //   RESYNC = multi ripple center -> edge
-                //
-                // REMOTE: invert direction for same family (EXCEPT nudge, to avoid ghost direction)
                 val invert = (voice == Voice.REMOTE)
 
                 fun isGrowLocal(k: RippleKind): Boolean = when (k) {
@@ -576,17 +596,26 @@ fun TapScreen(
                 val grow = if (invert && allowInvert) !isGrowLocal(kind) else isGrowLocal(kind)
 
                 fun fadeLate(p: Float): Float {
-                    // stays strong until ~80%, then fades to 0 by 100%
                     val t = ((p - 0.80f) / 0.20f).coerceIn(0f, 1f)
                     return 1f - (t * t)
                 }
 
                 val alpha = intensityFor(voice, kind) * fadeLate(p)
 
+                val strokeW = if (voice == Voice.REMOTE && remoteGhostModeEnabled) 10f else stroke
+
                 if (kind == RippleKind.RESYNC) {
-                    // 3 rings: "send" ripple
-                    val offsets = listOf(0.0f, 0.14f, 0.28f)
-                    val intens = listOf(1.0f, 0.72f, 0.52f)
+
+                    // LOCAL = 3 rings. REMOTE ghost = 1 ring (calmer, reads as "external")
+                    val offsets = if (voice == Voice.REMOTE && remoteGhostModeEnabled)
+                        listOf(0.0f)
+                    else
+                        listOf(0.0f, 0.14f, 0.28f)
+
+                    val intens = if (voice == Voice.REMOTE && remoteGhostModeEnabled)
+                        listOf(1.0f)
+                    else
+                        listOf(1.0f, 0.72f, 0.52f)
 
                     for (i in offsets.indices) {
                         val pi = (p - offsets[i]).coerceIn(0f, 1f)
@@ -599,26 +628,20 @@ fun TapScreen(
                             color = GoblinBrown.copy(alpha = a),
                             radius = r,
                             center = Offset(cx, cy),
-                            style = Stroke(width = stroke)
+                            style = Stroke(width = strokeW)
                         )
                     }
                     return
                 }
 
-                // smooth radius curve: feels more "through-running" than linear
-                val pr = (p * p * (3f - 2f * p)) // smoothstep 0..1
-
-                val radius = if (grow) {
-                    maxRadius * pr
-                } else {
-                    overscan * (1f - pr)
-                }
+                val pr = (p * p * (3f - 2f * p))
+                val radius = if (grow) maxRadius * pr else overscan * (1f - pr)
 
                 drawCircle(
                     color = GoblinBrown.copy(alpha = alpha),
                     radius = radius,
                     center = Offset(cx, cy),
-                    style = Stroke(width = stroke)
+                    style = Stroke(width = strokeW)
                 )
             }
 
@@ -626,7 +649,6 @@ fun TapScreen(
             drawRipple(Voice.REMOTE, remoteKind, remoteRipple.value)
         }
 
-        /* ===== DOWNBEAT RING (WEAR SAFE) ===== */
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -644,7 +666,6 @@ fun TapScreen(
             )
         }
 
-        // Optional BPM text (keeps the feature alive if you want it later)
         if (showBpm) {
             Text(
                 text = "%.1f".format(bpm),

@@ -23,8 +23,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // --------- normale Android-Welt (KEIN Compose) ---------
-
         val settingsStore = SettingsStore(this)
 
         val oscSender = OscOutputSender(
@@ -50,11 +48,8 @@ class MainActivity : ComponentActivity() {
         val oscReceiver = OscInputReceiver(clock)
         oscReceiver.start()
 
-        // --------- COMPOSE BEGINNT HIER ---------
-
         setContent {
 
-            // 🔁 UI-State: TapScreen <-> SettingsScreen
             var showSettings by remember { mutableStateOf(false) }
 
             val vibrator = getSystemService(Vibrator::class.java)
@@ -73,19 +68,25 @@ class MainActivity : ComponentActivity() {
             settings?.let { s ->
 
                 if (showSettings) {
-                    // ⚙️ SETTINGS (holen sich alles selbst!)
                     SettingsScreen(
                         settingsStore = settingsStore,
                         onClose = { showSettings = false }
                     )
                 } else {
-                    // 🟢 TAP UI
                     TapScreen(
                         externalClockActivity = clock.externalActivity,
                         externalTransportIn = oscReceiver.transportIn,
                         showOscDot = s.showOscDot,
                         showBpm = false,
                         bpm = clockState.bpm,
+
+                        animationsEnabled = s.animationsEnabled,
+                        remoteAnimationsEnabled = s.remoteAnimationsEnabled,
+                        remoteGhostModeEnabled = s.remoteGhostModeEnabled,
+                        goblinFlashEnabled = s.goblinFlashEnabled,
+                        rippleEnabled = s.rippleEnabled,
+                        oscPulseEnabled = s.oscPulseEnabled,
+
                         action = actionEngine,
                         oscHealth = oscSender.health,
                         clockVisualState = clock.visualState,
@@ -94,7 +95,7 @@ class MainActivity : ComponentActivity() {
                         hapticsEnabled = s.hapticsEnabled,
                         downbeatHapticsEnabled = s.downbeatHapticsEnabled,
                         transportHapticsEnabled = s.transportHapticsEnabled,
-                        onLongPress = { showSettings = true }, // ✅ JETZT WIRKSAM
+                        onLongPress = { showSettings = true },
                     )
                 }
             }
