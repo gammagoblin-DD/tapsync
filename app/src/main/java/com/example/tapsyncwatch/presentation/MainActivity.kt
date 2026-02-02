@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val oscReceiver = OscInputReceiver(clock)
+        val oscReceiver = OscInputReceiver(port = 7000)
         oscReceiver.start()
 
         setContent {
@@ -74,11 +74,20 @@ class MainActivity : ComponentActivity() {
                     )
                 } else {
                     TapScreen(
-                        externalClockActivity = clock.externalActivity,
+                        externalClockActivity = oscReceiver.externalBpmActivity,
                         externalTransportIn = oscReceiver.transportIn,
                         showOscDot = s.showOscDot,
                         showBpm = false,
                         bpm = clockState.bpm,
+
+                        showExternalBpm = s.showExternalBpm,
+                        externalBpm = oscReceiver.externalBpm,
+                        externalConfidence = oscReceiver.externalConfidence,
+                        showOscDebug = s.showOscDebug,
+                        oscDebugState = oscReceiver.debugState,
+                        remoteGhost = oscReceiver.remoteGhost,
+                        phaseVisualizerEnabled = s.phaseVisualizerEnabled,
+                        phaseSpiralEnabled = s.phaseSpiralEnabled,
 
                         animationsEnabled = s.animationsEnabled,
                         remoteAnimationsEnabled = s.remoteAnimationsEnabled,

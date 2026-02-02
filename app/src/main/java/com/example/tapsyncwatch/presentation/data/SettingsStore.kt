@@ -32,6 +32,14 @@ object SettingsKeys {
     val ACTIVE_PRESET = intPreferencesKey("active_preset")
     val SHOW_OSC_DOT = booleanPreferencesKey("show_osc_dot")
 
+    // 🆕 UI-only monitors / debug
+    val SHOW_EXTERNAL_BPM = booleanPreferencesKey("show_external_bpm")
+    val SHOW_OSC_DEBUG = booleanPreferencesKey("show_osc_debug")
+
+    // 🆕 Phase visualizer
+    val PHASE_VISUALIZER_ENABLED = booleanPreferencesKey("phase_visualizer_enabled")
+    val PHASE_SPIRAL_ENABLED = booleanPreferencesKey("phase_spiral_enabled")
+
     val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
     val DOWNBEAT_HAPTICS_ENABLED =
         booleanPreferencesKey("downbeat_haptics_enabled")
@@ -67,6 +75,12 @@ data class SettingsState(
     val activePreset: Int,
     val showOscDot: Boolean,
 
+    // UI monitors
+    val showExternalBpm: Boolean,
+    val showOscDebug: Boolean,
+    val phaseVisualizerEnabled: Boolean,
+    val phaseSpiralEnabled: Boolean,
+
     // UI motion
     val animationsEnabled: Boolean,
     val remoteAnimationsEnabled: Boolean,
@@ -97,6 +111,11 @@ val DEFAULT_SETTINGS_STATE = SettingsState(
     ),
     activePreset = 0,
     showOscDot = true,
+
+    showExternalBpm = true,
+    showOscDebug = false,
+    phaseVisualizerEnabled = true,
+    phaseSpiralEnabled = false,
 
     animationsEnabled = true,
     remoteAnimationsEnabled = true,
@@ -146,6 +165,11 @@ class SettingsStore(
                 activePreset = prefs[SettingsKeys.ACTIVE_PRESET] ?: 0,
                 showOscDot = prefs[SettingsKeys.SHOW_OSC_DOT] ?: true,
 
+                showExternalBpm = prefs[SettingsKeys.SHOW_EXTERNAL_BPM] ?: true,
+                showOscDebug = prefs[SettingsKeys.SHOW_OSC_DEBUG] ?: false,
+                phaseVisualizerEnabled = prefs[SettingsKeys.PHASE_VISUALIZER_ENABLED] ?: true,
+                phaseSpiralEnabled = prefs[SettingsKeys.PHASE_SPIRAL_ENABLED] ?: false,
+
                 animationsEnabled = prefs[SettingsKeys.ANIMATIONS_ENABLED] ?: true,
                 remoteAnimationsEnabled = prefs[SettingsKeys.REMOTE_ANIMATIONS_ENABLED] ?: true,
                 remoteGhostModeEnabled = prefs[SettingsKeys.REMOTE_GHOST_MODE_ENABLED] ?: true,
@@ -172,6 +196,30 @@ class SettingsStore(
     suspend fun setShowOscDot(show: Boolean) {
         context.dataStore.edit {
             it[SettingsKeys.SHOW_OSC_DOT] = show
+        }
+    }
+
+    suspend fun setShowExternalBpm(show: Boolean) {
+        context.dataStore.edit {
+            it[SettingsKeys.SHOW_EXTERNAL_BPM] = show
+        }
+    }
+
+    suspend fun setShowOscDebug(show: Boolean) {
+        context.dataStore.edit {
+            it[SettingsKeys.SHOW_OSC_DEBUG] = show
+        }
+    }
+
+    suspend fun setPhaseVisualizerEnabled(enabled: Boolean) {
+        context.dataStore.edit {
+            it[SettingsKeys.PHASE_VISUALIZER_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setPhaseSpiralEnabled(enabled: Boolean) {
+        context.dataStore.edit {
+            it[SettingsKeys.PHASE_SPIRAL_ENABLED] = enabled
         }
     }
 

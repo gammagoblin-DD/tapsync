@@ -3,6 +3,7 @@ package com.example.tapsyncwatch.presentation.ui
 
 import android.os.SystemClock
 import android.view.MotionEvent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -10,8 +11,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
@@ -27,6 +30,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInteropFilter
@@ -40,6 +46,7 @@ import com.example.tapsyncwatch.domain.action.ActionEngine
 import com.example.tapsyncwatch.domain.clock.ClockMode
 import com.example.tapsyncwatch.domain.clock.ClockVisualState
 import com.example.tapsyncwatch.domain.transport.TransportFeedback
+import com.example.tapsyncwatch.input.osc.OscInputReceiver
 import com.example.tapsyncwatch.osc.OscHealth
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -47,12 +54,17 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.sin
 
 /* ================= GOBLIN STYLE ================= */
 
 private val GoblinBrown = Color(0xFF8C5A2B)
+private val GoblinDim = Color(0xFF9A9A9A)
+private val GoblinDebugBg = Color(0xAA000000)
 
 private enum class TouchZone { CENTER, LEFT }
 private enum class Voice { LOCAL, REMOTE }
@@ -93,11 +105,29 @@ private class HapticRateLimiter(
     }
 }
 
+private fun circularDelta(a: Float, b: Float): Float {
+    // minimal signed distance on a circle (phase space)
+    var d = a - b
+    while (d > 0.5f) d -= 1f
+    while (d < -0.5f) d += 1f
+    return d
+}
+
 @Composable
 fun TapScreen(
     showOscDot: Boolean,
     showBpm: Boolean,
     bpm: Double,
+
+    // UI-only monitors
+    showExternalBpm: Boolean,
+    externalBpm: StateFlow<Double?>,
+    externalConfidence: StateFlow<Float?>,
+    showOscDebug: Boolean,
+    oscDebugState: StateFlow<OscInputReceiver.OscDebugState>,
+    remoteGhost: StateFlow<OscInputReceiver.RemoteGhostSnapshot?>,
+    phaseVisualizerEnabled: Boolean,
+    phaseSpiralEnabled: Boolean,
 
     // UI motion
     animationsEnabled: Boolean,
@@ -153,6 +183,13 @@ fun TapScreen(
     val swipeArmDist = 12f
     val tapMaxMove = 10f
     val nudgeArmDist = 12f
+
+    /* ================= External BPM + Debug ================= */
+
+    val extBpm by externalBpm.collectAsState()
+    val extConf by externalConfidence.collectAsState()
+    val dbg by oscDebugState.collectAsState()
+    val ghost by remoteGhost.collectAsState()
 
     /* ================= OSC pulse dot ================= */
 
@@ -332,7 +369,7 @@ fun TapScreen(
             when (fb) {
                 TransportFeedback.NudgeStop -> stopHoldRipple(Voice.REMOTE)
                 TransportFeedback.NudgeStart -> {
-                    // ghost: kein Hold, nur eine ruhige One-shot (Reads: external)
+                    // ghost: no hold, calm one-shot (reads as external)
                     startRipple(
                         Voice.REMOTE,
                         RippleKind.NUDGE_MINUS,
@@ -358,6 +395,50 @@ fun TapScreen(
 
     val visual by clockVisualState.collectAsState()
     val downbeatPulse = remember { Animatable(0f) }
+
+    // Local phase estimation + stability
+    var localPhase by remember { mutableStateOf(0f) }
+    var stability by remember { mutableStateOf(1f) }
+
+    var lastDownbeatNs by remember { mutableStateOf(0L) }
+    var prevDownbeatNs by remember { mutableStateOf(0L) }
+    var jitterEma by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(visual.downbeatId, bpm) {
+        if (visual.downbeatId == 0L) return@LaunchedEffect
+
+        prevDownbeatNs = lastDownbeatNs
+        lastDownbeatNs = visual.downbeatId
+
+        // Update stability from downbeat jitter
+        if (prevDownbeatNs != 0L && bpm > 1e-6) {
+            val intervalNs = (lastDownbeatNs - prevDownbeatNs).toDouble()
+            val expectedNs = 60_000_000_000.0 / bpm
+            val relErr = abs(intervalNs - expectedNs) / expectedNs
+            val err = relErr.toFloat().coerceIn(0f, 1f)
+
+            // EMA: smooth
+            jitterEma = (jitterEma * 0.85f) + (err * 0.15f)
+
+            // map jitter -> stability (1 = stable, 0 = messy)
+            stability = (1f - (jitterEma * 2.2f)).coerceIn(0f, 1f)
+        } else {
+            stability = 1f
+        }
+    }
+
+    // phase ticker
+    LaunchedEffect(lastDownbeatNs, bpm) {
+        if (lastDownbeatNs == 0L || bpm <= 1e-6) return@LaunchedEffect
+        val beatNs = (60_000_000_000.0 / bpm).toLong().coerceAtLeast(1L)
+
+        while (isActive) {
+            val now = SystemClock.elapsedRealtimeNanos()
+            val dt = (now - lastDownbeatNs).coerceAtLeast(0L)
+            localPhase = ((dt % beatNs).toDouble() / beatNs.toDouble()).toFloat()
+            delay(16)
+        }
+    }
 
     LaunchedEffect(visual.downbeatId) {
         if (visual.downbeatId != 0L) {
@@ -391,7 +472,6 @@ fun TapScreen(
 
     var nudgeStarted by remember { mutableStateOf(false) }
     var nudgePlus by remember { mutableStateOf(true) }
-    var nudgeDownMs by remember { mutableStateOf(0L) }
 
     Box(
         modifier = Modifier
@@ -409,9 +489,6 @@ fun TapScreen(
                         tapCanceled = false
                         nudgeStarted = false
                         zone = if (event.x <= leftZoneEdgePx) TouchZone.LEFT else TouchZone.CENTER
-                        if (zone == TouchZone.LEFT) {
-                            nudgeDownMs = SystemClock.elapsedRealtime()
-                        }
                         true
                     }
 
@@ -543,6 +620,72 @@ fun TapScreen(
                 .alpha(goblinFlashAlpha.value)
         )
 
+        /* ================= UI overlays (text) ================= */
+
+        AnimatedVisibility(
+            visible = showExternalBpm && (extBpm != null),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 10.dp)
+                .zIndex(20f)
+        ) {
+            Text(
+                text = "Resolume BPM: " + "%.2f".format(extBpm ?: 0.0),
+                color = GoblinBrown
+            )
+        }
+
+        if (showOscDebug) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(10.dp)
+                    .background(GoblinDebugBg)
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                    .zIndex(21f)
+            ) {
+                Text(
+                    text = "OSC IN  packets: ${dbg.packetsTotal}",
+                    color = GoblinDim
+                )
+                Text(
+                    text = "last: ${dbg.lastAddress ?: "-"}",
+                    color = GoblinDim
+                )
+                Text(
+                    text = "args: ${dbg.lastArgs ?: "-"}",
+                    color = GoblinDim
+                )
+                Text(
+                    text = "ext bpm: " + (dbg.externalBpm?.let { "%.2f".format(it) } ?: "-"),
+                    color = GoblinDim
+                )
+                Text(
+                    text = "tempo raw: " + (dbg.externalTempoRaw?.let { "%.4f".format(it) } ?: "-"),
+                    color = GoblinDim
+                )
+
+                Text(
+                    text = "conf: " + (dbg.externalConfidence?.let { "%.2f".format(it) } ?: "-"),
+                    color = GoblinDim
+                )
+                Text(
+                    text = "phase: " + (dbg.externalPhase?.let { "%.3f".format(it) } ?: "-"),
+                    color = GoblinDim
+                )
+                val age = dbg.externalDownbeatMs?.let { ms ->
+                    val a = (SystemClock.elapsedRealtime() - ms).coerceAtLeast(0L)
+                    "${a}ms"
+                } ?: "-"
+                Text(
+                    text = "downbeat age: $age",
+                    color = GoblinDim
+                )
+            }
+        }
+
+        /* ================= OSC pulse dot ================= */
+
         if (showOscDot) {
             val radiusTouch = min(widthPx, heightPx) / 2f
             Canvas(
@@ -552,6 +695,7 @@ fun TapScreen(
                         x = (radiusTouch * 0.36f).dp,
                         y = (radiusTouch * 0.28f).dp
                     )
+                    .zIndex(18f)
             ) {
                 drawCircle(
                     color = oscDotColor,
@@ -559,6 +703,52 @@ fun TapScreen(
                 )
             }
         }
+
+        /* ================= Remote Ghost Mode (clarified coding) ================= */
+
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(7f)
+        ) {
+            if (!remoteGhostModeEnabled) return@Canvas
+            val g = ghost ?: return@Canvas
+
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val radius = min(size.width, size.height) * 0.70f / 2f
+
+            val nowMs = SystemClock.elapsedRealtime()
+            val stale = (nowMs - g.lastSeenMs) > 1500L
+
+            val bpmDelta = abs((bpm - g.bpm)).toFloat()
+            val phaseDelta = abs(circularDelta(localPhase, g.phase))
+
+            val locked = (!stale) && bpmDelta < 0.8f && phaseDelta < 0.10f
+
+            val baseAlpha = if (stale) 0.06f else if (locked) 0.18f else 0.12f
+            val dash = PathEffect.dashPathEffect(floatArrayOf(16f, 12f), 0f)
+
+            drawCircle(
+                color = GoblinBrown.copy(alpha = baseAlpha),
+                radius = radius,
+                center = Offset(cx, cy),
+                style = Stroke(width = 8f, pathEffect = dash, cap = StrokeCap.Round)
+            )
+
+            // lock marker at 12 o'clock
+            if (locked) {
+                val mx = cx
+                val my = cy - radius
+                drawCircle(
+                    color = GoblinBrown.copy(alpha = 0.35f),
+                    radius = 10f,
+                    center = Offset(mx, my)
+                )
+            }
+        }
+
+        /* ================= Ripples (local + remote) ================= */
 
         Canvas(
             modifier = Modifier
@@ -648,6 +838,76 @@ fun TapScreen(
             drawRipple(Voice.LOCAL, localKind, localRipple.value)
             drawRipple(Voice.REMOTE, remoteKind, remoteRipple.value)
         }
+
+        /* ================= Phase Visualizer + Spiral ================= */
+
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(9f)
+        ) {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val baseRadius = min(size.width, size.height) * 0.78f / 2f
+
+            if (phaseVisualizerEnabled) {
+                val strokeW = 10f
+
+                // base ring (very subtle)
+                drawCircle(
+                    color = GoblinBrown.copy(alpha = 0.08f),
+                    radius = baseRadius,
+                    center = Offset(cx, cy),
+                    style = Stroke(width = strokeW)
+                )
+
+                // downbeat marker (12 o'clock)
+                val markerLen = 22f
+                drawLine(
+                    color = GoblinBrown.copy(alpha = 0.22f),
+                    start = Offset(cx, cy - baseRadius - markerLen),
+                    end = Offset(cx, cy - baseRadius + markerLen),
+                    strokeWidth = 6f,
+                    cap = StrokeCap.Round
+                )
+
+                // phase dot
+                val a = (localPhase.toDouble() * 2.0 * PI) - (PI / 2.0)
+                val px = cx + cos(a).toFloat() * baseRadius
+                val py = cy + sin(a).toFloat() * baseRadius
+                drawCircle(
+                    color = GoblinBrown.copy(alpha = 0.30f),
+                    radius = 12f,
+                    center = Offset(px, py)
+                )
+            }
+
+            if (phaseSpiralEnabled) {
+                // stability -> wobble amount (instability makes it spiral/wobble)
+                val wobble = (1f - stability) * (baseRadius * 0.10f)
+                val k = 5.0  // wave count around the ring
+                val path = Path()
+
+                val steps = 240
+                for (i in 0..steps) {
+                    val t = i.toDouble() / steps.toDouble()
+                    val theta = (t * 2.0 * PI) - (PI / 2.0)
+                    val w = sin(theta * k + (localPhase.toDouble() * 2.0 * PI)).toFloat()
+                    val r = baseRadius + wobble * w
+                    val x = cx + cos(theta).toFloat() * r
+                    val y = cy + sin(theta).toFloat() * r
+                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+
+                drawPath(
+                    path = path,
+                    color = GoblinBrown.copy(alpha = 0.12f + (1f - stability) * 0.12f),
+                    style = Stroke(width = 10f, cap = StrokeCap.Round)
+                )
+            }
+        }
+
+        /* ================= Downbeat pulse ring ================= */
 
         Canvas(
             modifier = Modifier
