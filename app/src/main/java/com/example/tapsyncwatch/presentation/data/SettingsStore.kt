@@ -58,6 +58,25 @@ object SettingsKeys {
     val GOBLIN_FLASH_ENABLED = booleanPreferencesKey("goblin_flash_enabled")
     val RIPPLE_ENABLED = booleanPreferencesKey("ripple_enabled")
     val OSC_PULSE_ENABLED = booleanPreferencesKey("osc_pulse_enabled")
+
+    // ===== Visual tuning (saved; applied on save button) =====
+    val RING_SCALE = floatPreferencesKey("ring_scale")
+    val RING_THICKNESS = floatPreferencesKey("ring_thickness")
+    val RING_ALPHA = floatPreferencesKey("ring_alpha")
+
+    val DOWNBEAT_SIZE = floatPreferencesKey("downbeat_size")
+    val DOWNBEAT_ALPHA = floatPreferencesKey("downbeat_alpha")
+
+    val GHOST_ALPHA = floatPreferencesKey("ghost_alpha")
+    val GHOST_THICKNESS = floatPreferencesKey("ghost_thickness")
+    val LOCK_GLOW = floatPreferencesKey("lock_glow")
+
+    val SPIRAL_STRENGTH = floatPreferencesKey("spiral_strength")
+    val SPIRAL_ALPHA = floatPreferencesKey("spiral_alpha")
+
+    val ANIMATION_INTENSITY = floatPreferencesKey("animation_intensity")
+    val RIPPLE_STRENGTH = floatPreferencesKey("ripple_strength")
+    val PULSE_STRENGTH = floatPreferencesKey("pulse_strength")
 }
 
 /* =========================================================
@@ -93,7 +112,24 @@ data class SettingsState(
     val downbeatHapticsEnabled: Boolean,
     val transportHapticsEnabled: Boolean, // 🆕
     val clockMode: ClockMode,
-    val clockEnabled: Boolean
+    val clockEnabled: Boolean,
+
+    // Visual tuning
+    val ringScale: Float,
+    val ringThickness: Float,
+    val ringAlpha: Float,
+    val downbeatSize: Float,
+    val downbeatAlpha: Float,
+    val ghostAlpha: Float,
+    val ghostThickness: Float,
+    val lockGlow: Float,
+    val spiralStrength: Float,
+    val spiralAlpha: Float,
+
+    // Animation tuning
+    val animationIntensity: Float,
+    val rippleStrength: Float,
+    val pulseStrength: Float
 ) {
     val activeTarget: OscTarget
         get() = presets[activePreset.coerceIn(0, presets.lastIndex)]
@@ -128,7 +164,21 @@ val DEFAULT_SETTINGS_STATE = SettingsState(
     downbeatHapticsEnabled = false,
     transportHapticsEnabled = false, // 🆕 default OFF
     clockMode = ClockMode.EXTERNAL,
-    clockEnabled = true
+    clockEnabled = true,
+
+    ringScale = 1.00f,
+    ringThickness = 1.00f,
+    ringAlpha = 1.00f,
+    downbeatSize = 1.00f,
+    downbeatAlpha = 1.00f,
+    ghostAlpha = 0.55f,
+    ghostThickness = 1.00f,
+    lockGlow = 0.70f,
+    spiralStrength = 0.35f,
+    spiralAlpha = 0.35f,
+    animationIntensity = 0.80f,
+    rippleStrength = 0.80f,
+    pulseStrength = 0.70f
 )
 
 /* =========================================================
@@ -186,7 +236,21 @@ class SettingsStore(
                     prefs[SettingsKeys.CLOCK_MODE]
                         ?: ClockMode.EXTERNAL.name
                 ),
-                clockEnabled = prefs[SettingsKeys.CLOCK_ENABLED] ?: true
+                clockEnabled = prefs[SettingsKeys.CLOCK_ENABLED] ?: true,
+
+                ringScale = prefs[SettingsKeys.RING_SCALE] ?: DEFAULT_SETTINGS_STATE.ringScale,
+                ringThickness = prefs[SettingsKeys.RING_THICKNESS] ?: DEFAULT_SETTINGS_STATE.ringThickness,
+                ringAlpha = prefs[SettingsKeys.RING_ALPHA] ?: DEFAULT_SETTINGS_STATE.ringAlpha,
+                downbeatSize = prefs[SettingsKeys.DOWNBEAT_SIZE] ?: DEFAULT_SETTINGS_STATE.downbeatSize,
+                downbeatAlpha = prefs[SettingsKeys.DOWNBEAT_ALPHA] ?: DEFAULT_SETTINGS_STATE.downbeatAlpha,
+                ghostAlpha = prefs[SettingsKeys.GHOST_ALPHA] ?: DEFAULT_SETTINGS_STATE.ghostAlpha,
+                ghostThickness = prefs[SettingsKeys.GHOST_THICKNESS] ?: DEFAULT_SETTINGS_STATE.ghostThickness,
+                lockGlow = prefs[SettingsKeys.LOCK_GLOW] ?: DEFAULT_SETTINGS_STATE.lockGlow,
+                spiralStrength = prefs[SettingsKeys.SPIRAL_STRENGTH] ?: DEFAULT_SETTINGS_STATE.spiralStrength,
+                spiralAlpha = prefs[SettingsKeys.SPIRAL_ALPHA] ?: DEFAULT_SETTINGS_STATE.spiralAlpha,
+                animationIntensity = prefs[SettingsKeys.ANIMATION_INTENSITY] ?: DEFAULT_SETTINGS_STATE.animationIntensity,
+                rippleStrength = prefs[SettingsKeys.RIPPLE_STRENGTH] ?: DEFAULT_SETTINGS_STATE.rippleStrength,
+                pulseStrength = prefs[SettingsKeys.PULSE_STRENGTH] ?: DEFAULT_SETTINGS_STATE.pulseStrength
             )
         }
 
@@ -323,4 +387,67 @@ class SettingsStore(
             }
         }
     }
+
+    /**
+     * Apply a full SettingsState snapshot in a single DataStore transaction.
+     * This is used by the Settings "Speichern" button (commit-on-release UX).
+     */
+    suspend fun saveAll(state: SettingsState) {
+        context.dataStore.edit { prefs ->
+            prefs[SettingsKeys.ACTIVE_PRESET] = state.activePreset.coerceIn(0, 2)
+            prefs[SettingsKeys.SHOW_OSC_DOT] = state.showOscDot
+            prefs[SettingsKeys.SHOW_EXTERNAL_BPM] = state.showExternalBpm
+            prefs[SettingsKeys.SHOW_OSC_DEBUG] = state.showOscDebug
+            prefs[SettingsKeys.PHASE_VISUALIZER_ENABLED] = state.phaseVisualizerEnabled
+            prefs[SettingsKeys.PHASE_SPIRAL_ENABLED] = state.phaseSpiralEnabled
+
+            prefs[SettingsKeys.ANIMATIONS_ENABLED] = state.animationsEnabled
+            prefs[SettingsKeys.REMOTE_ANIMATIONS_ENABLED] = state.remoteAnimationsEnabled
+            prefs[SettingsKeys.REMOTE_GHOST_MODE_ENABLED] = state.remoteGhostModeEnabled
+            prefs[SettingsKeys.GOBLIN_FLASH_ENABLED] = state.goblinFlashEnabled
+            prefs[SettingsKeys.RIPPLE_ENABLED] = state.rippleEnabled
+            prefs[SettingsKeys.OSC_PULSE_ENABLED] = state.oscPulseEnabled
+
+            prefs[SettingsKeys.HAPTICS_ENABLED] = state.hapticsEnabled
+            prefs[SettingsKeys.DOWNBEAT_HAPTICS_ENABLED] = state.downbeatHapticsEnabled
+            prefs[SettingsKeys.TRANSPORT_HAPTICS_ENABLED] = state.transportHapticsEnabled
+            prefs[SettingsKeys.CLOCK_MODE] = state.clockMode.name
+            prefs[SettingsKeys.CLOCK_ENABLED] = state.clockEnabled
+
+            // Visual tuning
+            prefs[SettingsKeys.RING_SCALE] = state.ringScale
+            prefs[SettingsKeys.RING_THICKNESS] = state.ringThickness
+            prefs[SettingsKeys.RING_ALPHA] = state.ringAlpha
+            prefs[SettingsKeys.DOWNBEAT_SIZE] = state.downbeatSize
+            prefs[SettingsKeys.DOWNBEAT_ALPHA] = state.downbeatAlpha
+            prefs[SettingsKeys.GHOST_ALPHA] = state.ghostAlpha
+            prefs[SettingsKeys.GHOST_THICKNESS] = state.ghostThickness
+            prefs[SettingsKeys.LOCK_GLOW] = state.lockGlow
+            prefs[SettingsKeys.SPIRAL_STRENGTH] = state.spiralStrength
+            prefs[SettingsKeys.SPIRAL_ALPHA] = state.spiralAlpha
+
+            // Animation tuning
+            prefs[SettingsKeys.ANIMATION_INTENSITY] = state.animationIntensity
+            prefs[SettingsKeys.RIPPLE_STRENGTH] = state.rippleStrength
+            prefs[SettingsKeys.PULSE_STRENGTH] = state.pulseStrength
+
+            // Network presets
+            state.presets.getOrNull(0)?.let { p ->
+                prefs[SettingsKeys.PRESET_A_NAME] = p.name
+                prefs[SettingsKeys.PRESET_A_IP] = p.ip
+                prefs[SettingsKeys.PRESET_A_PORT] = p.port
+            }
+            state.presets.getOrNull(1)?.let { p ->
+                prefs[SettingsKeys.PRESET_B_NAME] = p.name
+                prefs[SettingsKeys.PRESET_B_IP] = p.ip
+                prefs[SettingsKeys.PRESET_B_PORT] = p.port
+            }
+            state.presets.getOrNull(2)?.let { p ->
+                prefs[SettingsKeys.PRESET_C_NAME] = p.name
+                prefs[SettingsKeys.PRESET_C_IP] = p.ip
+                prefs[SettingsKeys.PRESET_C_PORT] = p.port
+            }
+        }
+    }
+
 }
