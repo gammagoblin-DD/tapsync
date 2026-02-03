@@ -59,6 +59,12 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.border
 
 /* ================= GOBLIN STYLE ================= */
 
@@ -636,51 +642,106 @@ fun TapScreen(
         }
 
         if (showOscDebug) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(10.dp)
-                    .background(GoblinDebugBg)
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
-                    .zIndex(21f)
-            ) {
-                Text(
-                    text = "OSC IN  packets: ${dbg.packetsTotal}",
-                    color = GoblinDim
-                )
-                Text(
-                    text = "last: ${dbg.lastAddress ?: "-"}",
-                    color = GoblinDim
-                )
-                Text(
-                    text = "args: ${dbg.lastArgs ?: "-"}",
-                    color = GoblinDim
-                )
-                Text(
-                    text = "ext bpm: " + (dbg.externalBpm?.let { "%.2f".format(it) } ?: "-"),
-                    color = GoblinDim
-                )
-                Text(
-                    text = "tempo raw: " + (dbg.externalTempoRaw?.let { "%.4f".format(it) } ?: "-"),
-                    color = GoblinDim
-                )
+            val scroll = rememberScrollState()
 
-                Text(
-                    text = "conf: " + (dbg.externalConfidence?.let { "%.2f".format(it) } ?: "-"),
-                    color = GoblinDim
-                )
-                Text(
-                    text = "phase: " + (dbg.externalPhase?.let { "%.3f".format(it) } ?: "-"),
-                    color = GoblinDim
-                )
-                val age = dbg.externalDownbeatMs?.let { ms ->
-                    val a = (SystemClock.elapsedRealtime() - ms).coerceAtLeast(0L)
-                    "${a}ms"
-                } ?: "-"
-                Text(
-                    text = "downbeat age: $age",
-                    color = GoblinDim
-                )
+            // Fullscreen round "watch" overlay (clipped to the device circle)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(21f),
+                contentAlignment = Alignment.Center
+            ) {
+                // Round background the size of the watch
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(GoblinDebugBg)
+                        .border(
+                            width = 1.dp,
+                            color = GoblinBrown.copy(alpha = 0.22f),
+                            shape = androidx.compose.foundation.shape.CircleShape
+                        )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 22.dp)
+                            // Content zone: slightly lower so it feels watchlike and avoids the top round edge
+                            .padding(top = 46.dp, bottom = 18.dp)
+                            .verticalScroll(scroll)
+                    ) {
+                        Text(
+                            text = "OSC IN  packets: ${dbg.packetsTotal}",
+                            color = GoblinDim,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(4.dp))
+
+                        Text(
+                            text = "last: ${dbg.lastAddress ?: "-"}",
+                            color = GoblinDim,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(4.dp))
+
+                        Text(
+                            text = "args: ${dbg.lastArgs ?: "-"}",
+                            color = GoblinDim,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(4.dp))
+
+                        Text(
+                            text = "ext bpm: " + (dbg.externalBpm?.let { "%.2f".format(it) } ?: "-"),
+                            color = GoblinDim,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(4.dp))
+
+                        Text(
+                            text = "tempo raw: " + (dbg.externalTempoRaw?.let { "%.4f".format(it) } ?: "-"),
+                            color = GoblinDim,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(4.dp))
+
+                        Text(
+                            text = "conf: " + (dbg.externalConfidence?.let { "%.2f".format(it) } ?: "-"),
+                            color = GoblinDim,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(4.dp))
+
+                        Text(
+                            text = "phase: " + (dbg.externalPhase?.let { "%.3f".format(it) } ?: "-"),
+                            color = GoblinDim,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(4.dp))
+
+                        val age = dbg.externalDownbeatMs?.let { ms ->
+                            val a = (SystemClock.elapsedRealtime() - ms).coerceAtLeast(0L)
+                            "${a}ms"
+                        } ?: "-"
+
+                        Text(
+                            text = "downbeat age: $age",
+                            color = GoblinDim,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+
+                        Spacer(Modifier.height(10.dp))
+                    }
+                }
             }
         }
 
