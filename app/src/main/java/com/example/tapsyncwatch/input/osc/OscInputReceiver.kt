@@ -149,17 +149,29 @@ class OscInputReceiver(
     fun start() {
         if (running) return
         running = true
-        socket = DatagramSocket(port)
 
+        // Do ALL socket work off the caller thread.
+        // This keeps app start + screen transitions responsive.
         scope.launch {
+            try {
+                socket = DatagramSocket(port)
+            } catch (e: Exception) {
+                Log.e("OSC-IN", "failed to bind UDP $port", e)
+                running = false
+                return@launch
+            }
+
             val buffer = ByteArray(2048)
             while (isActive && running) {
                 try {
                     val packet = DatagramPacket(buffer, buffer.size)
                     socket?.receive(packet)
-                    handlePacket(packet.data.copyOf(packet.length))
+                    // Avoid per-packet ByteArray allocations: parse directly from the receive buffer.
+                    handlePacket(buffer, packet.length)
                 } catch (e: Exception) {
-                    Log.e("OSC-IN", "socket error", e)
+                    if (running) {
+                        Log.e("OSC-IN", "socket error", e)
+                    }
                 }
             }
         }
@@ -173,8 +185,8 @@ class OscInputReceiver(
 
     /* ================= Entry ================= */
 
-    private fun handlePacket(data: ByteArray) {
-        val bb = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN)
+    private fun handlePacket(buffer: ByteArray, length: Int) {
+        val bb = ByteBuffer.wrap(buffer, 0, length).order(ByteOrder.BIG_ENDIAN)
         parseElement(bb)
     }
 

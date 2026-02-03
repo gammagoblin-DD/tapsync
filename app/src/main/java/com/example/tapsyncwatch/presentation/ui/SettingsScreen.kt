@@ -5,9 +5,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -171,7 +170,6 @@ fun SettingsScreen(
     val s = settings
 
     val scope = rememberCoroutineScope()
-    val scrollState = rememberScrollState()
 
     BackHandler { onClose() }
 
@@ -180,10 +178,13 @@ fun SettingsScreen(
     var reachable by remember { mutableStateOf<Boolean?>(null) }
 
     LaunchedEffect(Unit) {
-        localIp = getLocalIp()
+        // NetworkInterface enumeration can be slow on some devices; do it off the main thread.
+        localIp = withContext(Dispatchers.IO) { getLocalIp() }
     }
 
     LaunchedEffect(s.activeTarget.ip, s.activeTarget.port) {
+        // Let the screen render first, then start network checks.
+        delay(300)
         while (isActive) {
             reachable = ping(s.activeTarget.ip)
             delay(2000)
@@ -191,7 +192,8 @@ fun SettingsScreen(
     }
 
     // Animation details collapsing
-    var animDetails by remember { mutableStateOf(true) }
+    // Default collapsed keeps Settings snappy; user can expand when needed.
+    var animDetails by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -215,296 +217,310 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(10.dp))
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(scrollState),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 10.dp)
             ) {
 
-                SettingsBlock(
-                    title = "Display",
-                    subtitle = "UI-only: nothing here changes the clock."
-                ) {
-                    GoblinSwitchRow(
-                        label = "OSC Statuspunkt",
-                        checked = s.showOscDot,
-                        onChange = { v -> scope.launch { settingsStore.setShowOscDot(v) } }
-                    )
-
-                    GoblinSwitchRow(
-                        label = "External BPM Monitor",
-                        checked = s.showExternalBpm,
-                        onChange = { v -> scope.launch { settingsStore.setShowExternalBpm(v) } }
-                    )
-
-                    GoblinSwitchRow(
-                        label = "OSC Debug Overlay",
-                        checked = s.showOscDebug,
-                        onChange = { v -> scope.launch { settingsStore.setShowOscDebug(v) } }
-                    )
-                }
-
-                SettingsBlock(
-                    title = "Phase Visuals",
-                    subtitle = "Downbeat marker + phase ring / spiral."
-                ) {
-                    GoblinSwitchRow(
-                        label = "Phase Visualizer (Ring)",
-                        checked = s.phaseVisualizerEnabled,
-                        onChange = { v -> scope.launch { settingsStore.setPhaseVisualizerEnabled(v) } }
-                    )
-                    GoblinSwitchRow(
-                        label = "Phase Spiral (Stability)",
-                        checked = s.phaseSpiralEnabled,
-                        onChange = { v -> scope.launch { settingsStore.setPhaseSpiralEnabled(v) } }
-                    )
-                }
-
-                SettingsBlock(
-                    title = "Animations",
-                    subtitle = "Remote ghost mode is visual-only."
-                ) {
-                    GoblinSwitchRow(
-                        label = "Animations",
-                        checked = s.animationsEnabled,
-                        onChange = { v -> scope.launch { settingsStore.setAnimationsEnabled(v) } }
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                item {
+                    SettingsBlock(
+                        title = "Display",
+                        subtitle = "UI-only: nothing here changes the clock."
                     ) {
-                        Text(
-                            text = if (animDetails) "Details: ON" else "Details: OFF",
-                            color = GoblinDim
+                        GoblinSwitchRow(
+                            label = "OSC Statuspunkt",
+                            checked = s.showOscDot,
+                            onChange = { v -> scope.launch { settingsStore.setShowOscDot(v) } }
                         )
-                        Switch(
-                            checked = animDetails,
-                            onCheckedChange = { animDetails = it },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = GoblinAccent,
-                                checkedTrackColor = GoblinAccent.copy(alpha = 0.4f),
-                                uncheckedThumbColor = Color.DarkGray,
-                                uncheckedTrackColor = GoblinBorder
-                            )
+
+                        GoblinSwitchRow(
+                            label = "External BPM Monitor",
+                            checked = s.showExternalBpm,
+                            onChange = { v -> scope.launch { settingsStore.setShowExternalBpm(v) } }
+                        )
+
+                        GoblinSwitchRow(
+                            label = "OSC Debug Overlay",
+                            checked = s.showOscDebug,
+                            onChange = { v -> scope.launch { settingsStore.setShowOscDebug(v) } }
                         )
                     }
+                }
 
-                    AnimatedVisibility(visible = animDetails) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Divider(color = GoblinBorder)
-
-                            GoblinSwitchRow(
-                                label = "Remote Animations",
-                                checked = s.remoteAnimationsEnabled,
-                                enabled = s.animationsEnabled,
-                                onChange = { v -> scope.launch { settingsStore.setRemoteAnimationsEnabled(v) } }
-                            )
-
-                            GoblinSwitchRow(
-                                label = "Remote Ghost Mode",
-                                checked = s.remoteGhostModeEnabled,
-                                enabled = s.animationsEnabled && s.remoteAnimationsEnabled,
-                                onChange = { v -> scope.launch { settingsStore.setRemoteGhostModeEnabled(v) } }
-                            )
-
-                            GoblinSwitchRow(
-                                label = "Goblin Flash",
-                                checked = s.goblinFlashEnabled,
-                                enabled = s.animationsEnabled,
-                                onChange = { v -> scope.launch { settingsStore.setGoblinFlashEnabled(v) } }
-                            )
-
-                            GoblinSwitchRow(
-                                label = "Ripples",
-                                checked = s.rippleEnabled,
-                                enabled = s.animationsEnabled,
-                                onChange = { v -> scope.launch { settingsStore.setRippleEnabled(v) } }
-                            )
-
-                            GoblinSwitchRow(
-                                label = "OSC Pulse",
-                                checked = s.oscPulseEnabled,
-                                enabled = s.animationsEnabled,
-                                onChange = { v -> scope.launch { settingsStore.setOscPulseEnabled(v) } }
-                            )
-                        }
+                item {
+                    SettingsBlock(
+                        title = "Phase Visuals",
+                        subtitle = "Downbeat marker + phase ring / spiral."
+                    ) {
+                        GoblinSwitchRow(
+                            label = "Phase Visualizer (Ring)",
+                            checked = s.phaseVisualizerEnabled,
+                            onChange = { v -> scope.launch { settingsStore.setPhaseVisualizerEnabled(v) } }
+                        )
+                        GoblinSwitchRow(
+                            label = "Phase Spiral (Stability)",
+                            checked = s.phaseSpiralEnabled,
+                            onChange = { v -> scope.launch { settingsStore.setPhaseSpiralEnabled(v) } }
+                        )
                     }
                 }
 
-                SettingsBlock(
-                    title = "Clock",
-                    subtitle = "External BPM stays read-only."
-                ) {
-                    GoblinSwitchRow(
-                        label = if (s.clockEnabled) "Internal Clock ON" else "Internal Clock OFF",
-                        checked = s.clockEnabled,
-                        onChange = { v -> scope.launch { settingsStore.setClockEnabled(v) } }
-                    )
+                item {
+                    SettingsBlock(
+                        title = "Animations",
+                        subtitle = "Remote ghost mode is visual-only."
+                    ) {
+                        GoblinSwitchRow(
+                            label = "Animations",
+                            checked = s.animationsEnabled,
+                            onChange = { v -> scope.launch { settingsStore.setAnimationsEnabled(v) } }
+                        )
 
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(
-                                selected = s.clockMode == ClockMode.EXTERNAL,
-                                onClick = { scope.launch { settingsStore.setClockMode(ClockMode.EXTERNAL) } },
-                                colors = RadioButtonDefaults.colors(selectedColor = GoblinAccent)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text("External (OSC)", color = GoblinText)
-                        }
-
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(
-                                selected = s.clockMode == ClockMode.INTERNAL,
-                                onClick = { scope.launch { settingsStore.setClockMode(ClockMode.INTERNAL) } },
-                                colors = RadioButtonDefaults.colors(selectedColor = GoblinAccent)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text("Internal (Watch)", color = GoblinText)
-                        }
-                    }
-                }
-
-                SettingsBlock(
-                    title = "Feedback",
-                    subtitle = "Haptics only used in INTERNAL mode."
-                ) {
-                    GoblinSwitchRow(
-                        label = "Haptics",
-                        checked = s.hapticsEnabled,
-                        onChange = { v -> scope.launch { settingsStore.setHapticsEnabled(v) } }
-                    )
-
-                    GoblinSwitchRow(
-                        label = "Downbeat Haptic",
-                        checked = s.downbeatHapticsEnabled,
-                        enabled = s.hapticsEnabled,
-                        onChange = { v -> scope.launch { settingsStore.setDownbeatHapticsEnabled(v) } }
-                    )
-
-                    GoblinSwitchRow(
-                        label = "Transport Haptic",
-                        checked = s.transportHapticsEnabled,
-                        enabled = s.hapticsEnabled,
-                        onChange = { v -> scope.launch { settingsStore.setTransportHapticsEnabled(v) } }
-                    )
-                }
-
-                SettingsBlock(
-                    title = "Network",
-                    subtitle = "Quick health check for the active OSC target."
-                ) {
-                    Text("Local IP: ${localIp ?: "-"}", color = GoblinText)
-                    Text("Target: ${s.activeTarget.ip}:${s.activeTarget.port}", color = GoblinText)
-
-                    val (label, color) = when (reachable) {
-                        true -> "Reachable" to GoblinOk
-                        false -> "Unreachable" to GoblinBad
-                        null -> "Checking…" to GoblinDim
-                    }
-
-                    Text("Ping: $label", color = color)
-                }
-
-                SettingsBlock(
-                    title = "OSC Presets",
-                    subtitle = "Pick a target, edit IP/port, save."
-                ) {
-
-                    for (i in s.presets.indices) {
-                        val preset = s.presets[i]
-
-                        var name by remember(preset.name) { mutableStateOf(preset.name) }
-                        var ip by remember(preset.ip) { mutableStateOf(preset.ip) }
-                        var port by remember(preset.port) { mutableStateOf(preset.port.toString()) }
-
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(1.dp, GoblinBorder, MaterialTheme.shapes.medium)
-                                .padding(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                            Text(
+                                text = if (animDetails) "Details: ON" else "Details: OFF",
+                                color = GoblinDim
+                            )
+                            Switch(
+                                checked = animDetails,
+                                onCheckedChange = { animDetails = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = GoblinAccent,
+                                    checkedTrackColor = GoblinAccent.copy(alpha = 0.4f),
+                                    uncheckedThumbColor = Color.DarkGray,
+                                    uncheckedTrackColor = GoblinBorder
+                                )
+                            )
+                        }
+
+                        AnimatedVisibility(visible = animDetails) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Divider(color = GoblinBorder)
+
+                                GoblinSwitchRow(
+                                    label = "Remote Animations",
+                                    checked = s.remoteAnimationsEnabled,
+                                    enabled = s.animationsEnabled,
+                                    onChange = { v -> scope.launch { settingsStore.setRemoteAnimationsEnabled(v) } }
+                                )
+
+                                GoblinSwitchRow(
+                                    label = "Remote Ghost Mode",
+                                    checked = s.remoteGhostModeEnabled,
+                                    enabled = s.animationsEnabled && s.remoteAnimationsEnabled,
+                                    onChange = { v -> scope.launch { settingsStore.setRemoteGhostModeEnabled(v) } }
+                                )
+
+                                GoblinSwitchRow(
+                                    label = "Goblin Flash",
+                                    checked = s.goblinFlashEnabled,
+                                    enabled = s.animationsEnabled,
+                                    onChange = { v -> scope.launch { settingsStore.setGoblinFlashEnabled(v) } }
+                                )
+
+                                GoblinSwitchRow(
+                                    label = "Ripples",
+                                    checked = s.rippleEnabled,
+                                    enabled = s.animationsEnabled,
+                                    onChange = { v -> scope.launch { settingsStore.setRippleEnabled(v) } }
+                                )
+
+                                GoblinSwitchRow(
+                                    label = "OSC Pulse",
+                                    checked = s.oscPulseEnabled,
+                                    enabled = s.animationsEnabled,
+                                    onChange = { v -> scope.launch { settingsStore.setOscPulseEnabled(v) } }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    SettingsBlock(
+                        title = "Clock",
+                        subtitle = "External BPM stays read-only."
+                    ) {
+                        GoblinSwitchRow(
+                            label = if (s.clockEnabled) "Internal Clock ON" else "Internal Clock OFF",
+                            checked = s.clockEnabled,
+                            onChange = { v -> scope.launch { settingsStore.setClockEnabled(v) } }
+                        )
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 RadioButton(
-                                    selected = s.activePreset == i,
-                                    onClick = { scope.launch { settingsStore.setActivePreset(i) } },
+                                    selected = s.clockMode == ClockMode.EXTERNAL,
+                                    onClick = { scope.launch { settingsStore.setClockMode(ClockMode.EXTERNAL) } },
                                     colors = RadioButtonDefaults.colors(selectedColor = GoblinAccent)
                                 )
-                                Spacer(Modifier.width(6.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = preset.name,
-                                        color = GoblinText,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = "${preset.ip}:${preset.port}",
-                                        color = GoblinDim,
-                                        fontSize = 12.sp
-                                    )
-                                }
+                                Spacer(Modifier.width(8.dp))
+                                Text("External (OSC)", color = GoblinText)
                             }
 
-                            GoblinTextField(
-                                value = name,
-                                onValue = { name = it },
-                                placeholder = "Name",
-                                keyboardType = KeyboardType.Text
-                            )
-
-                            GoblinTextField(
-                                value = ip,
-                                onValue = { ip = it },
-                                placeholder = "IP (z.B. 192.168.178.24)",
-                                keyboardType = KeyboardType.Text
-                            )
-
-                            GoblinTextField(
-                                value = port,
-                                onValue = { port = it.filter { ch: Char -> ch.isDigit() }.take(5) },
-                                placeholder = "Port (z.B. 7002)",
-                                keyboardType = KeyboardType.Number
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End
-                            ) {
-                                Button(
-                                    onClick = {
-                                        val p = port.toIntOrNull() ?: preset.port
-                                        scope.launch { settingsStore.updatePreset(i, name, ip, p) }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        backgroundColor = GoblinAccent,
-                                        contentColor = Color.Black
-                                    )
-                                ) {
-                                    Text("Save", fontWeight = FontWeight.Bold)
-                                }
-
-                                Spacer(Modifier.width(10.dp))
-
-                                Button(
-                                    onClick = { scope.launch { settingsStore.setActivePreset(i) } },
-                                    colors = ButtonDefaults.buttonColors(
-                                        backgroundColor = GoblinBorder,
-                                        contentColor = GoblinText
-                                    )
-                                ) {
-                                    Text("Use")
-                                }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(
+                                    selected = s.clockMode == ClockMode.INTERNAL,
+                                    onClick = { scope.launch { settingsStore.setClockMode(ClockMode.INTERNAL) } },
+                                    colors = RadioButtonDefaults.colors(selectedColor = GoblinAccent)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("Internal (Watch)", color = GoblinText)
                             }
                         }
+                    }
+                }
 
-                        if (i != s.presets.lastIndex) {
-                            Divider(color = GoblinBorder, modifier = Modifier.padding(vertical = 6.dp))
+                item {
+                    SettingsBlock(
+                        title = "Feedback",
+                        subtitle = "Haptics only used in INTERNAL mode."
+                    ) {
+                        GoblinSwitchRow(
+                            label = "Haptics",
+                            checked = s.hapticsEnabled,
+                            onChange = { v -> scope.launch { settingsStore.setHapticsEnabled(v) } }
+                        )
+
+                        GoblinSwitchRow(
+                            label = "Downbeat Haptic",
+                            checked = s.downbeatHapticsEnabled,
+                            enabled = s.hapticsEnabled,
+                            onChange = { v -> scope.launch { settingsStore.setDownbeatHapticsEnabled(v) } }
+                        )
+
+                        GoblinSwitchRow(
+                            label = "Transport Haptic",
+                            checked = s.transportHapticsEnabled,
+                            enabled = s.hapticsEnabled,
+                            onChange = { v -> scope.launch { settingsStore.setTransportHapticsEnabled(v) } }
+                        )
+                    }
+                }
+
+                item {
+                    SettingsBlock(
+                        title = "Network",
+                        subtitle = "Quick health check for the active OSC target."
+                    ) {
+                        Text("Local IP: ${localIp ?: "-"}", color = GoblinText)
+                        Text("Target: ${s.activeTarget.ip}:${s.activeTarget.port}", color = GoblinText)
+
+                        val (label, color) = when (reachable) {
+                            true -> "Reachable" to GoblinOk
+                            false -> "Unreachable" to GoblinBad
+                            null -> "Checking…" to GoblinDim
+                        }
+
+                        Text("Ping: $label", color = color)
+                    }
+                }
+
+                item {
+                    SettingsBlock(
+                        title = "OSC Presets",
+                        subtitle = "Pick a target, edit IP/port, save."
+                    ) {
+                        // Note: keeping presets inside this block to preserve the "card" look,
+                        // but using LazyColumn for the whole screen avoids composing everything at once.
+                        for (i in s.presets.indices) {
+                            val preset = s.presets[i]
+
+                            var name by remember(preset.name) { mutableStateOf(preset.name) }
+                            var ip by remember(preset.ip) { mutableStateOf(preset.ip) }
+                            var port by remember(preset.port) { mutableStateOf(preset.port.toString()) }
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, GoblinBorder, MaterialTheme.shapes.medium)
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = s.activePreset == i,
+                                        onClick = { scope.launch { settingsStore.setActivePreset(i) } },
+                                        colors = RadioButtonDefaults.colors(selectedColor = GoblinAccent)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = preset.name,
+                                            color = GoblinText,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "${preset.ip}:${preset.port}",
+                                            color = GoblinDim,
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                }
+
+                                GoblinTextField(
+                                    value = name,
+                                    onValue = { name = it },
+                                    placeholder = "Name",
+                                    keyboardType = KeyboardType.Text
+                                )
+
+                                GoblinTextField(
+                                    value = ip,
+                                    onValue = { ip = it },
+                                    placeholder = "IP (z.B. 192.168.178.24)",
+                                    keyboardType = KeyboardType.Text
+                                )
+
+                                GoblinTextField(
+                                    value = port,
+                                    onValue = { port = it.filter { ch: Char -> ch.isDigit() }.take(5) },
+                                    placeholder = "Port (z.B. 7002)",
+                                    keyboardType = KeyboardType.Number
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            val p = port.toIntOrNull() ?: preset.port
+                                            scope.launch { settingsStore.updatePreset(i, name, ip, p) }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            backgroundColor = GoblinAccent,
+                                            contentColor = Color.Black
+                                        )
+                                    ) {
+                                        Text("Save", fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Spacer(Modifier.width(10.dp))
+
+                                    Button(
+                                        onClick = { scope.launch { settingsStore.setActivePreset(i) } },
+                                        colors = ButtonDefaults.buttonColors(
+                                            backgroundColor = GoblinBorder,
+                                            contentColor = GoblinText
+                                        )
+                                    ) {
+                                        Text("Use")
+                                    }
+                                }
+                            }
+
+                            if (i != s.presets.lastIndex) {
+                                Divider(color = GoblinBorder, modifier = Modifier.padding(vertical = 6.dp))
+                            }
                         }
                     }
                 }
