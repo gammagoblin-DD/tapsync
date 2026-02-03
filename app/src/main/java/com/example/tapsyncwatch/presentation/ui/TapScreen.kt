@@ -59,12 +59,22 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.fillMaxWidth
+
+
+import androidx.compose.foundation.layout.fillMaxWidth
+
+import androidx.compose.ui.draw.clip
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
-import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.border
+
+
+
+
 
 /* ================= GOBLIN STYLE ================= */
 
@@ -153,6 +163,21 @@ fun TapScreen(
     hapticsEnabled: Boolean,
     downbeatHapticsEnabled: Boolean,
     transportHapticsEnabled: Boolean,
+    // Visual tuning (from Settings)
+    ringScale: Float = 1f,
+    ringThickness: Float = 1f,
+    ringAlpha: Float = 1f,
+    downbeatSize: Float = 1f,
+    downbeatAlpha: Float = 1f,
+    ghostAlpha: Float = 1f,
+    ghostThickness: Float = 1f,
+    lockGlow: Float = 1f,
+    spiralStrength: Float = 1f,
+    spiralAlpha: Float = 1f,
+    rippleStrength: Float = 1f,
+    pulseStrength: Float = 1f,
+    animationIntensity: Float = 1f,
+
     onLongPress: () -> Unit
 ) {
     val context = LocalContext.current
@@ -297,43 +322,25 @@ fun TapScreen(
             anim.snapTo(0f)
 
             if (hold) {
-                val loopMs = 900
+                // Hold ripple should feel like a slow "breathing" radar sweep (not a strobe)
+                val loopMs = 1400
                 while (isActive && (if (voice == Voice.LOCAL) localHold else remoteHold)) {
                     anim.snapTo(0f)
                     anim.animateTo(1f, tween(loopMs, easing = FastOutSlowInEasing))
                 }
                 anim.snapTo(0f)
             } else {
-                if (kind == RippleKind.MULTIPLY || kind == RippleKind.DIVIDE) {
-
-                    // REMOTE: ghosty "breath" (avoid noisy double-triggers)
-                    if (voice == Voice.REMOTE && remoteGhostModeEnabled) {
-                        val breathMs = 820
-                        anim.snapTo(0f)
-                        anim.animateTo(1f, tween(breathMs, easing = FastOutSlowInEasing))
-                        anim.snapTo(0f)
-                    } else {
-                        val pulseMs = 520
-                        val gapMs = 140L
-
-                        anim.snapTo(0f)
-                        anim.animateTo(1f, tween(pulseMs, easing = FastOutSlowInEasing))
-                        anim.snapTo(0f)
-                        delay(gapMs)
-                        anim.animateTo(1f, tween(pulseMs, easing = FastOutSlowInEasing))
-                        anim.snapTo(0f)
-                    }
-                } else {
-                    val ms = when (kind) {
-                        RippleKind.TAP -> 520
-                        RippleKind.RESYNC -> 900
-                        RippleKind.NUDGE_PLUS, RippleKind.NUDGE_MINUS -> 560
-                        RippleKind.MULTIPLY, RippleKind.DIVIDE -> 760
-                    }
-                    anim.snapTo(0f)
-                    anim.animateTo(1f, tween(ms, easing = FastOutSlowInEasing))
-                    anim.snapTo(0f)
+                // One clean sweep for all one-shot gestures.
+                // (Multiply/Divide get their "double" feel in the drawing, not by replaying the animation.)
+                val ms = when (kind) {
+                    RippleKind.TAP -> 820
+                    RippleKind.RESYNC -> 1200
+                    RippleKind.NUDGE_PLUS, RippleKind.NUDGE_MINUS -> 900
+                    RippleKind.MULTIPLY, RippleKind.DIVIDE -> 950
                 }
+                anim.snapTo(0f)
+                anim.animateTo(1f, tween(ms, easing = FastOutSlowInEasing))
+                anim.snapTo(0f)
             }
         }
 
@@ -342,10 +349,12 @@ fun TapScreen(
 
     fun stopHoldRipple(voice: Voice) {
         if (voice == Voice.LOCAL) {
+            if (!localHold) return
             localHold = false
             localRippleJob?.cancel(); localRippleJob = null
             scope.launch { localRipple.snapTo(0f) }
         } else {
+            if (!remoteHold) return
             remoteHold = false
             remoteRippleJob?.cancel(); remoteRippleJob = null
             scope.launch { remoteRipple.snapTo(0f) }
@@ -641,109 +650,91 @@ fun TapScreen(
             )
         }
 
+// ===== OSC DEBUG OVERLAY (ROUND-SAFE + WATCHLIKE) =====
         if (showOscDebug) {
-            val scroll = rememberScrollState()
-
-            // Fullscreen round "watch" overlay (clipped to the device circle)
-            Box(
+            Column(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .zIndex(21f),
-                contentAlignment = Alignment.Center
+                    .align(Alignment.TopCenter)                 // ✅ round-safe
+                    .padding(top = 32.dp)                      // ✅ weiter nach unten
+                    .fillMaxWidth(0.86f)                       // ✅ safe circle
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
+                    .background(Color.Black.copy(alpha = 0.72f))
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                    .zIndex(999f)
             ) {
-                // Round background the size of the watch
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(androidx.compose.foundation.shape.CircleShape)
-                        .background(GoblinDebugBg)
-                        .border(
-                            width = 1.dp,
-                            color = GoblinBrown.copy(alpha = 0.22f),
-                            shape = androidx.compose.foundation.shape.CircleShape
-                        )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 22.dp)
-                            // Content zone: slightly lower so it feels watchlike and avoids the top round edge
-                            .padding(top = 46.dp, bottom = 18.dp)
-                            .verticalScroll(scroll)
-                    ) {
-                        Text(
-                            text = "OSC IN  packets: ${dbg.packetsTotal}",
-                            color = GoblinDim,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "OSC IN  packets: ${dbg.packetsTotal}",
+                    color = GoblinDim,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
 
-                        Text(
-                            text = "last: ${dbg.lastAddress ?: "-"}",
-                            color = GoblinDim,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "last: ${dbg.lastAddress ?: "-"}",
+                    color = GoblinDim,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
 
-                        Text(
-                            text = "args: ${dbg.lastArgs ?: "-"}",
-                            color = GoblinDim,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "args: ${dbg.lastArgs ?: "-"}",
+                    color = GoblinDim,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
 
-                        Text(
-                            text = "ext bpm: " + (dbg.externalBpm?.let { "%.2f".format(it) } ?: "-"),
-                            color = GoblinDim,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "tempo raw: " + (dbg.externalTempoRaw?.let { "%.4f".format(it) } ?: "-"),
+                    color = GoblinDim,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
 
-                        Text(
-                            text = "tempo raw: " + (dbg.externalTempoRaw?.let { "%.4f".format(it) } ?: "-"),
-                            color = GoblinDim,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "ext bpm: " + (dbg.externalBpm?.let { "%.2f".format(it) } ?: "-"),
+                    color = GoblinDim,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
 
-                        Text(
-                            text = "conf: " + (dbg.externalConfidence?.let { "%.2f".format(it) } ?: "-"),
-                            color = GoblinDim,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "conf: " + (dbg.externalConfidence?.let { "%.2f".format(it) } ?: "-"),
+                    color = GoblinDim,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
 
-                        Text(
-                            text = "phase: " + (dbg.externalPhase?.let { "%.3f".format(it) } ?: "-"),
-                            color = GoblinDim,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "phase: " + (dbg.externalPhase?.let { "%.3f".format(it) } ?: "-"),
+                    color = GoblinDim,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
 
-                        val age = dbg.externalDownbeatMs?.let { ms ->
-                            val a = (SystemClock.elapsedRealtime() - ms).coerceAtLeast(0L)
-                            "${a}ms"
-                        } ?: "-"
+                val age = dbg.externalDownbeatMs?.let { ms ->
+                    val a = (SystemClock.elapsedRealtime() - ms).coerceAtLeast(0L)
+                    "${a}ms"
+                } ?: "-"
 
-                        Text(
-                            text = "downbeat age: $age",
-                            color = GoblinDim,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
-
-                        Spacer(Modifier.height(10.dp))
-                    }
-                }
+                Text(
+                    text = "downbeat age: $age",
+                    color = GoblinDim,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
             }
         }
+
+
+
+
 
         /* ================= OSC pulse dot ================= */
 
@@ -836,6 +827,10 @@ fun TapScreen(
             fun drawRipple(voice: Voice, kind: RippleKind?, p: Float) {
                 if (kind == null || p <= 0f) return
 
+                // Progress is always 0..1. Strength/intensity affects *opacity/weight*, not speed.
+                val pc = p.coerceIn(0f, 1f)
+                val motion = (rippleStrength * animationIntensity).coerceIn(0f, 2f)
+
                 val invert = (voice == Voice.REMOTE)
 
                 fun isGrowLocal(k: RippleKind): Boolean = when (k) {
@@ -851,49 +846,43 @@ fun TapScreen(
                     return 1f - (t * t)
                 }
 
-                val alpha = intensityFor(voice, kind) * fadeLate(p)
-
+                val baseAlpha = (intensityFor(voice, kind) * motion * fadeLate(pc)).coerceIn(0f, 1f)
                 val strokeW = if (voice == Voice.REMOTE && remoteGhostModeEnabled) 10f else stroke
 
-                if (kind == RippleKind.RESYNC) {
-
-                    // LOCAL = 3 rings. REMOTE ghost = 1 ring (calmer, reads as "external")
-                    val offsets = if (voice == Voice.REMOTE && remoteGhostModeEnabled)
-                        listOf(0.0f)
-                    else
-                        listOf(0.0f, 0.14f, 0.28f)
-
-                    val intens = if (voice == Voice.REMOTE && remoteGhostModeEnabled)
-                        listOf(1.0f)
-                    else
-                        listOf(1.0f, 0.72f, 0.52f)
-
-                    for (i in offsets.indices) {
-                        val pi = (p - offsets[i]).coerceIn(0f, 1f)
-                        if (pi <= 0f) continue
-
-                        val a = alpha * intens[i]
-                        val r = if (grow) maxRadius * pi else overscan * (1f - pi)
-
-                        drawCircle(
-                            color = GoblinBrown.copy(alpha = a),
-                            radius = r,
-                            center = Offset(cx, cy),
-                            style = Stroke(width = strokeW)
-                        )
-                    }
-                    return
+                // Helper: draw one ring with an optional progress offset (used for "double" feels)
+                fun ring(p0: Float, alphaMul: Float, widthMul: Float = 1f) {
+                    val pi = (p0).coerceIn(0f, 1f)
+                    if (pi <= 0f) return
+                    val pr = (pi * pi * (3f - 2f * pi))
+                    val radius = if (grow) maxRadius * pr else overscan * (1f - pr)
+                    drawCircle(
+                        color = GoblinBrown.copy(alpha = (baseAlpha * alphaMul).coerceIn(0f, 1f)),
+                        radius = radius,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = strokeW * widthMul)
+                    )
                 }
 
-                val pr = (p * p * (3f - 2f * p))
-                val radius = if (grow) maxRadius * pr else overscan * (1f - pr)
+                when (kind) {
+                    RippleKind.RESYNC -> {
+                        // LOCAL = 3 rings. REMOTE ghost = 1 ring (calmer, reads as "external")
+                        val offsets = if (voice == Voice.REMOTE && remoteGhostModeEnabled) listOf(0.0f) else listOf(0.0f, 0.14f, 0.28f)
+                        val intens = if (voice == Voice.REMOTE && remoteGhostModeEnabled) listOf(1.0f) else listOf(1.0f, 0.72f, 0.52f)
+                        for (i in offsets.indices) {
+                            ring(pc - offsets[i], intens[i], widthMul = 1f)
+                        }
+                        return
+                    }
+                    RippleKind.MULTIPLY, RippleKind.DIVIDE -> {
+                        // One animation, but two rings: reads as "double" without feeling like a replay.
+                        ring(pc, 1.0f, widthMul = 1f)
+                        ring(pc - 0.20f, 0.60f, widthMul = 0.92f)
+                        return
+                    }
+                    else -> Unit
+                }
 
-                drawCircle(
-                    color = GoblinBrown.copy(alpha = alpha),
-                    radius = radius,
-                    center = Offset(cx, cy),
-                    style = Stroke(width = strokeW)
-                )
+                ring(pc, 1.0f, widthMul = 1f)
             }
 
             drawRipple(Voice.LOCAL, localKind, localRipple.value)
