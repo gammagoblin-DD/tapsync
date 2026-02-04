@@ -40,6 +40,17 @@ class OscInputReceiver(
     private val _oscActivity = MutableSharedFlow<Unit>(extraBufferCapacity = 8)
     val oscActivity: SharedFlow<Unit> = _oscActivity.asSharedFlow()
 
+    // Heartbeat (Resolume Wire): ping -> pong
+    private val _pongActivity = MutableSharedFlow<Unit>(extraBufferCapacity = 8)
+    val pongActivity: SharedFlow<Unit> = _pongActivity.asSharedFlow()
+
+    private val _lastPongMs = MutableStateFlow(0L)
+    val lastPongMs: StateFlow<Long> = _lastPongMs.asStateFlow()
+
+    // Any OSC traffic (for optional fallback)
+    private val _lastAnyRxMs = MutableStateFlow(0L)
+    val lastAnyRxMs: StateFlow<Long> = _lastAnyRxMs.asStateFlow()
+
     private val _externalBpmActivity = MutableSharedFlow<Unit>(extraBufferCapacity = 8)
     val externalBpmActivity: SharedFlow<Unit> = _externalBpmActivity.asSharedFlow()
 
@@ -69,6 +80,8 @@ class OscInputReceiver(
         val lastTypeTags: String? = null,
         val lastArgs: String? = null,
         val lastSeenMs: Long = 0L,
+        val lastPongMs: Long = 0L,
+        val lastAnyRxMs: Long = 0L,
         val externalTempoRaw: Double? = null,
         val externalBpm: Double? = null,
         val externalConfidence: Float? = null,
@@ -203,6 +216,7 @@ class OscInputReceiver(
 
             val nowMs = SystemClock.elapsedRealtime()
             _oscActivity.tryEmit(Unit)
+            _lastAnyRxMs.value = nowMs
 
             val argsSummary = summarizeArgs(typeTags, bb.duplicate())
 
@@ -212,6 +226,8 @@ class OscInputReceiver(
                 lastTypeTags = typeTags,
                 lastArgs = argsSummary,
                 lastSeenMs = nowMs,
+                lastPongMs = _lastPongMs.value,
+                lastAnyRxMs = _lastAnyRxMs.value,
                 externalTempoRaw = _debugState.value.externalTempoRaw,
                 externalBpm = _externalBpm.value,
                 externalConfidence = _externalConfidence.value,
@@ -357,6 +373,19 @@ class OscInputReceiver(
                 val trigger = v == null || v > 0.5
                 if (trigger) onExternalDownbeat()
             }
+
+            /* =================================================
+             * Heartbeat Pong (Resolume Wire)
+             * ================================================= */
+
+            "/tapsync/pong" -> {
+                // Optional arg: echo/nonce. Not required for link detection.
+                _lastPongMs.value = SystemClock.elapsedRealtime()
+                _pongActivity.tryEmit(Unit)
+
+                _debugState.value = _debugState.value.copy(lastPongMs = _lastPongMs.value)
+            }
+
 
             // all other messages intentionally ignored
         }

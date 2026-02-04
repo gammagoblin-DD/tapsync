@@ -13,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -40,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.example.tapsyncwatch.R
 import com.example.tapsyncwatch.domain.action.ActionEngine
@@ -65,6 +67,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.border
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.text.style.TextAlign
+import kotlin.math.roundToInt
 
 /* ================= GOBLIN STYLE ================= */
 
@@ -125,6 +130,11 @@ fun TapScreen(
     showBpm: Boolean,
     bpm: Double,
 
+    // Link health (Heartbeat Pong)
+    lastPongMs: StateFlow<Long>,
+    heartbeatEnabled: Boolean,
+    signalGraceMs: Long,
+
     // UI-only monitors
     showExternalBpm: Boolean,
     externalBpm: StateFlow<Double?>,
@@ -163,7 +173,7 @@ fun TapScreen(
     val remoteTransportLimiter = remember { PulseLimiter(minIntervalMs = 180) }
 
     fun uiHapticAllowed(): Boolean =
-        clockMode == ClockMode.INTERNAL && hapticsEnabled
+        hapticsEnabled
 
     fun lightHaptic() {
         if (uiHapticAllowed()) {
@@ -390,7 +400,7 @@ fun TapScreen(
         }
     }
 
-    /* ================= CLOCK VISUAL ================= */
+    /* ================= CLOCK VISUAL (RESOLUME-DRIVEN) ================= */
 
     val health by oscHealth.collectAsState()
     val oscDotColor = when (health) {
@@ -399,67 +409,90 @@ fun TapScreen(
         OscHealth.Idle -> Color(0xFFB86CFF)
     }
 
-    val visual by clockVisualState.collectAsState()
-    val downbeatPulse = remember { Animatable(0f) }
+    // Heartbeat-based link state (do NOT depend on BPM updates)
+    val lastPong by lastPongMs.collectAsState()
+    var nowMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
 
-    // Local phase estimation + stability
-    var localPhase by remember { mutableStateOf(0f) }
-    var stability by remember { mutableStateOf(1f) }
-
-    var lastDownbeatNs by remember { mutableStateOf(0L) }
-    var prevDownbeatNs by remember { mutableStateOf(0L) }
-    var jitterEma by remember { mutableStateOf(0f) }
-
-    LaunchedEffect(visual.downbeatId, bpm) {
-        if (visual.downbeatId == 0L) return@LaunchedEffect
-
-        prevDownbeatNs = lastDownbeatNs
-        lastDownbeatNs = visual.downbeatId
-
-        // Update stability from downbeat jitter
-        if (prevDownbeatNs != 0L && bpm > 1e-6) {
-            val intervalNs = (lastDownbeatNs - prevDownbeatNs).toDouble()
-            val expectedNs = 60_000_000_000.0 / bpm
-            val relErr = abs(intervalNs - expectedNs) / expectedNs
-            val err = relErr.toFloat().coerceIn(0f, 1f)
-
-            // EMA: smooth
-            jitterEma = (jitterEma * 0.85f) + (err * 0.15f)
-
-            // map jitter -> stability (1 = stable, 0 = messy)
-            stability = (1f - (jitterEma * 2.2f)).coerceIn(0f, 1f)
-        } else {
-            stability = 1f
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            nowMs = SystemClock.elapsedRealtime()
+            delay(120)
         }
     }
 
-    // phase ticker
-    LaunchedEffect(lastDownbeatNs, bpm) {
-        if (lastDownbeatNs == 0L || bpm <= 1e-6) return@LaunchedEffect
-        val beatNs = (60_000_000_000.0 / bpm).toLong().coerceAtLeast(1L)
+    val hasSignal = remember(heartbeatEnabled, lastPong, nowMs, signalGraceMs) {
+        if (!heartbeatEnabled) true
+        else lastPong > 0L && (nowMs - lastPong) <= signalGraceMs
+    }
+
+    val goblinBaseAlphaTarget = if (hasSignal) 1f else 0.35f
+    val goblinBaseAlpha by animateFloatAsState(
+        targetValue = goblinBaseAlphaTarget,
+        animationSpec = tween(
+            durationMillis = if (animationsEnabled) 220 else 0,
+            easing = FastOutSlowInEasing
+        ),
+        label = "signalAlpha"
+    )
+
+    val downbeatPulse = remember { Animatable(0f) }
+
+    // Extrapolated external phase (smooth) + stability (confidence)
+    var extPhase by remember { mutableStateOf(0f) }
+    var stability by remember { mutableStateOf(1f) }
+    var prevPhase by remember { mutableStateOf(0f) }
+    var lastDownbeatTriggerMs by remember { mutableStateOf(0L) }
+
+    LaunchedEffect(hasSignal, extBpm, ghost, extConf) {
+        if (!hasSignal) {
+            extPhase = 0f
+            stability = 1f
+            prevPhase = 0f
+            return@LaunchedEffect
+        }
+
+        val bpmForPhase = (ghost?.bpm ?: extBpm) ?: return@LaunchedEffect
+        val bpmF = bpmForPhase.toFloat().coerceIn(1f, 999f)
 
         while (isActive) {
-            val now = SystemClock.elapsedRealtimeNanos()
-            val dt = (now - lastDownbeatNs).coerceAtLeast(0L)
-            localPhase = ((dt % beatNs).toDouble() / beatNs.toDouble()).toFloat()
+            val now = SystemClock.elapsedRealtime()
+            val anchorMs = (ghost?.lastSeenMs ?: now).coerceAtMost(now)
+            val anchorPhase = (ghost?.phase ?: extPhase).coerceIn(0f, 1f)
+
+            val dtSec = (now - anchorMs).coerceAtLeast(0).toFloat() / 1000f
+            val beats = dtSec * (bpmF / 60f)
+            val p = ((anchorPhase + beats) % 1f)
+
+            // Downbeat: detect phase wrap
+            val wrapped = (prevPhase > 0.80f && p < 0.20f)
+            if (wrapped && (now - lastDownbeatTriggerMs) > 250L) {
+                lastDownbeatTriggerMs = now
+
+                if (animationsEnabled) {
+                    // animate pulse without blocking the ticker
+                    scope.launch {
+                        downbeatPulse.snapTo(1f)
+                        downbeatPulse.animateTo(0f, tween(260, easing = FastOutSlowInEasing))
+                    }
+                }
+
+                if (hapticsEnabled && downbeatHapticsEnabled) {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+            }
+
+            prevPhase = p
+            extPhase = p
+
+            val conf = (ghost?.confidence ?: extConf ?: 1f).coerceIn(0f, 1f)
+            stability = conf
+
             delay(16)
         }
     }
 
-    LaunchedEffect(visual.downbeatId) {
-        if (visual.downbeatId != 0L) {
-            if (animationsEnabled) {
-                downbeatPulse.snapTo(1f)
-                downbeatPulse.animateTo(0f, tween(260, easing = FastOutSlowInEasing))
-            }
 
-            if (hapticsEnabled && downbeatHapticsEnabled) {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            }
-        }
-    }
-
-    /* ================= Swipe helpers ================= */
+/* ================= Swipe helpers ================= */
 
     fun isHorizontalSwipe(dx: Float, dy: Float): Boolean =
         (abs(dx) - abs(dy)) >= axisDominanceMargin
@@ -615,7 +648,9 @@ fun TapScreen(
         Image(
             painter = painterResource(R.drawable.goblin),
             contentDescription = null,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .alpha(goblinBaseAlpha)
         )
 
         Image(
@@ -623,24 +658,37 @@ fun TapScreen(
             contentDescription = null,
             modifier = Modifier
                 .fillMaxSize()
-                .alpha(goblinFlashAlpha.value)
+                .alpha(goblinFlashAlpha.value * goblinBaseAlpha)
         )
 
         /* ================= UI overlays (text) ================= */
 
+        // External BPM monitor (Resolume -> Watch):
+        // Show ONLY the integer BPM, centered under the goblin "chin", with a smooth value animation.
+        val extBpmTarget = (extBpm ?: 0.0).toFloat()
+        val extBpmAnimated by animateFloatAsState(
+            targetValue = extBpmTarget,
+            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+            label = "extBpmAnim"
+        )
+
         AnimatedVisibility(
-            visible = showExternalBpm && (extBpm != null),
+            visible = showExternalBpm && (extBpm != null || !hasSignal),
             modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 10.dp)
+                .align(Alignment.Center)
+                .offset(y = 101.dp)
                 .zIndex(20f)
         ) {
             Text(
-                text = "Resolume BPM: " + "%.2f".format(extBpm ?: 0.0),
-                color = GoblinBrown
+                text = if (!hasSignal) "NO SIGNAL" else extBpmAnimated.roundToInt().toString(),
+                color = GoblinBrown,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
             )
         }
 
+        // ===== OSC DEBUG OVERLAY (ROUND-SAFE + WATCHLIKE) =====
         if (showOscDebug) {
             val scroll = rememberScrollState()
 
@@ -773,6 +821,7 @@ fun TapScreen(
                 .zIndex(7f)
         ) {
             if (!remoteGhostModeEnabled) return@Canvas
+            if (!hasSignal) return@Canvas
             val g = ghost ?: return@Canvas
 
             val cx = size.width / 2f
@@ -781,11 +830,7 @@ fun TapScreen(
 
             val nowMs = SystemClock.elapsedRealtime()
             val stale = (nowMs - g.lastSeenMs) > 1500L
-
-            val bpmDelta = abs((bpm - g.bpm)).toFloat()
-            val phaseDelta = abs(circularDelta(localPhase, g.phase))
-
-            val locked = (!stale) && bpmDelta < 0.8f && phaseDelta < 0.10f
+            val locked = !stale
 
             val baseAlpha = if (stale) 0.06f else if (locked) 0.18f else 0.12f
             val dash = PathEffect.dashPathEffect(floatArrayOf(16f, 12f), 0f)
@@ -911,6 +956,8 @@ fun TapScreen(
             val cy = size.height / 2f
             val baseRadius = min(size.width, size.height) * 0.78f / 2f
 
+            if (!hasSignal) return@Canvas
+
             if (phaseVisualizerEnabled) {
                 val strokeW = 10f
 
@@ -933,7 +980,7 @@ fun TapScreen(
                 )
 
                 // phase dot
-                val a = (localPhase.toDouble() * 2.0 * PI) - (PI / 2.0)
+                val a = (extPhase.toDouble() * 2.0 * PI) - (PI / 2.0)
                 val px = cx + cos(a).toFloat() * baseRadius
                 val py = cy + sin(a).toFloat() * baseRadius
                 drawCircle(
@@ -953,7 +1000,7 @@ fun TapScreen(
                 for (i in 0..steps) {
                     val t = i.toDouble() / steps.toDouble()
                     val theta = (t * 2.0 * PI) - (PI / 2.0)
-                    val w = sin(theta * k + (localPhase.toDouble() * 2.0 * PI)).toFloat()
+                    val w = sin(theta * k + (extPhase.toDouble() * 2.0 * PI)).toFloat()
                     val r = baseRadius + wobble * w
                     val x = cx + cos(theta).toFloat() * r
                     val y = cy + sin(theta).toFloat() * r
@@ -978,6 +1025,8 @@ fun TapScreen(
             val cx = size.width / 2f
             val cy = size.height / 2f
             val safeRadius = min(size.width, size.height) * 0.82f / 2f
+
+            if (!hasSignal) return@Canvas
 
             drawCircle(
                 color = GoblinBrown.copy(alpha = 0.28f * downbeatPulse.value),

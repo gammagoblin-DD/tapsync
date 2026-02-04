@@ -58,6 +58,12 @@ object SettingsKeys {
     val GOBLIN_FLASH_ENABLED = booleanPreferencesKey("goblin_flash_enabled")
     val RIPPLE_ENABLED = booleanPreferencesKey("ripple_enabled")
     val OSC_PULSE_ENABLED = booleanPreferencesKey("osc_pulse_enabled")
+
+    // 🆕 Connection heartbeat (Ping/Pong via Resolume Wire)
+    val HEARTBEAT_ENABLED = booleanPreferencesKey("heartbeat_enabled")
+    val HEARTBEAT_INTERVAL_MS = longPreferencesKey("heartbeat_interval_ms")
+    val SIGNAL_GRACE_MS = longPreferencesKey("signal_grace_ms")
+    val HEARTBEAT_ADAPTIVE_ENABLED = booleanPreferencesKey("heartbeat_adaptive_enabled")
 }
 
 /* =========================================================
@@ -88,6 +94,12 @@ data class SettingsState(
     val goblinFlashEnabled: Boolean,
     val rippleEnabled: Boolean,
     val oscPulseEnabled: Boolean,
+
+    // Connection (Ping/Pong)
+    val heartbeatEnabled: Boolean,
+    val heartbeatAdaptiveEnabled: Boolean,
+    val heartbeatIntervalMs: Long,
+    val signalGraceMs: Long,
 
     val hapticsEnabled: Boolean,
     val downbeatHapticsEnabled: Boolean,
@@ -123,6 +135,11 @@ val DEFAULT_SETTINGS_STATE = SettingsState(
     goblinFlashEnabled = true,
     rippleEnabled = true,
     oscPulseEnabled = true,
+
+    heartbeatEnabled = true,
+    heartbeatAdaptiveEnabled = true,
+    heartbeatIntervalMs = 1200L,
+    signalGraceMs = 5000L,
 
     hapticsEnabled = true,
     downbeatHapticsEnabled = false,
@@ -176,6 +193,10 @@ class SettingsStore(
                 goblinFlashEnabled = prefs[SettingsKeys.GOBLIN_FLASH_ENABLED] ?: true,
                 rippleEnabled = prefs[SettingsKeys.RIPPLE_ENABLED] ?: true,
                 oscPulseEnabled = prefs[SettingsKeys.OSC_PULSE_ENABLED] ?: true,
+                heartbeatEnabled = prefs[SettingsKeys.HEARTBEAT_ENABLED] ?: DEFAULT_SETTINGS_STATE.heartbeatEnabled,
+                heartbeatAdaptiveEnabled = prefs[SettingsKeys.HEARTBEAT_ADAPTIVE_ENABLED] ?: DEFAULT_SETTINGS_STATE.heartbeatAdaptiveEnabled,
+                heartbeatIntervalMs = prefs[SettingsKeys.HEARTBEAT_INTERVAL_MS] ?: DEFAULT_SETTINGS_STATE.heartbeatIntervalMs,
+                signalGraceMs = prefs[SettingsKeys.SIGNAL_GRACE_MS] ?: DEFAULT_SETTINGS_STATE.signalGraceMs,
 
                 hapticsEnabled = prefs[SettingsKeys.HAPTICS_ENABLED] ?: true,
                 downbeatHapticsEnabled =
@@ -257,6 +278,32 @@ class SettingsStore(
     suspend fun setOscPulseEnabled(enabled: Boolean) {
         context.dataStore.edit {
             it[SettingsKeys.OSC_PULSE_ENABLED] = enabled
+        }
+    }
+
+    // 🆕 Heartbeat
+    suspend fun setHeartbeatEnabled(enabled: Boolean) {
+        context.dataStore.edit {
+            it[SettingsKeys.HEARTBEAT_ENABLED] = enabled
+        }
+    }
+
+
+suspend fun setHeartbeatAdaptiveEnabled(enabled: Boolean) {
+    context.dataStore.edit {
+        it[SettingsKeys.HEARTBEAT_ADAPTIVE_ENABLED] = enabled
+    }
+}
+
+    suspend fun setHeartbeatIntervalMs(value: Long) {
+        context.dataStore.edit {
+            it[SettingsKeys.HEARTBEAT_INTERVAL_MS] = value.coerceIn(250L, 5000L)
+        }
+    }
+
+    suspend fun setSignalGraceMs(value: Long) {
+        context.dataStore.edit {
+            it[SettingsKeys.SIGNAL_GRACE_MS] = value.coerceIn(750L, 20000L)
         }
     }
 

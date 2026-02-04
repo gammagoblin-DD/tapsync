@@ -1,5 +1,6 @@
 package com.example.tapsyncwatch.presentation.ui
 
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -33,6 +34,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.InetAddress
 import java.net.NetworkInterface
+import kotlin.math.roundToLong
 
 /* ================= THEME ================= */
 
@@ -271,10 +273,20 @@ private suspend fun ping(ip: String, timeoutMs: Int = 350): Boolean {
 @Composable
 fun SettingsScreen(
     settingsStore: SettingsStore,
+    lastPongMs: kotlinx.coroutines.flow.StateFlow<Long>,
     onClose: () -> Unit
 ) {
     val settings by settingsStore.settings.collectAsState(initial = DEFAULT_SETTINGS_STATE)
     val s = settings
+
+    val lastPong by lastPongMs.collectAsState()
+    var nowMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            nowMs = SystemClock.elapsedRealtime()
+            delay(250)
+        }
+    }
 
     val scope = rememberCoroutineScope()
     BackHandler { onClose() }
@@ -498,18 +510,174 @@ fun SettingsScreen(
                         Text("Ping: $label", color = color)
 
                         Spacer(Modifier.height(10.dp))
-                        Text("Ping Intervall (${pingIntervalSec.toInt()}s)", color = GoblinDim, fontSize = 12.sp)
-                        Slider(
-                            value = pingIntervalSec,
-                            onValueChange = { pingIntervalSec = it },
-                            valueRange = 1f..5f,
-                            steps = 3,
-                            colors = SliderDefaults.colors(
-                                thumbColor = GoblinAccent,
-                                activeTrackColor = GoblinAccent.copy(alpha = 0.6f),
-                                inactiveTrackColor = GoblinBorder
-                            )
-                        )
+                        
+// ---- OSC Heartbeat (Ping/Pong) ----
+DividerLine()
+SwitchItem(
+    label = "Link Check",
+    checked = s.heartbeatEnabled,
+    description = "Watch sends /tapsync/ping • Resolume replies /tapsync/pong",
+    onChange = { v -> scope.launch { settingsStore.setHeartbeatEnabled(v) } }
+)
+
+val pongAge = if (lastPong <= 0L) null else (nowMs - lastPong).coerceAtLeast(0L)
+val linkOk = if (!s.heartbeatEnabled) true else (pongAge != null && pongAge < s.signalGraceMs)
+val linkLabel = when {
+    !s.heartbeatEnabled -> "Disabled"
+    pongAge == null -> "Waiting…"
+    linkOk -> "OK"
+    else -> "NO SIGNAL"
+}
+val linkColor = when {
+    !s.heartbeatEnabled -> GoblinDim
+    pongAge == null -> GoblinDim
+    linkOk -> GoblinOk
+    else -> GoblinBad
+}
+Text("Link: $linkLabel", color = linkColor)
+Text(
+    text = "Last pong: " + (pongAge?.let { "${it}ms" } ?: "-"),
+    color = GoblinDim,
+    fontSize = 12.sp
+)
+
+Spacer(Modifier.height(10.dp))
+Text("Heartbeat Mode", color = GoblinDim, fontSize = 12.sp)
+
+data class HbPreset(val name: String, val intervalMs: Long, val graceMs: Long, val hint: String)
+val presets = listOf(
+    HbPreset("Fast", 500L, 2500L, "Quick detection • more traffic"),
+    HbPreset("Normal", 1200L, 5000L, "Balanced • recommended"),
+    HbPreset("Slow", 2000L, 7000L, "Low traffic • slower detection")
+)
+val currentPreset = presets.firstOrNull { it.intervalMs == s.heartbeatIntervalMs && it.graceMs == s.signalGraceMs }?.name
+
+Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    presets.forEach { p ->
+        val selected = (currentPreset == p.name)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .border(
+                    1.dp,
+                    if (selected) GoblinAccent else GoblinBorder,
+                    RoundedCornerShape(18.dp)
+                )
+                .background(if (selected) GoblinAccent.copy(alpha = 0.14f) else Color.Transparent)
+                .clickable(enabled = s.heartbeatEnabled) {
+                    scope.launch {
+                        settingsStore.setHeartbeatIntervalMs(p.intervalMs)
+                        settingsStore.setSignalGraceMs(p.graceMs)
+                    }
+                }
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        p.name,
+                        color = if (!s.heartbeatEnabled) GoblinDim else (if (selected) GoblinAccent else GoblinText),
+                        fontSize = 15.sp,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold
+                    )
+                    Text(
+                        "${p.intervalMs}ms ping • ${p.graceMs}ms grace",
+                        color = GoblinDim,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        p.hint,
+                        color = GoblinDim,
+                        fontSize = 12.sp
+                    )
+                }
+                Text(
+                    text = if (selected) "✓" else "",
+                    color = GoblinAccent,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+Spacer(Modifier.height(6.dp))
+Text(
+    text = "Current: ${s.heartbeatIntervalMs}ms interval • ${s.signalGraceMs}ms grace",
+    color = GoblinDim,
+    fontSize = 12.sp
+)
+
+Spacer(Modifier.height(6.dp))
+var hbAdvanced by rememberSaveable { mutableStateOf(false) }
+Row(
+    modifier = Modifier
+        .fillMaxWidth()
+        .clip(RoundedCornerShape(12.dp))
+        .clickable { hbAdvanced = !hbAdvanced }
+        .padding(horizontal = 8.dp, vertical = 6.dp),
+    verticalAlignment = Alignment.CenterVertically
+) {
+    Text(
+        text = if (hbAdvanced) "Advanced ▾" else "Advanced ▸",
+        color = GoblinAccent,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold
+    )
+}
+
+AnimatedVisibility(visible = hbAdvanced) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+
+        SwitchItem(
+            label = "Adaptive recovery",
+            checked = s.heartbeatAdaptiveEnabled,
+            enabled = s.heartbeatEnabled,
+            description = "Ping faster only when the link looks down",
+            onChange = { v -> scope.launch { settingsStore.setHeartbeatAdaptiveEnabled(v) } }
+        )
+
+        var hbInterval by rememberSaveable { mutableStateOf(s.heartbeatIntervalMs.toFloat()) }
+        LaunchedEffect(s.heartbeatIntervalMs) { hbInterval = s.heartbeatIntervalMs.toFloat() }
+        Text("Heartbeat Interval (${s.heartbeatIntervalMs}ms)", color = GoblinDim, fontSize = 12.sp)
+        Slider(
+            value = hbInterval,
+            onValueChange = { hbInterval = it },
+            onValueChangeFinished = {
+                scope.launch { settingsStore.setHeartbeatIntervalMs(hbInterval.roundToLong()) }
+            },
+            valueRange = 500f..5000f,
+            steps = 9,
+            enabled = s.heartbeatEnabled,
+            colors = SliderDefaults.colors(
+                thumbColor = GoblinAccent,
+                activeTrackColor = GoblinAccent.copy(alpha = 0.6f),
+                inactiveTrackColor = GoblinBorder
+            )
+        )
+
+        var grace by rememberSaveable { mutableStateOf(s.signalGraceMs.toFloat()) }
+        LaunchedEffect(s.signalGraceMs) { grace = s.signalGraceMs.toFloat() }
+        Text("Signal Grace (${s.signalGraceMs}ms)", color = GoblinDim, fontSize = 12.sp)
+        Slider(
+            value = grace,
+            onValueChange = { grace = it },
+            onValueChangeFinished = {
+                scope.launch { settingsStore.setSignalGraceMs(grace.roundToLong()) }
+            },
+            valueRange = 1000f..30000f,
+            steps = 10,
+            enabled = s.heartbeatEnabled,
+            colors = SliderDefaults.colors(
+                thumbColor = GoblinAccent,
+                activeTrackColor = GoblinAccent.copy(alpha = 0.6f),
+                inactiveTrackColor = GoblinBorder
+            )
+        )
+    }
+}
 
                         Text("Ping Timeout (${pingTimeoutMs.toInt()}ms)", color = GoblinDim, fontSize = 12.sp)
                         Slider(
