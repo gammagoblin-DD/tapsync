@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/github/license/gammagoblin-DD/TapSyncWatch)
 ![Platform](https://img.shields.io/badge/platform-Wear%20OS-blue)
 ![Protocol](https://img.shields.io/badge/protocol-OSC-purple)
-![Status](https://img.shields.io/badge/status-final-brightgreen)
+![Status](https://img.shields.io/badge/status-v2.2.4--alpha-orange)
 
 **TapSyncWatch** is a Wear OS app for **direct tempo control of Resolume
 via OSC**.
@@ -22,6 +22,7 @@ via OSC**.
 -   [Golden Rules](#golden-rules)
 -   [Screenshots & GIFs](#screenshots--gifs)
 -   [Build & Install](#build--install)
+-   [Settings](#settings-v224-alpha)
 -   [Features](#features)
 -   [ActionEngine](#actionengine)
 -   [Gestures](#gestures)
@@ -36,8 +37,11 @@ via OSC**.
 
 TapSyncWatch provides **reliable, tactile tempo control** for Resolume.
 
-The watch is deliberately **not**: - a clock - a BPM calculator - a
-musical timing system
+The watch is deliberately **not**:
+
+- a clock
+- a BPM calculator
+- a musical timing system
 
 It sends **precise OSC button impulses only**.
 
@@ -134,6 +138,25 @@ adb pair <IP>:<PORT>
 adb connect <IP>:<PORT>
 adb install app-debug.apk
 ```
+
+------------------------------------------------------------------------
+
+## Settings (v2.2.4-alpha)
+
+Open the settings menu via **long-press in the center area** (tap zone).  
+Close with the **“×”** button in the header (watch-like, no system UI jumps).
+
+The settings are organized into **collapsible sections** (similar to the watch’s own settings):
+
+- **OSC Targets**: three editable presets (**A/B/C**) with quick switching  
+  (each preset = *Name + IP + Port*; active preset is used for all OSC output)
+- **UI Monitors**: external BPM display, OSC debug overlay
+- **Phase Visuals**: phase visualizer + optional spiral mode
+- **Animations**: global animations, remote animations, ghost mode, ripple, OSC pulse, goblin flash
+- **Feedback**: haptics, optional downbeat haptics, optional transport-send haptics
+- **Clock**: internal/external mode and enable switch (transport mapping remains TouchOSC-like)
+
+**Typical Resolume OSC port:** `7002` (configurable per preset).
 
 ------------------------------------------------------------------------
 

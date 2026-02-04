@@ -6,6 +6,24 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.2.4-alpha] — 2026-02-04
+
+### Added
+- Modern, watch-like Settings UI with collapsible sections
+- OSC target presets **A/B/C** (Name + IP + Port) with quick switching + inline edit
+
+### Changed
+- Settings reorganized into clear sections (Network/OSC, Visuals, Animations, Feedback, Clock)
+- Removed experimental crosshair-based settings trigger (Settings are opened via long-press)
+
+### Fixed
+- Settings menu no longer causes the app to slip into the background on open
+- Restored and persisted network (IP/Port) presets end-to-end
+
+### Docs
+- Refreshed all Markdown docs for v2.2.4-alpha (features + settings + presets)
+
+---
 ## [2.0.0] — Architecture Stable Release
 
 ### Added
