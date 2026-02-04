@@ -69,6 +69,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.border
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.shape.RoundedCornerShape
 import kotlin.math.roundToInt
 
 /* ================= GOBLIN STYLE ================= */
@@ -89,6 +92,31 @@ private enum class RippleKind {
     NUDGE_MINUS
 }
 
+
+
+@Composable
+private fun StatusPill(
+    text: String,
+    stateColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color(0xB3000000))
+            .border(1.dp, stateColor.copy(alpha = 0.35f), RoundedCornerShape(999.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text = text,
+            color = stateColor,
+            fontSize = 10.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
+        )
+    }
+}
 /* ================= PULSE LIMITER ================= */
 
 private class PulseLimiter(
@@ -662,24 +690,32 @@ val statusText = remember(showStatusLine, activePresetName, activeTargetIp, acti
         contentAlignment = Alignment.Center
     ) {
 
-        // ===== Status line (live HUD) =====
-        if (showStatusLine && statusText.isNotEmpty()) {
-            Text(
-                text = statusText,
-                color = when {
-                    !heartbeatEnabled -> GoblinDim
-                    hasSignal -> Color(0xFF6DFF8F)
-                    else -> Color(0xFFFF6D6D)
-                },
-                fontSize = 10.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.TopCenter)
-                    .padding(top = 10.dp)
-                    .zIndex(30f)
-            )
-        }
+// ===== Status line (live HUD) — round-safe pill =====
+if (showStatusLine && statusText.isNotEmpty()) {
+    val cfg = LocalConfiguration.current
+    val isRound = cfg.isScreenRound
+    val minDp = min(cfg.screenWidthDp, cfg.screenHeightDp).dp
+    val topPad = if (isRound) (minDp * 0.12f) else 10.dp
+    val edgePad = if (isRound) 18.dp else 12.dp
+
+    val c = when {
+        !heartbeatEnabled -> GoblinDim
+        hasSignal -> Color(0xFF6DFF8F)
+        else -> Color(0xFFFF6D6D)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .align(Alignment.TopCenter)
+            .padding(top = topPad)
+            .padding(horizontal = edgePad)
+            .zIndex(30f),
+        contentAlignment = Alignment.Center
+    ) {
+        StatusPill(text = statusText, stateColor = c)
+    }
+}
 
         Image(
             painter = painterResource(R.drawable.goblin),
@@ -723,111 +759,81 @@ val statusText = remember(showStatusLine, activePresetName, activeTargetIp, acti
                 modifier = Modifier.fillMaxWidth()
             )
         }
-
-        // ===== OSC DEBUG OVERLAY (ROUND-SAFE + WATCHLIKE) =====
+        // ===== OSC DEBUG OVERLAY (MODERN GLASS PANEL) =====
         if (showOscDebug) {
+            val cfg = LocalConfiguration.current
+            val isRound = cfg.isScreenRound
+            val edgePad = if (isRound) 18.dp else 12.dp
+            val topInset = if (isRound) 30.dp else 16.dp
+
             val scroll = rememberScrollState()
 
-            // Fullscreen round "watch" overlay (clipped to the device circle)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .zIndex(21f),
-                contentAlignment = Alignment.Center
+                    .zIndex(21f)
+                    .padding(edgePad)
+                    .clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(Color(0xB0000000))
+                    .border(
+                        1.dp,
+                        GoblinBrown.copy(alpha = 0.22f),
+                        androidx.compose.foundation.shape.CircleShape
+                    )
             ) {
-                // Round background the size of the watch
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .clip(androidx.compose.foundation.shape.CircleShape)
-                        .background(GoblinDebugBg)
-                        .border(
-                            width = 1.dp,
-                            color = GoblinBrown.copy(alpha = 0.22f),
-                            shape = androidx.compose.foundation.shape.CircleShape
-                        )
+                        .padding(top = topInset, bottom = 14.dp, start = 14.dp, end = 14.dp)
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(Color(0xAA0B0B0B))
+                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(22.dp))
+                        .padding(14.dp)
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 22.dp)
-                            // Content zone: slightly lower so it feels watchlike and avoids the top round edge
-                            .padding(top = 46.dp, bottom = 18.dp)
                             .verticalScroll(scroll)
                     ) {
                         Text(
-                            text = "OSC IN  packets: ${dbg.packetsTotal}",
-                            color = GoblinDim,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            text = "OSC Monitor",
+                            color = Color.White.copy(alpha = 0.92f),
+                            fontSize = 14.sp
                         )
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(10.dp))
+                        
+                        @Composable
+                        fun line(label: String, value: String) {
+                            Text(label, color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp)
+                            Text(value, color = Color.White.copy(alpha = 0.90f), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Spacer(Modifier.height(8.dp))
+                        }
 
-                        Text(
-                            text = "last: ${dbg.lastAddress ?: "-"}",
-                            color = GoblinDim,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.height(4.dp))
-
-                        Text(
-                            text = "args: ${dbg.lastArgs ?: "-"}",
-                            color = GoblinDim,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.height(4.dp))
-
-                        Text(
-                            text = "ext bpm: " + (dbg.externalBpm?.let { "%.2f".format(it) } ?: "-"),
-                            color = GoblinDim,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.height(4.dp))
-
-                        Text(
-                            text = "tempo raw: " + (dbg.externalTempoRaw?.let { "%.4f".format(it) } ?: "-"),
-                            color = GoblinDim,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.height(4.dp))
-
-                        Text(
-                            text = "conf: " + (dbg.externalConfidence?.let { "%.2f".format(it) } ?: "-"),
-                            color = GoblinDim,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.height(4.dp))
-
-                        Text(
-                            text = "phase: " + (dbg.externalPhase?.let { "%.3f".format(it) } ?: "-"),
-                            color = GoblinDim,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.height(4.dp))
+                        line("Packets", dbg.packetsTotal.toString())
+                        line("Last address", dbg.lastAddress ?: "-")
+                        line("Args", dbg.lastArgs ?: "-")
+                        line("External BPM", dbg.externalBpm?.let { "%.2f".format(it) } ?: "-")
+                        line("Tempo raw", dbg.externalTempoRaw?.let { "%.4f".format(it) } ?: "-")
+                        line("Confidence", dbg.externalConfidence?.let { "%.2f".format(it) } ?: "-")
+                        line("Phase", dbg.externalPhase?.let { "%.3f".format(it) } ?: "-")
 
                         val age = dbg.externalDownbeatMs?.let { ms ->
                             val a = (SystemClock.elapsedRealtime() - ms).coerceAtLeast(0L)
                             "${a}ms"
                         } ?: "-"
+                        line("Downbeat age", age)
 
                         Text(
-                            text = "downbeat age: $age",
-                            color = GoblinDim,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            text = "Tipp: Debug overlay ist absichtlich groß + lesbar.",
+                            color = Color.White.copy(alpha = 0.40f),
+                            fontSize = 10.sp
                         )
-
-                        Spacer(Modifier.height(10.dp))
                     }
                 }
             }
         }
+
+
 
         /* ================= OSC pulse dot ================= */
 

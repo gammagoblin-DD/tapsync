@@ -15,6 +15,7 @@ import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -51,6 +52,153 @@ private val GoblinBad = Color(0xFFE53935)
 /* ================= BLOCK ================= */
 
 private val CardShape = RoundedCornerShape(14.dp)
+
+
+
+private enum class SettingsPage {
+    ROOT,
+    DISPLAY,
+    VISUALS,
+    MOTION,
+    HAPTICS,
+    NETWORK,
+    ENGINE,
+    TARGETS
+}
+
+@Composable
+private fun SettingsTitleRow(
+    title: String,
+    backLabel: String,
+    onBack: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = backLabel,
+            color = GoblinDim,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .clickable { onBack() }
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = title,
+            color = GoblinText,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun SettingsNavChip(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(22.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(GoblinCard)
+            .border(1.dp, GoblinBorder, shape)
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = GoblinText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(2.dp))
+            Text(subtitle, color = GoblinDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Text("›", color = GoblinDim, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun SettingsToggleChip(
+    title: String,
+    subtitle: String? = null,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onToggle: (Boolean) -> Unit
+) {
+    val shape = RoundedCornerShape(22.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(GoblinCard)
+            .border(1.dp, GoblinBorder, shape)
+            .clickable(enabled = enabled) { onToggle(!checked) }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                title,
+                color = if (enabled) GoblinText else GoblinDim,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            if (subtitle != null) {
+                Spacer(Modifier.height(2.dp))
+                Text(subtitle, color = GoblinDim, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        Switch(
+            checked = checked,
+            enabled = enabled,
+            onCheckedChange = { onToggle(it) },
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = GoblinAccent,
+                checkedTrackColor = GoblinAccent.copy(alpha = 0.35f),
+                uncheckedThumbColor = Color.DarkGray,
+                uncheckedTrackColor = GoblinBorder
+            )
+        )
+    }
+}
+
+@Composable
+private fun SettingsStatusCard(
+    title: String,
+    lines: List<String>,
+    ok: Boolean
+) {
+    val shape = RoundedCornerShape(22.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(GoblinCard)
+            .border(1.dp, GoblinBorder, shape)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(title, color = GoblinDim, fontSize = 11.sp)
+        Text(
+            text = lines.firstOrNull() ?: "-",
+            color = if (ok) GoblinOk else GoblinBad,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        lines.drop(1).forEach { line ->
+            Text(line, color = GoblinDim, fontSize = 11.sp)
+        }
+    }
+}
 
 @Composable
 private fun Header(
@@ -270,6 +418,7 @@ private suspend fun ping(ip: String, timeoutMs: Int = 350): Boolean {
 
 /* ================= SCREEN ================= */
 
+
 @Composable
 fun SettingsScreen(
     settingsStore: SettingsStore,
@@ -289,381 +438,284 @@ fun SettingsScreen(
     }
 
     val scope = rememberCoroutineScope()
-    BackHandler { onClose() }
 
-    // Network status (active target)
-    var localIp by remember { mutableStateOf<String?>(null) }
-    var reachable by remember { mutableStateOf<Boolean?>(null) }
+    var page by rememberSaveable { mutableStateOf(SettingsPage.ROOT) }
 
-    // Slider: useful + watch-like, affects only the quick health-check loop.
-    var pingIntervalSec by rememberSaveable { mutableStateOf(2f) }
-    var pingTimeoutMs by rememberSaveable { mutableStateOf(350f) }
-
-    LaunchedEffect(Unit) {
-        localIp = getLocalIp()
+    BackHandler {
+        if (page != SettingsPage.ROOT) page = SettingsPage.ROOT else onClose()
     }
 
-    // keep the ping loop responsive to active target + sliders
-    LaunchedEffect(s.activeTarget.ip, s.activeTarget.port, pingIntervalSec, pingTimeoutMs) {
-        while (isActive) {
-            reachable = ping(s.activeTarget.ip, timeoutMs = pingTimeoutMs.toInt())
-            delay((pingIntervalSec * 1000f).toLong())
-        }
+    val cfg = LocalConfiguration.current
+    val isRound = cfg.isScreenRound
+    val edgePad = if (isRound) 18.dp else 12.dp
+    val topPad = if (isRound) 22.dp else 12.dp
+    val bottomPad = if (isRound) 22.dp else 12.dp
+
+    // Heartbeat-derived link status
+    val pongAge = if (lastPong <= 0L) null else (nowMs - lastPong).coerceAtLeast(0L)
+    val linkOk = if (!s.heartbeatEnabled) true else (pongAge != null && pongAge < s.signalGraceMs)
+    val linkLabel = when {
+        !s.heartbeatEnabled -> "Link Check aus"
+        pongAge == null -> "warte auf pong…"
+        linkOk -> "Link OK"
+        else -> "NO SIGNAL"
     }
 
-    Box(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(GoblinBg)
+            .background(GoblinBg),
+        contentPadding = PaddingValues(
+            start = edgePad,
+            end = edgePad,
+            top = topPad,
+            bottom = bottomPad
+        ),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Header(title = "Einstellungen", onClose = onClose)
 
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(bottom = 14.dp)
-            ) {
+        when (page) {
+
+            SettingsPage.ROOT -> {
                 item {
-                    Section(
-                        title = "Anzeige",
-                        subtitle = "Nur UI – ändert nichts am Clock-Engine-Output.",
-                        defaultExpanded = true
-                    ) {
-                        SwitchItem(
-                            label = "OSC Statuspunkt",
-                            checked = s.showOscDot,
-                            onChange = { v -> scope.launch { settingsStore.setShowOscDot(v) } }
-                        )
-                        DividerLine()
-                        SwitchItem(
-                            label = "External BPM Monitor",
-                            checked = s.showExternalBpm,
-                            onChange = { v -> scope.launch { settingsStore.setShowExternalBpm(v) } }
-                        )
-                        DividerLine()
-                        SwitchItem(
-                            label = "OSC Debug Overlay",
-                            checked = s.showOscDebug,
-                            onChange = { v -> scope.launch { settingsStore.setShowOscDebug(v) } }
-                        )
-                    }
-                }
-
-                item {
-                    Section(
-                        title = "Phase Visuals",
-                        subtitle = "Downbeat Marker + Phase Ring/Spiral."
-                    ) {
-                        SwitchItem(
-                            label = "Phase Ring",
-                            checked = s.phaseVisualizerEnabled,
-                            onChange = { v -> scope.launch { settingsStore.setPhaseVisualizerEnabled(v) } }
-                        )
-                        DividerLine()
-                        SwitchItem(
-                            label = "Phase Spiral (Stability)",
-                            checked = s.phaseSpiralEnabled,
-                            onChange = { v -> scope.launch { settingsStore.setPhaseSpiralEnabled(v) } }
-                        )
-                    }
-                }
-
-                item {
-                    Section(
-                        title = "Animationen",
-                        subtitle = "Remote Ghost ist rein visuell."
-                    ) {
-                        SwitchItem(
-                            label = "Animationen",
-                            checked = s.animationsEnabled,
-                            onChange = { v -> scope.launch { settingsStore.setAnimationsEnabled(v) } }
-                        )
-
-                        DividerLine()
-
-
-
-SwitchItem(
-    label = "Statuszeile",
-    checked = s.showStatusLine,
-    description = "Zeigt Preset • IP:Port • Link-Status im TapScreen",
-    onChange = { v -> scope.launch { settingsStore.setShowStatusLine(v) } }
-)
-
-                        SwitchItem(
-                            label = "Remote Animationen",
-                            checked = s.remoteAnimationsEnabled,
-                            enabled = s.animationsEnabled,
-                            onChange = { v -> scope.launch { settingsStore.setRemoteAnimationsEnabled(v) } }
-                        )
-
-                        DividerLine()
-
-                        SwitchItem(
-                            label = "Remote Ghost Mode",
-                            checked = s.remoteGhostModeEnabled,
-                            enabled = s.animationsEnabled && s.remoteAnimationsEnabled,
-                            onChange = { v -> scope.launch { settingsStore.setRemoteGhostModeEnabled(v) } }
-                        )
-
-                        DividerLine()
-
-                        SwitchItem(
-                            label = "Goblin Flash",
-                            checked = s.goblinFlashEnabled,
-                            enabled = s.animationsEnabled,
-                            onChange = { v -> scope.launch { settingsStore.setGoblinFlashEnabled(v) } }
-                        )
-
-                        DividerLine()
-
-                        SwitchItem(
-                            label = "Ripples",
-                            checked = s.rippleEnabled,
-                            enabled = s.animationsEnabled,
-                            onChange = { v -> scope.launch { settingsStore.setRippleEnabled(v) } }
-                        )
-
-                        
-DividerLine()
-Text("Tempo Quelle", color = GoblinText, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-Text(
-    "TapSyncWatch ist Resolume-first: BPM/Phase-Visuals basieren auf Resolume OSC. " +
-    "Wenn Resolume nicht erreichbar ist, zeigt die Uhr NO SIGNAL und dimmt/pause't Tempo-Visuals.",
-    color = GoblinDim,
-    fontSize = 12.sp
-)
-
-DividerLine()
-                        SwitchItem(
-                            label = "Downbeat Haptic",
-                            checked = s.downbeatHapticsEnabled,
-                            enabled = s.hapticsEnabled,
-                            onChange = { v -> scope.launch { settingsStore.setDownbeatHapticsEnabled(v) } }
-                        )
-                        DividerLine()
-                        SwitchItem(
-                            label = "Transport Haptic",
-                            checked = s.transportHapticsEnabled,
-                            enabled = s.hapticsEnabled,
-                            onChange = { v -> scope.launch { settingsStore.setTransportHapticsEnabled(v) } }
-                        )
-                    }
-                }
-
-                item {
-                    Section(
-                        title = "Netzwerk",
-                        subtitle = "Health-Check für das aktive OSC Ziel.",
-                        defaultExpanded = false
-                    ) {
-                        Text("Local IP", color = GoblinDim, fontSize = 12.sp)
-                        Text(localIp ?: "-", color = GoblinText)
-
-                        Spacer(Modifier.height(6.dp))
-
-                        Text("Aktives Ziel", color = GoblinDim, fontSize = 12.sp)
-                        Text("${s.activeTarget.ip}:${s.activeTarget.port}", color = GoblinText)
-
-                        Spacer(Modifier.height(8.dp))
-
-                        val (label, color) = when (reachable) {
-                            true -> "Reachable" to GoblinOk
-                            false -> "Unreachable" to GoblinBad
-                            null -> "Checking…" to GoblinDim
-                        }
-                        Text("Ping: $label", color = color)
-
-                        Spacer(Modifier.height(10.dp))
-                        
-// ---- OSC Heartbeat (Ping/Pong) ----
-DividerLine()
-SwitchItem(
-    label = "Link Check",
-    checked = s.heartbeatEnabled,
-    description = "Watch sends /tapsync/ping • Resolume replies /tapsync/pong",
-    onChange = { v -> scope.launch { settingsStore.setHeartbeatEnabled(v) } }
-)
-
-val pongAge = if (lastPong <= 0L) null else (nowMs - lastPong).coerceAtLeast(0L)
-val linkOk = if (!s.heartbeatEnabled) true else (pongAge != null && pongAge < s.signalGraceMs)
-val linkLabel = when {
-    !s.heartbeatEnabled -> "Disabled"
-    pongAge == null -> "Waiting…"
-    linkOk -> "OK"
-    else -> "NO SIGNAL"
-}
-val linkColor = when {
-    !s.heartbeatEnabled -> GoblinDim
-    pongAge == null -> GoblinDim
-    linkOk -> GoblinOk
-    else -> GoblinBad
-}
-Text("Link: $linkLabel", color = linkColor)
-Text(
-    text = "Last pong: " + (pongAge?.let { "${it}ms" } ?: "-"),
-    color = GoblinDim,
-    fontSize = 12.sp
-)
-
-Spacer(Modifier.height(10.dp))
-Text("Heartbeat Mode", color = GoblinDim, fontSize = 12.sp)
-
-data class HbPreset(val name: String, val intervalMs: Long, val graceMs: Long, val hint: String)
-val presets = listOf(
-    HbPreset("Fast", 500L, 2500L, "Quick detection • more traffic"),
-    HbPreset("Normal", 1200L, 5000L, "Balanced • recommended"),
-    HbPreset("Slow", 2000L, 7000L, "Low traffic • slower detection")
-)
-val currentPreset = presets.firstOrNull { it.intervalMs == s.heartbeatIntervalMs && it.graceMs == s.signalGraceMs }?.name
-
-Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-    presets.forEach { p ->
-        val selected = (currentPreset == p.name)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .border(
-                    1.dp,
-                    if (selected) GoblinAccent else GoblinBorder,
-                    RoundedCornerShape(18.dp)
-                )
-                .background(if (selected) GoblinAccent.copy(alpha = 0.14f) else Color.Transparent)
-                .clickable(enabled = s.heartbeatEnabled) {
-                    scope.launch {
-                        settingsStore.setHeartbeatIntervalMs(p.intervalMs)
-                        settingsStore.setSignalGraceMs(p.graceMs)
-                    }
-                }
-                .padding(horizontal = 14.dp, vertical = 12.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        p.name,
-                        color = if (!s.heartbeatEnabled) GoblinDim else (if (selected) GoblinAccent else GoblinText),
-                        fontSize = 15.sp,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold
+                    SettingsTitleRow(
+                        title = "Einstellungen",
+                        backLabel = "×",
+                        onBack = onClose
                     )
+                }
+
+                item { SettingsNavChip("Anzeige", "Statuszeile, Dot, Debug, BPM") { page = SettingsPage.DISPLAY } }
+                item { SettingsNavChip("Visuals", "Phase Ring / Spiral") { page = SettingsPage.VISUALS } }
+                item { SettingsNavChip("Animation", "Remote Ghost, Ripples, Pulse") { page = SettingsPage.MOTION } }
+                item { SettingsNavChip("Haptik", "Tap / Downbeat / Transport") { page = SettingsPage.HAPTICS } }
+                item { SettingsNavChip("Netzwerk", "$linkLabel • Ping/Pong") { page = SettingsPage.NETWORK } }
+                item { SettingsNavChip("Clock / Engine", "External / Internal") { page = SettingsPage.ENGINE } }
+                item { SettingsNavChip("OSC Targets", "${s.activeTarget.ip}:${s.activeTarget.port}") { page = SettingsPage.TARGETS } }
+
+                item {
+                    Spacer(Modifier.height(6.dp))
                     Text(
-                        "${p.intervalMs}ms ping • ${p.graceMs}ms grace",
+                        text = "Long-Press im TapScreen öffnet Settings. Back/Swipe schließt.",
                         color = GoblinDim,
-                        fontSize = 12.sp
-                    )
-                    Text(
-                        p.hint,
-                        color = GoblinDim,
-                        fontSize = 12.sp
+                        fontSize = 11.sp
                     )
                 }
-                Text(
-                    text = if (selected) "✓" else "",
-                    color = GoblinAccent,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
             }
-        }
-    }
-}
 
-Spacer(Modifier.height(6.dp))
-Text(
-    text = "Current: ${s.heartbeatIntervalMs}ms interval • ${s.signalGraceMs}ms grace",
-    color = GoblinDim,
-    fontSize = 12.sp
-)
+            SettingsPage.DISPLAY -> {
+                item {
+                    SettingsTitleRow("Anzeige", "‹") { page = SettingsPage.ROOT }
+                }
 
-Spacer(Modifier.height(6.dp))
-var hbAdvanced by rememberSaveable { mutableStateOf(false) }
-Row(
-    modifier = Modifier
-        .fillMaxWidth()
-        .clip(RoundedCornerShape(12.dp))
-        .clickable { hbAdvanced = !hbAdvanced }
-        .padding(horizontal = 8.dp, vertical = 6.dp),
-    verticalAlignment = Alignment.CenterVertically
-) {
-    Text(
-        text = if (hbAdvanced) "Advanced ▾" else "Advanced ▸",
-        color = GoblinAccent,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.Bold
-    )
-}
+                item {
+                    SettingsToggleChip(
+                        title = "Statuszeile",
+                        subtitle = "Preset • IP:Port • Link-Status",
+                        checked = s.showStatusLine,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setShowStatusLine(v) } }
+                    )
+                }
+                item {
+                    SettingsToggleChip(
+                        title = "OSC Statuspunkt",
+                        subtitle = "kleiner Puls-Dot",
+                        checked = s.showOscDot,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setShowOscDot(v) } }
+                    )
+                }
+                item {
+                    SettingsToggleChip(
+                        title = "External BPM Monitor",
+                        subtitle = "zeigt BPM / NO SIGNAL",
+                        checked = s.showExternalBpm,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setShowExternalBpm(v) } }
+                    )
+                }
+                item {
+                    SettingsToggleChip(
+                        title = "OSC Debug Overlay",
+                        subtitle = "Overlay im TapScreen",
+                        checked = s.showOscDebug,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setShowOscDebug(v) } }
+                    )
+                }
+            }
 
-AnimatedVisibility(visible = hbAdvanced) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SettingsPage.VISUALS -> {
+                item { SettingsTitleRow("Visuals", "‹") { page = SettingsPage.ROOT } }
 
-        SwitchItem(
-            label = "Adaptive recovery",
-            checked = s.heartbeatAdaptiveEnabled,
-            enabled = s.heartbeatEnabled,
-            description = "Ping faster only when the link looks down",
-            onChange = { v -> scope.launch { settingsStore.setHeartbeatAdaptiveEnabled(v) } }
-        )
+                item {
+                    SettingsToggleChip(
+                        title = "Phase Ring",
+                        subtitle = "Downbeat Marker + Phase",
+                        checked = s.phaseVisualizerEnabled,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setPhaseVisualizerEnabled(v) } }
+                    )
+                }
+                item {
+                    SettingsToggleChip(
+                        title = "Phase Spiral",
+                        subtitle = "Stability Visual",
+                        checked = s.phaseSpiralEnabled,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setPhaseSpiralEnabled(v) } }
+                    )
+                }
+            }
 
-        var hbInterval by rememberSaveable { mutableStateOf(s.heartbeatIntervalMs.toFloat()) }
-        LaunchedEffect(s.heartbeatIntervalMs) { hbInterval = s.heartbeatIntervalMs.toFloat() }
-        Text("Heartbeat Interval (${s.heartbeatIntervalMs}ms)", color = GoblinDim, fontSize = 12.sp)
-        Slider(
-            value = hbInterval,
-            onValueChange = { hbInterval = it },
-            onValueChangeFinished = {
-                scope.launch { settingsStore.setHeartbeatIntervalMs(hbInterval.roundToLong()) }
-            },
-            valueRange = 500f..5000f,
-            steps = 9,
-            enabled = s.heartbeatEnabled,
-            colors = SliderDefaults.colors(
-                thumbColor = GoblinAccent,
-                activeTrackColor = GoblinAccent.copy(alpha = 0.6f),
-                inactiveTrackColor = GoblinBorder
-            )
-        )
+            SettingsPage.MOTION -> {
+                item { SettingsTitleRow("Animation", "‹") { page = SettingsPage.ROOT } }
 
+                item {
+                    SettingsToggleChip(
+                        title = "Animationen",
+                        subtitle = "Master Switch",
+                        checked = s.animationsEnabled,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setAnimationsEnabled(v) } }
+                    )
+                }
+                item {
+                    SettingsToggleChip(
+                        title = "Remote Animationen",
+                        subtitle = "nur visuell",
+                        checked = s.remoteAnimationsEnabled,
+                        enabled = s.animationsEnabled,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setRemoteAnimationsEnabled(v) } }
+                    )
+                }
+                item {
+                    SettingsToggleChip(
+                        title = "Remote Ghost Mode",
+                        subtitle = "Remote fühlt sich anders an",
+                        checked = s.remoteGhostModeEnabled,
+                        enabled = s.animationsEnabled && s.remoteAnimationsEnabled,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setRemoteGhostModeEnabled(v) } }
+                    )
+                }
+                item {
+                    SettingsToggleChip(
+                        title = "Goblin Flash",
+                        subtitle = "Flash bei Events",
+                        checked = s.goblinFlashEnabled,
+                        enabled = s.animationsEnabled,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setGoblinFlashEnabled(v) } }
+                    )
+                }
+                item {
+                    SettingsToggleChip(
+                        title = "Ripples",
+                        subtitle = "Wellen-Feedback",
+                        checked = s.rippleEnabled,
+                        enabled = s.animationsEnabled,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setRippleEnabled(v) } }
+                    )
+                }
+                item {
+                    SettingsToggleChip(
+                        title = "OSC Pulse",
+                        subtitle = "Pulse auf OSC",
+                        checked = s.oscPulseEnabled,
+                        enabled = s.animationsEnabled,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setOscPulseEnabled(v) } }
+                    )
+                }
+            }
 
+            SettingsPage.HAPTICS -> {
+                item { SettingsTitleRow("Haptik", "‹") { page = SettingsPage.ROOT } }
 
-SwitchItem(
-    label = "Nur Vordergrund",
-    checked = s.heartbeatForegroundOnly,
-    enabled = s.heartbeatEnabled,
-    description = "Stoppt Heartbeat wenn App nicht sichtbar ist (weniger OSC + Akku)",
-    onChange = { v -> scope.launch { settingsStore.setHeartbeatForegroundOnly(v) } }
-)
+                item {
+                    SettingsToggleChip(
+                        title = "Haptik",
+                        subtitle = "Master Switch",
+                        checked = s.hapticsEnabled,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setHapticsEnabled(v) } }
+                    )
+                }
+                item {
+                    SettingsToggleChip(
+                        title = "Downbeat",
+                        subtitle = "Kick auf 1",
+                        checked = s.downbeatHapticsEnabled,
+                        enabled = s.hapticsEnabled,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setDownbeatHapticsEnabled(v) } }
+                    )
+                }
+                item {
+                    SettingsToggleChip(
+                        title = "Transport",
+                        subtitle = "Nudge / Resync",
+                        checked = s.transportHapticsEnabled,
+                        enabled = s.hapticsEnabled,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setTransportHapticsEnabled(v) } }
+                    )
+                }
+            }
 
-        var grace by rememberSaveable { mutableStateOf(s.signalGraceMs.toFloat()) }
-        LaunchedEffect(s.signalGraceMs) { grace = s.signalGraceMs.toFloat() }
-        Text("Signal Grace (${s.signalGraceMs}ms)", color = GoblinDim, fontSize = 12.sp)
-        Slider(
-            value = grace,
-            onValueChange = { grace = it },
-            onValueChangeFinished = {
-                scope.launch { settingsStore.setSignalGraceMs(grace.roundToLong()) }
-            },
-            valueRange = 1000f..30000f,
-            steps = 10,
-            enabled = s.heartbeatEnabled,
-            colors = SliderDefaults.colors(
-                thumbColor = GoblinAccent,
-                activeTrackColor = GoblinAccent.copy(alpha = 0.6f),
-                inactiveTrackColor = GoblinBorder
-            )
-        )
-    }
-}
+            SettingsPage.NETWORK -> {
+                item { SettingsTitleRow("Netzwerk", "‹") { page = SettingsPage.ROOT } }
 
-                        Text("Ping Timeout (${pingTimeoutMs.toInt()}ms)", color = GoblinDim, fontSize = 12.sp)
+                item {
+                    SettingsStatusCard(
+                        title = "Status",
+                        lines = listOf(
+                            linkLabel,
+                            "Last pong: " + (pongAge?.let { "${it}ms" } ?: "-"),
+                            "Interval: ${s.heartbeatIntervalMs}ms • Grace: ${s.signalGraceMs}ms"
+                        ),
+                        ok = linkOk
+                    )
+                }
+
+                item {
+                    SettingsToggleChip(
+                        title = "Link Check",
+                        subtitle = "/tapsync/ping → /tapsync/pong",
+                        checked = s.heartbeatEnabled,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setHeartbeatEnabled(v) } }
+                    )
+                }
+                item {
+                    SettingsToggleChip(
+                        title = "Nur Vordergrund",
+                        subtitle = "weniger OSC + Akku",
+                        checked = s.heartbeatForegroundOnly,
+                        enabled = s.heartbeatEnabled,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setHeartbeatForegroundOnly(v) } }
+                    )
+                }
+                item {
+                    SettingsToggleChip(
+                        title = "Adaptive recovery",
+                        subtitle = "ping schneller wenn down",
+                        checked = s.heartbeatAdaptiveEnabled,
+                        enabled = s.heartbeatEnabled,
+                        onToggle = { v: Boolean -> scope.launch { settingsStore.setHeartbeatAdaptiveEnabled(v) } }
+                    )
+                }
+
+                item {
+                    val shape = RoundedCornerShape(22.dp)
+                    var hbInterval by remember(s.heartbeatIntervalMs) { mutableStateOf(s.heartbeatIntervalMs.toFloat()) }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(shape)
+                            .background(GoblinCard)
+                            .border(1.dp, GoblinBorder, shape)
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("Heartbeat Interval (${hbInterval.roundToLong()}ms)", color = GoblinDim, fontSize = 12.sp)
                         Slider(
-                            value = pingTimeoutMs,
-                            onValueChange = { pingTimeoutMs = it },
-                            valueRange = 150f..900f,
-                            steps = 6,
+                            value = hbInterval,
+                            onValueChange = { hbInterval = it },
+                            onValueChangeFinished = {
+                                scope.launch { settingsStore.setHeartbeatIntervalMs(hbInterval.roundToLong()) }
+                            },
+                            valueRange = 250f..5000f,
+                            steps = 9,
+                            enabled = s.heartbeatEnabled,
                             colors = SliderDefaults.colors(
                                 thumbColor = GoblinAccent,
                                 activeTrackColor = GoblinAccent.copy(alpha = 0.6f),
@@ -674,51 +726,98 @@ SwitchItem(
                 }
 
                 item {
-                    Section(
-                        title = "OSC Targets",
-                        subtitle = "Presets (Name, IP, Port) – quick switch + edit.",
-                        defaultExpanded = true
+                    val shape = RoundedCornerShape(22.dp)
+                    var grace by remember(s.signalGraceMs) { mutableStateOf(s.signalGraceMs.toFloat()) }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(shape)
+                            .background(GoblinCard)
+                            .border(1.dp, GoblinBorder, shape)
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        ActivePresetBar(
-                            presets = s.presets,
-                            activeIndex = s.activePreset,
-                            onSelect = { i -> scope.launch { settingsStore.setActivePreset(i) } }
-                        )
-
-                        Spacer(Modifier.height(6.dp))
-
-                        PresetsList(
-                            presets = s.presets,
-                            activeIndex = s.activePreset,
-                            onUse = { i -> scope.launch { settingsStore.setActivePreset(i) } },
-                            onSave = { i, name, ip, port ->
-                                scope.launch { settingsStore.updatePreset(i, name, ip, port) }
-                            }
+                        Text("Signal Grace (${grace.roundToLong()}ms)", color = GoblinDim, fontSize = 12.sp)
+                        Slider(
+                            value = grace,
+                            onValueChange = { grace = it },
+                            onValueChangeFinished = {
+                                scope.launch { settingsStore.setSignalGraceMs(grace.roundToLong()) }
+                            },
+                            valueRange = 750f..30000f,
+                            steps = 10,
+                            enabled = s.heartbeatEnabled,
+                            colors = SliderDefaults.colors(
+                                thumbColor = GoblinAccent,
+                                activeTrackColor = GoblinAccent.copy(alpha = 0.6f),
+                                inactiveTrackColor = GoblinBorder
+                            )
                         )
                     }
                 }
+            }
+
+            SettingsPage.ENGINE -> {
+                item { SettingsTitleRow("Clock / Engine", "‹") { page = SettingsPage.ROOT } }
 
                 item {
-                    Spacer(Modifier.height(4.dp))
+                    val shape = RoundedCornerShape(22.dp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(shape)
+                            .background(GoblinCard)
+                            .border(1.dp, GoblinBorder, shape)
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Clock Mode", color = GoblinDim, fontSize = 12.sp)
+
+                        RadioRow(
+                            label = "EXTERNAL",
+                            selected = s.clockMode == ClockMode.EXTERNAL,
+                            onSelect = { scope.launch { settingsStore.setClockMode(ClockMode.EXTERNAL) } }
+                        )
+                        RadioRow(
+                            label = "INTERNAL",
+                            selected = s.clockMode == ClockMode.INTERNAL,
+                            onSelect = { scope.launch { settingsStore.setClockMode(ClockMode.INTERNAL) } }
+                        )
+
+                        Spacer(Modifier.height(4.dp))
+                        SettingsToggleChip(
+                            title = "Clock Enabled",
+                            subtitle = "Legacy / compatibility",
+                            checked = s.clockEnabled,
+                            onToggle = { v: Boolean -> scope.launch { settingsStore.setClockEnabled(v) } }
+                        )
+                    }
                 }
             }
 
-            // keep the close action always reachable
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-            ) {
-                Button(
-                    onClick = onClose,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        backgroundColor = GoblinAccent,
-                        contentColor = Color.Black
+            SettingsPage.TARGETS -> {
+                item { SettingsTitleRow("OSC Targets", "‹") { page = SettingsPage.ROOT } }
+
+                item {
+                    ActivePresetBar(
+                        presets = s.presets,
+                        activeIndex = s.activePreset,
+                        onSelect = { i -> scope.launch { settingsStore.setActivePreset(i) } }
                     )
-                ) {
-                    Text("Schließen", fontWeight = FontWeight.Bold)
                 }
+
+                item {
+                    PresetsList(
+                        presets = s.presets,
+                        activeIndex = s.activePreset,
+                        onUse = { i -> scope.launch { settingsStore.setActivePreset(i) } },
+                        onSave = { i, name, ip, port ->
+                            scope.launch { settingsStore.updatePreset(i, name, ip, port) }
+                        }
+                    )
+                }
+
+                item { Spacer(Modifier.height(6.dp)) }
             }
         }
     }
