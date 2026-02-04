@@ -32,26 +32,25 @@ object SettingsKeys {
     val ACTIVE_PRESET = intPreferencesKey("active_preset")
     val SHOW_OSC_DOT = booleanPreferencesKey("show_osc_dot")
 
-    // 🆕 UI-only monitors / debug
+    // UI-only monitors / debug
     val SHOW_EXTERNAL_BPM = booleanPreferencesKey("show_external_bpm")
     val SHOW_OSC_DEBUG = booleanPreferencesKey("show_osc_debug")
 
-    // 🆕 Phase visualizer
+    // Phase visualizer
     val PHASE_VISUALIZER_ENABLED = booleanPreferencesKey("phase_visualizer_enabled")
     val PHASE_SPIRAL_ENABLED = booleanPreferencesKey("phase_spiral_enabled")
 
     val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
-    val DOWNBEAT_HAPTICS_ENABLED =
-        booleanPreferencesKey("downbeat_haptics_enabled")
+    val DOWNBEAT_HAPTICS_ENABLED = booleanPreferencesKey("downbeat_haptics_enabled")
 
-    // 🆕 Transport-Haptics (OSC Send)
-    val TRANSPORT_HAPTICS_ENABLED =
-        booleanPreferencesKey("transport_haptics_enabled")
+    // Transport-Haptics (OSC Send)
+    val TRANSPORT_HAPTICS_ENABLED = booleanPreferencesKey("transport_haptics_enabled")
 
+    // Legacy / compatibility (kept, but EXTERNAL is the project default)
     val CLOCK_MODE = stringPreferencesKey("clock_mode")
     val CLOCK_ENABLED = booleanPreferencesKey("clock_enabled")
 
-    // 🆕 Animations
+    // Animations
     val ANIMATIONS_ENABLED = booleanPreferencesKey("animations_enabled")
     val REMOTE_ANIMATIONS_ENABLED = booleanPreferencesKey("remote_animations_enabled")
     val REMOTE_GHOST_MODE_ENABLED = booleanPreferencesKey("remote_ghost_mode_enabled")
@@ -59,11 +58,15 @@ object SettingsKeys {
     val RIPPLE_ENABLED = booleanPreferencesKey("ripple_enabled")
     val OSC_PULSE_ENABLED = booleanPreferencesKey("osc_pulse_enabled")
 
-    // 🆕 Connection heartbeat (Ping/Pong via Resolume Wire)
+    // Connection heartbeat (Ping/Pong via Resolume Wire)
     val HEARTBEAT_ENABLED = booleanPreferencesKey("heartbeat_enabled")
     val HEARTBEAT_INTERVAL_MS = longPreferencesKey("heartbeat_interval_ms")
     val SIGNAL_GRACE_MS = longPreferencesKey("signal_grace_ms")
     val HEARTBEAT_ADAPTIVE_ENABLED = booleanPreferencesKey("heartbeat_adaptive_enabled")
+    val HEARTBEAT_FOREGROUND_ONLY = booleanPreferencesKey("heartbeat_foreground_only")
+
+    // TapScreen HUD
+    val SHOW_STATUS_LINE = booleanPreferencesKey("show_status_line")
 }
 
 /* =========================================================
@@ -80,6 +83,7 @@ data class SettingsState(
     val presets: List<OscTarget>,
     val activePreset: Int,
     val showOscDot: Boolean,
+    val showStatusLine: Boolean,
 
     // UI monitors
     val showExternalBpm: Boolean,
@@ -97,13 +101,14 @@ data class SettingsState(
 
     // Connection (Ping/Pong)
     val heartbeatEnabled: Boolean,
+    val heartbeatForegroundOnly: Boolean,
     val heartbeatAdaptiveEnabled: Boolean,
     val heartbeatIntervalMs: Long,
     val signalGraceMs: Long,
 
     val hapticsEnabled: Boolean,
     val downbeatHapticsEnabled: Boolean,
-    val transportHapticsEnabled: Boolean, // 🆕
+    val transportHapticsEnabled: Boolean,
     val clockMode: ClockMode,
     val clockEnabled: Boolean
 ) {
@@ -122,7 +127,9 @@ val DEFAULT_SETTINGS_STATE = SettingsState(
         OscTarget("Preset C", "192.168.178.26", 7002)
     ),
     activePreset = 0,
+
     showOscDot = true,
+    showStatusLine = true,
 
     showExternalBpm = true,
     showOscDebug = false,
@@ -137,15 +144,16 @@ val DEFAULT_SETTINGS_STATE = SettingsState(
     oscPulseEnabled = true,
 
     heartbeatEnabled = true,
+    heartbeatForegroundOnly = false,
     heartbeatAdaptiveEnabled = true,
     heartbeatIntervalMs = 1200L,
     signalGraceMs = 5000L,
 
     hapticsEnabled = true,
     downbeatHapticsEnabled = false,
-    transportHapticsEnabled = false, // 🆕 default OFF
+    transportHapticsEnabled = false,
     clockMode = ClockMode.EXTERNAL,
-    clockEnabled = true
+    clockEnabled = false
 )
 
 /* =========================================================
@@ -161,139 +169,123 @@ class SettingsStore(
 
             val presets = listOf(
                 OscTarget(
-                    prefs[SettingsKeys.PRESET_A_NAME] ?: "Preset A",
-                    prefs[SettingsKeys.PRESET_A_IP] ?: "192.168.178.24",
-                    prefs[SettingsKeys.PRESET_A_PORT] ?: 7002
+                    prefs[SettingsKeys.PRESET_A_NAME] ?: DEFAULT_SETTINGS_STATE.presets[0].name,
+                    prefs[SettingsKeys.PRESET_A_IP] ?: DEFAULT_SETTINGS_STATE.presets[0].ip,
+                    prefs[SettingsKeys.PRESET_A_PORT] ?: DEFAULT_SETTINGS_STATE.presets[0].port
                 ),
                 OscTarget(
-                    prefs[SettingsKeys.PRESET_B_NAME] ?: "Preset B",
-                    prefs[SettingsKeys.PRESET_B_IP] ?: "192.168.178.25",
-                    prefs[SettingsKeys.PRESET_B_PORT] ?: 7002
+                    prefs[SettingsKeys.PRESET_B_NAME] ?: DEFAULT_SETTINGS_STATE.presets[1].name,
+                    prefs[SettingsKeys.PRESET_B_IP] ?: DEFAULT_SETTINGS_STATE.presets[1].ip,
+                    prefs[SettingsKeys.PRESET_B_PORT] ?: DEFAULT_SETTINGS_STATE.presets[1].port
                 ),
                 OscTarget(
-                    prefs[SettingsKeys.PRESET_C_NAME] ?: "Preset C",
-                    prefs[SettingsKeys.PRESET_C_IP] ?: "192.168.178.26",
-                    prefs[SettingsKeys.PRESET_C_PORT] ?: 7002
+                    prefs[SettingsKeys.PRESET_C_NAME] ?: DEFAULT_SETTINGS_STATE.presets[2].name,
+                    prefs[SettingsKeys.PRESET_C_IP] ?: DEFAULT_SETTINGS_STATE.presets[2].ip,
+                    prefs[SettingsKeys.PRESET_C_PORT] ?: DEFAULT_SETTINGS_STATE.presets[2].port
                 )
             )
 
             SettingsState(
                 presets = presets,
-                activePreset = prefs[SettingsKeys.ACTIVE_PRESET] ?: 0,
-                showOscDot = prefs[SettingsKeys.SHOW_OSC_DOT] ?: true,
+                activePreset = prefs[SettingsKeys.ACTIVE_PRESET] ?: DEFAULT_SETTINGS_STATE.activePreset,
+                showOscDot = prefs[SettingsKeys.SHOW_OSC_DOT] ?: DEFAULT_SETTINGS_STATE.showOscDot,
+                showStatusLine = prefs[SettingsKeys.SHOW_STATUS_LINE] ?: DEFAULT_SETTINGS_STATE.showStatusLine,
 
-                showExternalBpm = prefs[SettingsKeys.SHOW_EXTERNAL_BPM] ?: true,
-                showOscDebug = prefs[SettingsKeys.SHOW_OSC_DEBUG] ?: false,
-                phaseVisualizerEnabled = prefs[SettingsKeys.PHASE_VISUALIZER_ENABLED] ?: true,
-                phaseSpiralEnabled = prefs[SettingsKeys.PHASE_SPIRAL_ENABLED] ?: false,
+                showExternalBpm = prefs[SettingsKeys.SHOW_EXTERNAL_BPM] ?: DEFAULT_SETTINGS_STATE.showExternalBpm,
+                showOscDebug = prefs[SettingsKeys.SHOW_OSC_DEBUG] ?: DEFAULT_SETTINGS_STATE.showOscDebug,
+                phaseVisualizerEnabled = prefs[SettingsKeys.PHASE_VISUALIZER_ENABLED] ?: DEFAULT_SETTINGS_STATE.phaseVisualizerEnabled,
+                phaseSpiralEnabled = prefs[SettingsKeys.PHASE_SPIRAL_ENABLED] ?: DEFAULT_SETTINGS_STATE.phaseSpiralEnabled,
 
-                animationsEnabled = prefs[SettingsKeys.ANIMATIONS_ENABLED] ?: true,
-                remoteAnimationsEnabled = prefs[SettingsKeys.REMOTE_ANIMATIONS_ENABLED] ?: true,
-                remoteGhostModeEnabled = prefs[SettingsKeys.REMOTE_GHOST_MODE_ENABLED] ?: true,
-                goblinFlashEnabled = prefs[SettingsKeys.GOBLIN_FLASH_ENABLED] ?: true,
-                rippleEnabled = prefs[SettingsKeys.RIPPLE_ENABLED] ?: true,
-                oscPulseEnabled = prefs[SettingsKeys.OSC_PULSE_ENABLED] ?: true,
+                animationsEnabled = prefs[SettingsKeys.ANIMATIONS_ENABLED] ?: DEFAULT_SETTINGS_STATE.animationsEnabled,
+                remoteAnimationsEnabled = prefs[SettingsKeys.REMOTE_ANIMATIONS_ENABLED] ?: DEFAULT_SETTINGS_STATE.remoteAnimationsEnabled,
+                remoteGhostModeEnabled = prefs[SettingsKeys.REMOTE_GHOST_MODE_ENABLED] ?: DEFAULT_SETTINGS_STATE.remoteGhostModeEnabled,
+                goblinFlashEnabled = prefs[SettingsKeys.GOBLIN_FLASH_ENABLED] ?: DEFAULT_SETTINGS_STATE.goblinFlashEnabled,
+                rippleEnabled = prefs[SettingsKeys.RIPPLE_ENABLED] ?: DEFAULT_SETTINGS_STATE.rippleEnabled,
+                oscPulseEnabled = prefs[SettingsKeys.OSC_PULSE_ENABLED] ?: DEFAULT_SETTINGS_STATE.oscPulseEnabled,
+
                 heartbeatEnabled = prefs[SettingsKeys.HEARTBEAT_ENABLED] ?: DEFAULT_SETTINGS_STATE.heartbeatEnabled,
+                heartbeatForegroundOnly = prefs[SettingsKeys.HEARTBEAT_FOREGROUND_ONLY] ?: DEFAULT_SETTINGS_STATE.heartbeatForegroundOnly,
                 heartbeatAdaptiveEnabled = prefs[SettingsKeys.HEARTBEAT_ADAPTIVE_ENABLED] ?: DEFAULT_SETTINGS_STATE.heartbeatAdaptiveEnabled,
                 heartbeatIntervalMs = prefs[SettingsKeys.HEARTBEAT_INTERVAL_MS] ?: DEFAULT_SETTINGS_STATE.heartbeatIntervalMs,
                 signalGraceMs = prefs[SettingsKeys.SIGNAL_GRACE_MS] ?: DEFAULT_SETTINGS_STATE.signalGraceMs,
 
-                hapticsEnabled = prefs[SettingsKeys.HAPTICS_ENABLED] ?: true,
-                downbeatHapticsEnabled =
-                    prefs[SettingsKeys.DOWNBEAT_HAPTICS_ENABLED] ?: false,
-                transportHapticsEnabled =
-                    prefs[SettingsKeys.TRANSPORT_HAPTICS_ENABLED] ?: false,
+                hapticsEnabled = prefs[SettingsKeys.HAPTICS_ENABLED] ?: DEFAULT_SETTINGS_STATE.hapticsEnabled,
+                downbeatHapticsEnabled = prefs[SettingsKeys.DOWNBEAT_HAPTICS_ENABLED] ?: DEFAULT_SETTINGS_STATE.downbeatHapticsEnabled,
+                transportHapticsEnabled = prefs[SettingsKeys.TRANSPORT_HAPTICS_ENABLED] ?: DEFAULT_SETTINGS_STATE.transportHapticsEnabled,
+
                 clockMode = ClockMode.valueOf(
-                    prefs[SettingsKeys.CLOCK_MODE]
-                        ?: ClockMode.EXTERNAL.name
+                    prefs[SettingsKeys.CLOCK_MODE] ?: DEFAULT_SETTINGS_STATE.clockMode.name
                 ),
-                clockEnabled = prefs[SettingsKeys.CLOCK_ENABLED] ?: true
+                clockEnabled = prefs[SettingsKeys.CLOCK_ENABLED] ?: DEFAULT_SETTINGS_STATE.clockEnabled
             )
         }
 
     val activeTarget: Flow<OscTarget> =
         settings.map { it.activeTarget }
 
+    /* ========================== Setters ========================== */
+
     suspend fun setShowOscDot(show: Boolean) {
-        context.dataStore.edit {
-            it[SettingsKeys.SHOW_OSC_DOT] = show
-        }
+        context.dataStore.edit { it[SettingsKeys.SHOW_OSC_DOT] = show }
+    }
+
+    suspend fun setShowStatusLine(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.SHOW_STATUS_LINE] = enabled }
     }
 
     suspend fun setShowExternalBpm(show: Boolean) {
-        context.dataStore.edit {
-            it[SettingsKeys.SHOW_EXTERNAL_BPM] = show
-        }
+        context.dataStore.edit { it[SettingsKeys.SHOW_EXTERNAL_BPM] = show }
     }
 
     suspend fun setShowOscDebug(show: Boolean) {
-        context.dataStore.edit {
-            it[SettingsKeys.SHOW_OSC_DEBUG] = show
-        }
+        context.dataStore.edit { it[SettingsKeys.SHOW_OSC_DEBUG] = show }
     }
 
     suspend fun setPhaseVisualizerEnabled(enabled: Boolean) {
-        context.dataStore.edit {
-            it[SettingsKeys.PHASE_VISUALIZER_ENABLED] = enabled
-        }
+        context.dataStore.edit { it[SettingsKeys.PHASE_VISUALIZER_ENABLED] = enabled }
     }
 
     suspend fun setPhaseSpiralEnabled(enabled: Boolean) {
-        context.dataStore.edit {
-            it[SettingsKeys.PHASE_SPIRAL_ENABLED] = enabled
-        }
+        context.dataStore.edit { it[SettingsKeys.PHASE_SPIRAL_ENABLED] = enabled }
     }
 
-    // 🆕 Animations
+    // Animations
     suspend fun setAnimationsEnabled(enabled: Boolean) {
-        context.dataStore.edit {
-            it[SettingsKeys.ANIMATIONS_ENABLED] = enabled
-        }
+        context.dataStore.edit { it[SettingsKeys.ANIMATIONS_ENABLED] = enabled }
     }
 
     suspend fun setRemoteAnimationsEnabled(enabled: Boolean) {
-        context.dataStore.edit {
-            it[SettingsKeys.REMOTE_ANIMATIONS_ENABLED] = enabled
-        }
+        context.dataStore.edit { it[SettingsKeys.REMOTE_ANIMATIONS_ENABLED] = enabled }
     }
 
     suspend fun setRemoteGhostModeEnabled(enabled: Boolean) {
-        context.dataStore.edit {
-            it[SettingsKeys.REMOTE_GHOST_MODE_ENABLED] = enabled
-        }
+        context.dataStore.edit { it[SettingsKeys.REMOTE_GHOST_MODE_ENABLED] = enabled }
     }
 
     suspend fun setGoblinFlashEnabled(enabled: Boolean) {
-        context.dataStore.edit {
-            it[SettingsKeys.GOBLIN_FLASH_ENABLED] = enabled
-        }
+        context.dataStore.edit { it[SettingsKeys.GOBLIN_FLASH_ENABLED] = enabled }
     }
 
     suspend fun setRippleEnabled(enabled: Boolean) {
-        context.dataStore.edit {
-            it[SettingsKeys.RIPPLE_ENABLED] = enabled
-        }
+        context.dataStore.edit { it[SettingsKeys.RIPPLE_ENABLED] = enabled }
     }
 
     suspend fun setOscPulseEnabled(enabled: Boolean) {
-        context.dataStore.edit {
-            it[SettingsKeys.OSC_PULSE_ENABLED] = enabled
-        }
+        context.dataStore.edit { it[SettingsKeys.OSC_PULSE_ENABLED] = enabled }
     }
 
-    // 🆕 Heartbeat
+    // Heartbeat
     suspend fun setHeartbeatEnabled(enabled: Boolean) {
-        context.dataStore.edit {
-            it[SettingsKeys.HEARTBEAT_ENABLED] = enabled
-        }
+        context.dataStore.edit { it[SettingsKeys.HEARTBEAT_ENABLED] = enabled }
     }
 
-
-suspend fun setHeartbeatAdaptiveEnabled(enabled: Boolean) {
-    context.dataStore.edit {
-        it[SettingsKeys.HEARTBEAT_ADAPTIVE_ENABLED] = enabled
+    suspend fun setHeartbeatForegroundOnly(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.HEARTBEAT_FOREGROUND_ONLY] = enabled }
     }
-}
+
+    suspend fun setHeartbeatAdaptiveEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.HEARTBEAT_ADAPTIVE_ENABLED] = enabled }
+    }
 
     suspend fun setHeartbeatIntervalMs(value: Long) {
         context.dataStore.edit {
@@ -303,45 +295,35 @@ suspend fun setHeartbeatAdaptiveEnabled(enabled: Boolean) {
 
     suspend fun setSignalGraceMs(value: Long) {
         context.dataStore.edit {
-            it[SettingsKeys.SIGNAL_GRACE_MS] = value.coerceIn(750L, 20000L)
+            it[SettingsKeys.SIGNAL_GRACE_MS] = value.coerceIn(750L, 30000L)
         }
     }
 
+    // Haptics
     suspend fun setHapticsEnabled(enabled: Boolean) {
-        context.dataStore.edit {
-            it[SettingsKeys.HAPTICS_ENABLED] = enabled
-        }
+        context.dataStore.edit { it[SettingsKeys.HAPTICS_ENABLED] = enabled }
     }
 
     suspend fun setDownbeatHapticsEnabled(enabled: Boolean) {
-        context.dataStore.edit {
-            it[SettingsKeys.DOWNBEAT_HAPTICS_ENABLED] = enabled
-        }
+        context.dataStore.edit { it[SettingsKeys.DOWNBEAT_HAPTICS_ENABLED] = enabled }
     }
 
-    // 🆕 Transport-Haptics
     suspend fun setTransportHapticsEnabled(enabled: Boolean) {
-        context.dataStore.edit {
-            it[SettingsKeys.TRANSPORT_HAPTICS_ENABLED] = enabled
-        }
+        context.dataStore.edit { it[SettingsKeys.TRANSPORT_HAPTICS_ENABLED] = enabled }
     }
 
+    // Clock (legacy/compat)
     suspend fun setClockMode(mode: ClockMode) {
-        context.dataStore.edit {
-            it[SettingsKeys.CLOCK_MODE] = mode.name
-        }
+        context.dataStore.edit { it[SettingsKeys.CLOCK_MODE] = mode.name }
     }
 
     suspend fun setClockEnabled(enabled: Boolean) {
-        context.dataStore.edit {
-            it[SettingsKeys.CLOCK_ENABLED] = enabled
-        }
+        context.dataStore.edit { it[SettingsKeys.CLOCK_ENABLED] = enabled }
     }
 
+    // Presets
     suspend fun setActivePreset(index: Int) {
-        context.dataStore.edit {
-            it[SettingsKeys.ACTIVE_PRESET] = index
-        }
+        context.dataStore.edit { it[SettingsKeys.ACTIVE_PRESET] = index }
     }
 
     suspend fun updatePreset(
@@ -357,11 +339,13 @@ suspend fun setHeartbeatAdaptiveEnabled(enabled: Boolean) {
                     prefs[SettingsKeys.PRESET_A_IP] = ip
                     prefs[SettingsKeys.PRESET_A_PORT] = port
                 }
+
                 1 -> {
                     prefs[SettingsKeys.PRESET_B_NAME] = name
                     prefs[SettingsKeys.PRESET_B_IP] = ip
                     prefs[SettingsKeys.PRESET_B_PORT] = port
                 }
+
                 2 -> {
                     prefs[SettingsKeys.PRESET_C_NAME] = name
                     prefs[SettingsKeys.PRESET_C_IP] = ip

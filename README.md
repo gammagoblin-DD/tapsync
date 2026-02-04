@@ -273,3 +273,23 @@ v1.0.0 FINAL → v1.0.1 FINAL
 
 Specify your license here (e.g. MIT).\
 If omitted, the project is considered **All Rights Reserved**.
+
+
+## Resolume-first (External Tempo)
+
+Die Watch ist Resolume-first: BPM/Phase-Visuals basieren auf Resolume OSC Rückmeldungen. Ohne Resolume-Verbindung zeigt die Uhr **NO SIGNAL** und dimmt/pause't Tempo-Visuals.
+
+
+## OSC Heartbeat (Link Check)
+
+Damit die Verbindung nicht fälschlich als "weg" erkannt wird (Resolume sendet BPM nicht permanent), nutzt TapSyncWatch Ping/Pong:
+
+- Watch → Resolume: `/tapsync/ping <nonce>`
+- Resolume Wire → Watch: `/tapsync/pong <nonce>`
+
+Im Settings-Menü gibt es Presets (Fast/Normal/Slow) plus Advanced.
+
+
+## TapScreen Statuszeile
+
+Optional kann eine Statuszeile eingeblendet werden: **Presetname • IP:Port • Link-Status**.

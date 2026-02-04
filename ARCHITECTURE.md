@@ -103,3 +103,13 @@ TapSyncWatch ist absichtlich simpel:
 - deterministische Eingabe
 - klare, überprüfbare Semantik
 - keine versteckten Seiteneffekte
+
+
+## Link Health: Ping/Pong Heartbeat
+
+Resolume sendet bei stabilem Tempo nicht permanent BPM-Updates. Daher wird Link-Health via Heartbeat bestimmt:
+
+- Watch → Resolume: `/tapsync/ping <nonce>`
+- Resolume → Watch: `/tapsync/pong <nonce>`
+
+UI/Logik basiert auf `lastPongMs` + `signalGraceMs`. Optional kann der Heartbeat auf "Foreground only" begrenzt werden.

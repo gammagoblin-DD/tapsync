@@ -1,3 +1,10 @@
+## v2.2.6-alpha (unreleased)
+
+- Resolume-first: Internal Clock UI entfernt/ignoriert.
+- TapScreen: optionale Statuszeile (Preset + IP:Port + Link).
+- Heartbeat: Presets + Advanced, Adaptive Recovery, Foreground-only.
+- Docs: README/ARCHITECTURE/RELEASE aktualisiert, neues HANDBOOK.
+
 # Changelog
 
 All notable changes to TapSyncWatch are documented in this file.

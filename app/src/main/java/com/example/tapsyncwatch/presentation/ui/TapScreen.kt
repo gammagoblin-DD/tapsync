@@ -127,6 +127,10 @@ private fun circularDelta(a: Float, b: Float): Float {
 @Composable
 fun TapScreen(
     showOscDot: Boolean,
+    showStatusLine: Boolean,
+    activePresetName: String,
+    activeTargetIp: String,
+    activeTargetPort: Int,
     showBpm: Boolean,
     bpm: Double,
 
@@ -512,12 +516,25 @@ fun TapScreen(
     var nudgeStarted by remember { mutableStateOf(false) }
     var nudgePlus by remember { mutableStateOf(true) }
 
+// ===== Status line (live HUD) =====
+val statusText = remember(showStatusLine, activePresetName, activeTargetIp, activeTargetPort, hasSignal, heartbeatEnabled) {
+    if (!showStatusLine) "" else {
+        val link = when {
+            !heartbeatEnabled -> "HB OFF"
+            hasSignal -> "OK"
+            else -> "NO SIGNAL"
+        }
+        "$activePresetName  $activeTargetIp:$activeTargetPort  $link"
+    }
+}
+
+
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
             .pointerInteropFilter { event ->
-
                 when (event.actionMasked) {
 
                     MotionEvent.ACTION_DOWN -> {
@@ -644,6 +661,25 @@ fun TapScreen(
             },
         contentAlignment = Alignment.Center
     ) {
+
+        // ===== Status line (live HUD) =====
+        if (showStatusLine && statusText.isNotEmpty()) {
+            Text(
+                text = statusText,
+                color = when {
+                    !heartbeatEnabled -> GoblinDim
+                    hasSignal -> Color(0xFF6DFF8F)
+                    else -> Color(0xFFFF6D6D)
+                },
+                fontSize = 10.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .padding(top = 10.dp)
+                    .zIndex(30f)
+            )
+        }
 
         Image(
             painter = painterResource(R.drawable.goblin),

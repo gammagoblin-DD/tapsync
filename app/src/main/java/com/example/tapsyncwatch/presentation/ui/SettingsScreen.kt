@@ -385,6 +385,15 @@ fun SettingsScreen(
 
                         DividerLine()
 
+
+
+SwitchItem(
+    label = "Statuszeile",
+    checked = s.showStatusLine,
+    description = "Zeigt Preset • IP:Port • Link-Status im TapScreen",
+    onChange = { v -> scope.launch { settingsStore.setShowStatusLine(v) } }
+)
+
                         SwitchItem(
                             label = "Remote Animationen",
                             checked = s.remoteAnimationsEnabled,
@@ -419,57 +428,17 @@ fun SettingsScreen(
                             onChange = { v -> scope.launch { settingsStore.setRippleEnabled(v) } }
                         )
 
-                        DividerLine()
+                        
+DividerLine()
+Text("Tempo Quelle", color = GoblinText, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+Text(
+    "TapSyncWatch ist Resolume-first: BPM/Phase-Visuals basieren auf Resolume OSC. " +
+    "Wenn Resolume nicht erreichbar ist, zeigt die Uhr NO SIGNAL und dimmt/pause't Tempo-Visuals.",
+    color = GoblinDim,
+    fontSize = 12.sp
+)
 
-                        SwitchItem(
-                            label = "OSC Pulse",
-                            checked = s.oscPulseEnabled,
-                            enabled = s.animationsEnabled,
-                            onChange = { v -> scope.launch { settingsStore.setOscPulseEnabled(v) } }
-                        )
-                    }
-                }
-
-                item {
-                    Section(
-                        title = "Clock",
-                        subtitle = "External BPM bleibt read-only."
-                    ) {
-                        SwitchItem(
-                            label = "Internal Clock",
-                            checked = s.clockEnabled,
-                            description = if (s.clockEnabled) "An" else "Aus",
-                            onChange = { v -> scope.launch { settingsStore.setClockEnabled(v) } }
-                        )
-
-                        Spacer(Modifier.height(4.dp))
-                        Text("Clock Mode", color = GoblinDim, fontSize = 12.sp)
-
-                        RadioRow(
-                            label = "External (OSC)",
-                            selected = s.clockMode == ClockMode.EXTERNAL,
-                            onSelect = { scope.launch { settingsStore.setClockMode(ClockMode.EXTERNAL) } }
-                        )
-
-                        RadioRow(
-                            label = "Internal (Watch)",
-                            selected = s.clockMode == ClockMode.INTERNAL,
-                            onSelect = { scope.launch { settingsStore.setClockMode(ClockMode.INTERNAL) } }
-                        )
-                    }
-                }
-
-                item {
-                    Section(
-                        title = "Feedback",
-                        subtitle = "Haptics nur in INTERNAL sinnvoll."
-                    ) {
-                        SwitchItem(
-                            label = "Haptics",
-                            checked = s.hapticsEnabled,
-                            onChange = { v -> scope.launch { settingsStore.setHapticsEnabled(v) } }
-                        )
-                        DividerLine()
+DividerLine()
                         SwitchItem(
                             label = "Downbeat Haptic",
                             checked = s.downbeatHapticsEnabled,
@@ -657,6 +626,16 @@ AnimatedVisibility(visible = hbAdvanced) {
                 inactiveTrackColor = GoblinBorder
             )
         )
+
+
+
+SwitchItem(
+    label = "Nur Vordergrund",
+    checked = s.heartbeatForegroundOnly,
+    enabled = s.heartbeatEnabled,
+    description = "Stoppt Heartbeat wenn App nicht sichtbar ist (weniger OSC + Akku)",
+    onChange = { v -> scope.launch { settingsStore.setHeartbeatForegroundOnly(v) } }
+)
 
         var grace by rememberSaveable { mutableStateOf(s.signalGraceMs.toFloat()) }
         LaunchedEffect(s.signalGraceMs) { grace = s.signalGraceMs.toFloat() }

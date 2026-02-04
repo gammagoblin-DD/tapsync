@@ -20,8 +20,23 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.collectLatest
 import com.example.tapsyncwatch.presentation.ui.SettingsScreen
+import android.os.SystemClock
+import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
+
+    private val isForeground = MutableStateFlow(false)
+
+    override fun onResume() {
+        super.onResume()
+        isForeground.value = true
+    }
+
+    override fun onPause() {
+        isForeground.value = false
+        super.onPause()
+    }
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,12 +51,8 @@ class MainActivity : ComponentActivity() {
 
         val clock = Clock(oscSender)
 
-        lifecycleScope.launch {
-            settingsStore.settings.collect { s ->
-                clock.setEnabled(s.clockEnabled)
-                clock.setMode(s.clockMode)
-            }
-        }
+        clock.setEnabled(false)
+        clock.setMode(com.example.tapsyncwatch.domain.clock.ClockMode.EXTERNAL)
 
         lifecycleScope.launch {
             settingsStore.activeTarget.collect { target ->
@@ -66,6 +77,11 @@ class MainActivity : ComponentActivity() {
                 heartbeatJob = launch {
                     var nonce = 0
                     while (isActive) {
+                        if (s.heartbeatForegroundOnly && !isForeground.value) {
+                            delay(750L)
+                            continue
+                        }
+
                         nonce = (nonce + 1) % 999
                         val v = (nonce + 1) / 1000f
                         oscSender.sendFloat("/tapsync/ping", v)
@@ -74,10 +90,14 @@ class MainActivity : ComponentActivity() {
                             baseIntervalMs
                         } else {
                             val lastPong = oscReceiver.lastPongMs.value
-                            val now = System.currentTimeMillis()
+                            val now = SystemClock.elapsedRealtime()
                             val age = if (lastPong <= 0L) Long.MAX_VALUE else (now - lastPong).coerceAtLeast(0L)
                             val linkOk = age < graceMs
-                            if (linkOk) baseIntervalMs else minOf(500L, baseIntervalMs)
+                            if (linkOk) {
+                                baseIntervalMs
+                            } else {
+                                if (age > 15_000L) baseIntervalMs else minOf(500L, baseIntervalMs)
+                            }
                         }
                         delay(nextDelayMs)
                     }
@@ -115,6 +135,10 @@ class MainActivity : ComponentActivity() {
                         externalClockActivity = oscReceiver.externalBpmActivity,
                         externalTransportIn = oscReceiver.transportIn,
                         showOscDot = s.showOscDot,
+                        showStatusLine = s.showStatusLine,
+                        activePresetName = s.presets.getOrNull(s.activePreset)?.name ?: "Preset",
+                        activeTargetIp = s.presets.getOrNull(s.activePreset)?.ip ?: "-",
+                        activeTargetPort = s.presets.getOrNull(s.activePreset)?.port ?: 0,
                         showBpm = false,
                         bpm = clockState.bpm,
 

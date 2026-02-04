@@ -51,3 +51,14 @@ Eingefrorener Referenzstand für das **TouchOSC-konforme Transport-Verhalten**:
 
 Tags wie `BASELINE_GREEN`, `PHASE_2A_FREEZE` oder `wear-osc-stable-*`
 sind **Engineering-Anker** (Rollback/Debug), nicht zwingend “User Releases”.
+
+
+## Resolume Wire Heartbeat Effect
+
+Installiere den Wire Effect und füge ihn als **Composition Effect** hinzu. OSC Setup in Resolume:
+
+- Input Port: Port, an den die Watch pingt (Default 7002)
+- Output Address: IP der Watch
+- Output Port: Watch OSC Input (Default 7000)
+
+Im OSC Monitor muss IN `/tapsync/ping` und OUT `/tapsync/pong` sichtbar sein.
