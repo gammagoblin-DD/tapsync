@@ -109,6 +109,8 @@ class MainActivity : ComponentActivity() {
 
             var showSettings by remember { mutableStateOf(false) }
 
+            val uiScope = rememberCoroutineScope()
+
             val vibrator = getSystemService(Vibrator::class.java)
 
             val actionEngine = remember {
@@ -172,6 +174,7 @@ class MainActivity : ComponentActivity() {
                         downbeatHapticsEnabled = s.downbeatHapticsEnabled,
                         transportHapticsEnabled = s.transportHapticsEnabled,
                         onLongPress = { showSettings = true },
+                        onCloseOscMonitor = { uiScope.launch { settingsStore.setShowOscDebug(false) } }
                     )
                 }
             }

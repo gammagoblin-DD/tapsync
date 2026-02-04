@@ -15,7 +15,6 @@ import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -24,6 +23,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.platform.LocalConfiguration
 import com.example.tapsyncwatch.domain.clock.ClockMode
 import com.example.tapsyncwatch.presentation.data.DEFAULT_SETTINGS_STATE
 import com.example.tapsyncwatch.presentation.data.OscTarget
@@ -49,46 +53,36 @@ private val GoblinDim = Color(0xFF9A9A9A)
 private val GoblinOk = Color(0xFF4CAF50)
 private val GoblinBad = Color(0xFFE53935)
 
-/* ================= BLOCK ================= */
-
-private val CardShape = RoundedCornerShape(14.dp)
-
-
-
 private enum class SettingsPage {
-    ROOT,
-    DISPLAY,
-    VISUALS,
-    MOTION,
-    HAPTICS,
-    NETWORK,
-    ENGINE,
-    TARGETS
+    ROOT, DISPLAY, VISUALS, MOTION, HAPTICS, NETWORK, CLOCK, TARGETS
 }
 
 @Composable
 private fun SettingsTitleRow(
     title: String,
-    backLabel: String,
+    showBack: Boolean,
     onBack: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 8.dp),
+            .padding(horizontal = 6.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = backLabel,
-            color = GoblinDim,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
-                .clickable { onBack() }
-                .padding(horizontal = 10.dp, vertical = 6.dp)
-        )
-        Spacer(Modifier.width(8.dp))
+        if (showBack) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(GoblinCard2)
+                    .border(1.dp, GoblinBorder, CircleShape)
+                    .clickable { onBack() },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("‹", color = GoblinText, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.width(10.dp))
+        }
         Text(
             text = title,
             color = GoblinText,
@@ -102,27 +96,34 @@ private fun SettingsTitleRow(
 
 @Composable
 private fun SettingsNavChip(
+    icon: ImageVector,
     title: String,
     subtitle: String,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(22.dp)
-    Row(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(shape)
-            .background(GoblinCard)
-            .border(1.dp, GoblinBorder, shape)
-            .clickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .clip(RoundedCornerShape(22.dp))
+            .clickable { onClick() },
+        color = GoblinCard,
+        elevation = 0.dp
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = GoblinText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(2.dp))
-            Text(subtitle, color = GoblinDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(
+            modifier = Modifier
+                .border(1.dp, GoblinBorder, RoundedCornerShape(22.dp))
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, contentDescription = null, tint = GoblinDim, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, color = GoblinText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(2.dp))
+                Text(subtitle, color = GoblinDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text("›", color = GoblinDim, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         }
-        Text("›", color = GoblinDim, fontSize = 20.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -134,71 +135,69 @@ private fun SettingsToggleChip(
     enabled: Boolean = true,
     onToggle: (Boolean) -> Unit
 ) {
-    val shape = RoundedCornerShape(22.dp)
-    Row(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(shape)
-            .background(GoblinCard)
-            .border(1.dp, GoblinBorder, shape)
-            .clickable(enabled = enabled) { onToggle(!checked) }
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .clip(RoundedCornerShape(22.dp))
+            .clickable(enabled = enabled) { onToggle(!checked) },
+        color = GoblinCard,
+        elevation = 0.dp
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                title,
-                color = if (enabled) GoblinText else GoblinDim,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            if (subtitle != null) {
-                Spacer(Modifier.height(2.dp))
-                Text(subtitle, color = GoblinDim, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Row(
+            modifier = Modifier
+                .border(1.dp, GoblinBorder, RoundedCornerShape(22.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    title,
+                    color = if (enabled) GoblinText else GoblinDim,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (subtitle != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(subtitle, color = GoblinDim, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
             }
-        }
-        Switch(
-            checked = checked,
-            enabled = enabled,
-            onCheckedChange = { onToggle(it) },
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = GoblinAccent,
-                checkedTrackColor = GoblinAccent.copy(alpha = 0.35f),
-                uncheckedThumbColor = Color.DarkGray,
-                uncheckedTrackColor = GoblinBorder
+            Switch(
+                checked = checked,
+                enabled = enabled,
+                onCheckedChange = { onToggle(it) },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = GoblinAccent,
+                    checkedTrackColor = GoblinAccent.copy(alpha = 0.35f),
+                    uncheckedThumbColor = Color.DarkGray,
+                    uncheckedTrackColor = GoblinBorder
+                )
             )
-        )
+        }
     }
 }
 
 @Composable
-private fun SettingsStatusCard(
-    title: String,
-    lines: List<String>,
-    ok: Boolean
+private fun SettingsCloseButton(
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(22.dp)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(GoblinCard)
-            .border(1.dp, GoblinBorder, shape)
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+    Box(
+        modifier = modifier
+            .size(42.dp)
+            .clip(CircleShape)
+            .background(GoblinCard2)
+            .border(1.dp, GoblinBorder, CircleShape)
+            .clickable { onClose() },
+        contentAlignment = Alignment.Center
     ) {
-        Text(title, color = GoblinDim, fontSize = 11.sp)
-        Text(
-            text = lines.firstOrNull() ?: "-",
-            color = if (ok) GoblinOk else GoblinBad,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-        lines.drop(1).forEach { line ->
-            Text(line, color = GoblinDim, fontSize = 11.sp)
-        }
+        Icon(Icons.Filled.Close, contentDescription = "Close", tint = GoblinText, modifier = Modifier.size(20.dp))
     }
 }
+
+
+/* ================= BLOCK ================= */
+
+private val CardShape = RoundedCornerShape(14.dp)
 
 @Composable
 private fun Header(
@@ -418,7 +417,6 @@ private suspend fun ping(ip: String, timeoutMs: Int = 350): Boolean {
 
 /* ================= SCREEN ================= */
 
-
 @Composable
 fun SettingsScreen(
     settingsStore: SettingsStore,
@@ -438,390 +436,213 @@ fun SettingsScreen(
     }
 
     val scope = rememberCoroutineScope()
-
     var page by rememberSaveable { mutableStateOf(SettingsPage.ROOT) }
+    var presetsSession by remember { mutableStateOf(0) }
 
     BackHandler {
         if (page != SettingsPage.ROOT) page = SettingsPage.ROOT else onClose()
     }
 
-    val cfg = LocalConfiguration.current
-    val isRound = cfg.isScreenRound
+    val isRound = LocalConfiguration.current.isScreenRound
     val edgePad = if (isRound) 18.dp else 12.dp
-    val topPad = if (isRound) 22.dp else 12.dp
-    val bottomPad = if (isRound) 22.dp else 12.dp
+    val topPad = if (isRound) 18.dp else 12.dp
+    val bottomPad = if (isRound) 18.dp else 12.dp
 
-    // Heartbeat-derived link status
+    // Link status
     val pongAge = if (lastPong <= 0L) null else (nowMs - lastPong).coerceAtLeast(0L)
     val linkOk = if (!s.heartbeatEnabled) true else (pongAge != null && pongAge < s.signalGraceMs)
     val linkLabel = when {
-        !s.heartbeatEnabled -> "Link Check aus"
-        pongAge == null -> "warte auf pong…"
-        linkOk -> "Link OK"
+        !s.heartbeatEnabled -> "Link Check OFF"
+        pongAge == null -> "waiting…"
+        linkOk -> "OK"
         else -> "NO SIGNAL"
     }
 
-    LazyColumn(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(GoblinBg),
-        contentPadding = PaddingValues(
-            start = edgePad,
-            end = edgePad,
-            top = topPad,
-            bottom = bottomPad
-        ),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .background(GoblinBg)
     ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = edgePad,
+                end = edgePad,
+                top = topPad,
+                // keep space for bottom close button
+                bottom = bottomPad + 72.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
 
-        when (page) {
+            when (page) {
 
-            SettingsPage.ROOT -> {
-                item {
-                    SettingsTitleRow(
-                        title = "Einstellungen",
-                        backLabel = "×",
-                        onBack = onClose
-                    )
-                }
+                SettingsPage.ROOT -> {
+                    item { SettingsTitleRow("Einstellungen", showBack = false, onBack = {}) }
 
-                item { SettingsNavChip("Anzeige", "Statuszeile, Dot, Debug, BPM") { page = SettingsPage.DISPLAY } }
-                item { SettingsNavChip("Visuals", "Phase Ring / Spiral") { page = SettingsPage.VISUALS } }
-                item { SettingsNavChip("Animation", "Remote Ghost, Ripples, Pulse") { page = SettingsPage.MOTION } }
-                item { SettingsNavChip("Haptik", "Tap / Downbeat / Transport") { page = SettingsPage.HAPTICS } }
-                item { SettingsNavChip("Netzwerk", "$linkLabel • Ping/Pong") { page = SettingsPage.NETWORK } }
-                item { SettingsNavChip("Clock / Engine", "External / Internal") { page = SettingsPage.ENGINE } }
-                item { SettingsNavChip("OSC Targets", "${s.activeTarget.ip}:${s.activeTarget.port}") { page = SettingsPage.TARGETS } }
-
-                item {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = "Long-Press im TapScreen öffnet Settings. Back/Swipe schließt.",
-                        color = GoblinDim,
-                        fontSize = 11.sp
-                    )
-                }
-            }
-
-            SettingsPage.DISPLAY -> {
-                item {
-                    SettingsTitleRow("Anzeige", "‹") { page = SettingsPage.ROOT }
-                }
-
-                item {
-                    SettingsToggleChip(
-                        title = "Statuszeile",
-                        subtitle = "Preset • IP:Port • Link-Status",
-                        checked = s.showStatusLine,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setShowStatusLine(v) } }
-                    )
-                }
-                item {
-                    SettingsToggleChip(
-                        title = "OSC Statuspunkt",
-                        subtitle = "kleiner Puls-Dot",
-                        checked = s.showOscDot,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setShowOscDot(v) } }
-                    )
-                }
-                item {
-                    SettingsToggleChip(
-                        title = "External BPM Monitor",
-                        subtitle = "zeigt BPM / NO SIGNAL",
-                        checked = s.showExternalBpm,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setShowExternalBpm(v) } }
-                    )
-                }
-                item {
-                    SettingsToggleChip(
-                        title = "OSC Debug Overlay",
-                        subtitle = "Overlay im TapScreen",
-                        checked = s.showOscDebug,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setShowOscDebug(v) } }
-                    )
-                }
-            }
-
-            SettingsPage.VISUALS -> {
-                item { SettingsTitleRow("Visuals", "‹") { page = SettingsPage.ROOT } }
-
-                item {
-                    SettingsToggleChip(
-                        title = "Phase Ring",
-                        subtitle = "Downbeat Marker + Phase",
-                        checked = s.phaseVisualizerEnabled,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setPhaseVisualizerEnabled(v) } }
-                    )
-                }
-                item {
-                    SettingsToggleChip(
-                        title = "Phase Spiral",
-                        subtitle = "Stability Visual",
-                        checked = s.phaseSpiralEnabled,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setPhaseSpiralEnabled(v) } }
-                    )
-                }
-            }
-
-            SettingsPage.MOTION -> {
-                item { SettingsTitleRow("Animation", "‹") { page = SettingsPage.ROOT } }
-
-                item {
-                    SettingsToggleChip(
-                        title = "Animationen",
-                        subtitle = "Master Switch",
-                        checked = s.animationsEnabled,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setAnimationsEnabled(v) } }
-                    )
-                }
-                item {
-                    SettingsToggleChip(
-                        title = "Remote Animationen",
-                        subtitle = "nur visuell",
-                        checked = s.remoteAnimationsEnabled,
-                        enabled = s.animationsEnabled,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setRemoteAnimationsEnabled(v) } }
-                    )
-                }
-                item {
-                    SettingsToggleChip(
-                        title = "Remote Ghost Mode",
-                        subtitle = "Remote fühlt sich anders an",
-                        checked = s.remoteGhostModeEnabled,
-                        enabled = s.animationsEnabled && s.remoteAnimationsEnabled,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setRemoteGhostModeEnabled(v) } }
-                    )
-                }
-                item {
-                    SettingsToggleChip(
-                        title = "Goblin Flash",
-                        subtitle = "Flash bei Events",
-                        checked = s.goblinFlashEnabled,
-                        enabled = s.animationsEnabled,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setGoblinFlashEnabled(v) } }
-                    )
-                }
-                item {
-                    SettingsToggleChip(
-                        title = "Ripples",
-                        subtitle = "Wellen-Feedback",
-                        checked = s.rippleEnabled,
-                        enabled = s.animationsEnabled,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setRippleEnabled(v) } }
-                    )
-                }
-                item {
-                    SettingsToggleChip(
-                        title = "OSC Pulse",
-                        subtitle = "Pulse auf OSC",
-                        checked = s.oscPulseEnabled,
-                        enabled = s.animationsEnabled,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setOscPulseEnabled(v) } }
-                    )
-                }
-            }
-
-            SettingsPage.HAPTICS -> {
-                item { SettingsTitleRow("Haptik", "‹") { page = SettingsPage.ROOT } }
-
-                item {
-                    SettingsToggleChip(
-                        title = "Haptik",
-                        subtitle = "Master Switch",
-                        checked = s.hapticsEnabled,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setHapticsEnabled(v) } }
-                    )
-                }
-                item {
-                    SettingsToggleChip(
-                        title = "Downbeat",
-                        subtitle = "Kick auf 1",
-                        checked = s.downbeatHapticsEnabled,
-                        enabled = s.hapticsEnabled,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setDownbeatHapticsEnabled(v) } }
-                    )
-                }
-                item {
-                    SettingsToggleChip(
-                        title = "Transport",
-                        subtitle = "Nudge / Resync",
-                        checked = s.transportHapticsEnabled,
-                        enabled = s.hapticsEnabled,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setTransportHapticsEnabled(v) } }
-                    )
-                }
-            }
-
-            SettingsPage.NETWORK -> {
-                item { SettingsTitleRow("Netzwerk", "‹") { page = SettingsPage.ROOT } }
-
-                item {
-                    SettingsStatusCard(
-                        title = "Status",
-                        lines = listOf(
-                            linkLabel,
-                            "Last pong: " + (pongAge?.let { "${it}ms" } ?: "-"),
-                            "Interval: ${s.heartbeatIntervalMs}ms • Grace: ${s.signalGraceMs}ms"
-                        ),
-                        ok = linkOk
-                    )
-                }
-
-                item {
-                    SettingsToggleChip(
-                        title = "Link Check",
-                        subtitle = "/tapsync/ping → /tapsync/pong",
-                        checked = s.heartbeatEnabled,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setHeartbeatEnabled(v) } }
-                    )
-                }
-                item {
-                    SettingsToggleChip(
-                        title = "Nur Vordergrund",
-                        subtitle = "weniger OSC + Akku",
-                        checked = s.heartbeatForegroundOnly,
-                        enabled = s.heartbeatEnabled,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setHeartbeatForegroundOnly(v) } }
-                    )
-                }
-                item {
-                    SettingsToggleChip(
-                        title = "Adaptive recovery",
-                        subtitle = "ping schneller wenn down",
-                        checked = s.heartbeatAdaptiveEnabled,
-                        enabled = s.heartbeatEnabled,
-                        onToggle = { v: Boolean -> scope.launch { settingsStore.setHeartbeatAdaptiveEnabled(v) } }
-                    )
-                }
-
-                item {
-                    val shape = RoundedCornerShape(22.dp)
-                    var hbInterval by remember(s.heartbeatIntervalMs) { mutableStateOf(s.heartbeatIntervalMs.toFloat()) }
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(shape)
-                            .background(GoblinCard)
-                            .border(1.dp, GoblinBorder, shape)
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text("Heartbeat Interval (${hbInterval.roundToLong()}ms)", color = GoblinDim, fontSize = 12.sp)
-                        Slider(
-                            value = hbInterval,
-                            onValueChange = { hbInterval = it },
-                            onValueChangeFinished = {
-                                scope.launch { settingsStore.setHeartbeatIntervalMs(hbInterval.roundToLong()) }
-                            },
-                            valueRange = 250f..5000f,
-                            steps = 9,
-                            enabled = s.heartbeatEnabled,
-                            colors = SliderDefaults.colors(
-                                thumbColor = GoblinAccent,
-                                activeTrackColor = GoblinAccent.copy(alpha = 0.6f),
-                                inactiveTrackColor = GoblinBorder
-                            )
-                        )
-                    }
-                }
-
-                item {
-                    val shape = RoundedCornerShape(22.dp)
-                    var grace by remember(s.signalGraceMs) { mutableStateOf(s.signalGraceMs.toFloat()) }
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(shape)
-                            .background(GoblinCard)
-                            .border(1.dp, GoblinBorder, shape)
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text("Signal Grace (${grace.roundToLong()}ms)", color = GoblinDim, fontSize = 12.sp)
-                        Slider(
-                            value = grace,
-                            onValueChange = { grace = it },
-                            onValueChangeFinished = {
-                                scope.launch { settingsStore.setSignalGraceMs(grace.roundToLong()) }
-                            },
-                            valueRange = 750f..30000f,
-                            steps = 10,
-                            enabled = s.heartbeatEnabled,
-                            colors = SliderDefaults.colors(
-                                thumbColor = GoblinAccent,
-                                activeTrackColor = GoblinAccent.copy(alpha = 0.6f),
-                                inactiveTrackColor = GoblinBorder
-                            )
-                        )
-                    }
-                }
-            }
-
-            SettingsPage.ENGINE -> {
-                item { SettingsTitleRow("Clock / Engine", "‹") { page = SettingsPage.ROOT } }
-
-                item {
-                    val shape = RoundedCornerShape(22.dp)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(shape)
-                            .background(GoblinCard)
-                            .border(1.dp, GoblinBorder, shape)
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("Clock Mode", color = GoblinDim, fontSize = 12.sp)
-
-                        RadioRow(
-                            label = "EXTERNAL",
-                            selected = s.clockMode == ClockMode.EXTERNAL,
-                            onSelect = { scope.launch { settingsStore.setClockMode(ClockMode.EXTERNAL) } }
-                        )
-                        RadioRow(
-                            label = "INTERNAL",
-                            selected = s.clockMode == ClockMode.INTERNAL,
-                            onSelect = { scope.launch { settingsStore.setClockMode(ClockMode.INTERNAL) } }
-                        )
-
-                        Spacer(Modifier.height(4.dp))
-                        SettingsToggleChip(
-                            title = "Clock Enabled",
-                            subtitle = "Legacy / compatibility",
-                            checked = s.clockEnabled,
-                            onToggle = { v: Boolean -> scope.launch { settingsStore.setClockEnabled(v) } }
-                        )
-                    }
-                }
-            }
-
-            SettingsPage.TARGETS -> {
-                item { SettingsTitleRow("OSC Targets", "‹") { page = SettingsPage.ROOT } }
-
-                item {
-                    ActivePresetBar(
-                        presets = s.presets,
-                        activeIndex = s.activePreset,
-                        onSelect = { i -> scope.launch { settingsStore.setActivePreset(i) } }
-                    )
-                }
-
-                item {
-                    PresetsList(
-                        presets = s.presets,
-                        activeIndex = s.activePreset,
-                        onUse = { i -> scope.launch { settingsStore.setActivePreset(i) } },
-                        onSave = { i, name, ip, port ->
-                            scope.launch { settingsStore.updatePreset(i, name, ip, port) }
+                    item { SettingsNavChip(Icons.Filled.Visibility, "Anzeige", "Status, OSC Dot, Monitor") { page = SettingsPage.DISPLAY } }
+                    item { SettingsNavChip(Icons.Filled.Palette, "Visuals", "Phase Ring / Spiral") { page = SettingsPage.VISUALS } }
+                    item { SettingsNavChip(Icons.Filled.Animation, "Animation", "Remote Ghost, Ripples, Pulse") { page = SettingsPage.MOTION } }
+                    item { SettingsNavChip(Icons.Filled.Vibration, "Haptik", "Tap / Downbeat / Transport") { page = SettingsPage.HAPTICS } }
+                    item { SettingsNavChip(Icons.Filled.Wifi, "Netzwerk", "Ping/Pong • $linkLabel") { page = SettingsPage.NETWORK } }
+                    item { SettingsNavChip(Icons.Filled.Schedule, "Clock / Engine", "Clock enabled + mode") { page = SettingsPage.CLOCK } }
+                    item {
+                        SettingsNavChip(
+                            Icons.Filled.Send,
+                            "OSC Targets",
+                            "${s.activeTarget.ip}:${s.activeTarget.port}"
+                        ) {
+                            presetsSession += 1
+                            page = SettingsPage.TARGETS
                         }
-                    )
+                    }
                 }
 
-                item { Spacer(Modifier.height(6.dp)) }
+                SettingsPage.DISPLAY -> {
+                    item { SettingsTitleRow("Anzeige", showBack = true) { page = SettingsPage.ROOT } }
+
+                    item { SettingsToggleChip("Statusbar", "Preset • IP:Port • Link", s.showStatusLine) { v -> scope.launch { settingsStore.setShowStatusLine(v) } } }
+                    item { SettingsToggleChip("OSC Dot", "kleiner Puls-Punkt", s.showOscDot) { v -> scope.launch { settingsStore.setShowOscDot(v) } } }
+                    item { SettingsToggleChip("External BPM", "zeigt BPM / NO SIGNAL", s.showExternalBpm) { v -> scope.launch { settingsStore.setShowExternalBpm(v) } } }
+                    item { SettingsToggleChip("OSC Monitor", "Fullscreen debug overlay", s.showOscDebug) { v -> scope.launch { settingsStore.setShowOscDebug(v) } } }
+                }
+
+                SettingsPage.VISUALS -> {
+                    item { SettingsTitleRow("Visuals", showBack = true) { page = SettingsPage.ROOT } }
+
+                    item { SettingsToggleChip("Phase Ring", "Downbeat + Phase", s.phaseVisualizerEnabled) { v -> scope.launch { settingsStore.setPhaseVisualizerEnabled(v) } } }
+                    item { SettingsToggleChip("Phase Spiral", "Stability visual", s.phaseSpiralEnabled) { v -> scope.launch { settingsStore.setPhaseSpiralEnabled(v) } } }
+                }
+
+                SettingsPage.MOTION -> {
+                    item { SettingsTitleRow("Animation", showBack = true) { page = SettingsPage.ROOT } }
+
+                    item { SettingsToggleChip("Animationen", "Master switch", s.animationsEnabled) { v -> scope.launch { settingsStore.setAnimationsEnabled(v) } } }
+                    item { SettingsToggleChip("Remote Animation", "nur visuell", s.remoteAnimationsEnabled, enabled = s.animationsEnabled) { v -> scope.launch { settingsStore.setRemoteAnimationsEnabled(v) } } }
+                    item { SettingsToggleChip("Remote Ghost", "Remote fühlt sich anders an", s.remoteGhostModeEnabled, enabled = s.animationsEnabled && s.remoteAnimationsEnabled) { v -> scope.launch { settingsStore.setRemoteGhostModeEnabled(v) } } }
+                    item { SettingsToggleChip("Goblin Flash", "Flash bei Events", s.goblinFlashEnabled, enabled = s.animationsEnabled) { v -> scope.launch { settingsStore.setGoblinFlashEnabled(v) } } }
+                    item { SettingsToggleChip("Ripples", "Wellen feedback", s.rippleEnabled, enabled = s.animationsEnabled) { v -> scope.launch { settingsStore.setRippleEnabled(v) } } }
+                    item { SettingsToggleChip("OSC Pulse", "Pulse animation", s.oscPulseEnabled, enabled = s.animationsEnabled) { v -> scope.launch { settingsStore.setOscPulseEnabled(v) } } }
+                }
+
+                SettingsPage.HAPTICS -> {
+                    item { SettingsTitleRow("Haptik", showBack = true) { page = SettingsPage.ROOT } }
+
+                    item { SettingsToggleChip("Haptik", "Master switch", s.hapticsEnabled) { v -> scope.launch { settingsStore.setHapticsEnabled(v) } } }
+                    item { SettingsToggleChip("Downbeat", "Kick auf 1", s.downbeatHapticsEnabled, enabled = s.hapticsEnabled) { v -> scope.launch { settingsStore.setDownbeatHapticsEnabled(v) } } }
+                    item { SettingsToggleChip("Transport", "Nudge / Resync", s.transportHapticsEnabled, enabled = s.hapticsEnabled) { v -> scope.launch { settingsStore.setTransportHapticsEnabled(v) } } }
+                }
+
+                SettingsPage.NETWORK -> {
+                    item { SettingsTitleRow("Netzwerk", showBack = true) { page = SettingsPage.ROOT } }
+
+                    item { SettingsToggleChip("Link Check", "/tapsync/ping → /tapsync/pong", s.heartbeatEnabled) { v -> scope.launch { settingsStore.setHeartbeatEnabled(v) } } }
+                    item { SettingsToggleChip("Nur Vordergrund", "weniger OSC + Akku", s.heartbeatForegroundOnly, enabled = s.heartbeatEnabled) { v -> scope.launch { settingsStore.setHeartbeatForegroundOnly(v) } } }
+                    item { SettingsToggleChip("Adaptive recovery", "ping schneller wenn down", s.heartbeatAdaptiveEnabled, enabled = s.heartbeatEnabled) { v -> scope.launch { settingsStore.setHeartbeatAdaptiveEnabled(v) } } }
+
+                    item {
+                        val shape = RoundedCornerShape(22.dp)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(shape)
+                                .background(GoblinCard)
+                                .border(1.dp, GoblinBorder, shape)
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Status", color = GoblinDim, fontSize = 11.sp)
+                            Text(
+                                linkLabel,
+                                color = if (linkOk) GoblinOk else GoblinBad,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text("Last pong: " + (pongAge?.let { "${it}ms" } ?: "-"), color = GoblinDim, fontSize = 11.sp)
+                            Text("Grace: ${s.signalGraceMs}ms", color = GoblinDim, fontSize = 11.sp)
+                        }
+                    }
+                }
+
+                SettingsPage.CLOCK -> {
+                    item { SettingsTitleRow("Clock / Engine", showBack = true) { page = SettingsPage.ROOT } }
+
+                    // FIRST: clock enable/disable
+                    item { SettingsToggleChip("Clock Enabled", "Master switch for clock output", s.clockEnabled) { v -> scope.launch { settingsStore.setClockEnabled(v) } } }
+
+                    item {
+                        val shape = RoundedCornerShape(22.dp)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(shape)
+                                .background(GoblinCard)
+                                .border(1.dp, GoblinBorder, shape)
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text("Mode", color = GoblinDim, fontSize = 11.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                 @Composable fun modeChip(mode: ClockMode, label: String) {
+                                    val selected = s.clockMode == mode
+                                    val bg = if (selected) GoblinAccent.copy(alpha = 0.25f) else GoblinCard2
+                                    val br = if (selected) GoblinAccent.copy(alpha = 0.55f) else GoblinBorder
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(bg)
+                                            .border(1.dp, br, RoundedCornerShape(16.dp))
+                                            .clickable { scope.launch { settingsStore.setClockMode(mode) } }
+                                            .padding(vertical = 10.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(label, color = GoblinText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                                modeChip(ClockMode.EXTERNAL, "EXTERNAL")
+                                modeChip(ClockMode.INTERNAL, "INTERNAL")
+                            }
+                            Text("Hinweis: Mode wirkt nur wenn Clock Enabled aktiv ist.", color = GoblinDim, fontSize = 11.sp)
+                        }
+                    }
+                }
+
+                SettingsPage.TARGETS -> {
+                    item { SettingsTitleRow("OSC Targets", showBack = true) { page = SettingsPage.ROOT } }
+
+                    item {
+                        ActivePresetBar(
+                            presets = s.presets,
+                            activeIndex = s.activePreset,
+                            onSelect = { i -> scope.launch { settingsStore.setActivePreset(i) } }
+                        )
+                    }
+
+                    item {
+                        PresetsList(
+                            presets = s.presets,
+                            activeIndex = s.activePreset,
+                            sessionId = presetsSession,
+                            onUse = { i -> scope.launch { settingsStore.setActivePreset(i) } },
+                            onSave = { i, name, ip, port ->
+                                scope.launch { settingsStore.updatePreset(i, name, ip, port) }
+                            }
+                        )
+                    }
+                }
             }
         }
+
+        SettingsCloseButton(
+            onClose = onClose,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = bottomPad)
+        )
     }
 }
+
 
 @Composable
 private fun ActivePresetBar(
@@ -880,12 +701,14 @@ private fun ActivePresetBar(
 private fun PresetsList(
     presets: List<OscTarget>,
     activeIndex: Int,
+    sessionId: Int,
     onUse: (Int) -> Unit,
     onSave: (Int, String, String, Int) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         presets.forEachIndexed { i, preset ->
             PresetCard(
+                sessionId = sessionId,
                 index = i,
                 preset = preset,
                 isActive = (i == activeIndex),
@@ -898,13 +721,14 @@ private fun PresetsList(
 
 @Composable
 private fun PresetCard(
+    sessionId: Int,
     index: Int,
     preset: OscTarget,
     isActive: Boolean,
     onUse: () -> Unit,
     onSave: (String, String, Int) -> Unit
 ) {
-    var expanded by rememberSaveable("preset_expanded_$index") { mutableStateOf(false) }
+    var expanded by rememberSaveable("preset_expanded_${sessionId}_$index") { mutableStateOf(false) }
     var name by remember(preset.name) { mutableStateOf(preset.name) }
     var ip by remember(preset.ip) { mutableStateOf(preset.ip) }
     var port by remember(preset.port) { mutableStateOf(preset.port.toString()) }
@@ -946,7 +770,7 @@ private fun PresetCard(
 
         if (isActive) {
             Spacer(Modifier.height(6.dp))
-            Text("AKTIV", color = GoblinOk, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text("ACTIVE", color = GoblinOk, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
 
         AnimatedVisibility(visible = expanded) {
@@ -990,7 +814,7 @@ private fun PresetCard(
                         ),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("Speichern", fontWeight = FontWeight.Bold)
+                        Text("SAVE", fontWeight = FontWeight.Bold)
                     }
 
                     Button(
@@ -1002,7 +826,7 @@ private fun PresetCard(
                         ),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text(if (isActive) "Aktiv" else "Aktivieren")
+                        Text(if (isActive) "ACTIVE" else "USE")
                     }
                 }
             }

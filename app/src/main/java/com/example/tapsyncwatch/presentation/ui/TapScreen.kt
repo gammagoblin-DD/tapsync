@@ -67,9 +67,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.shape.RoundedCornerShape
 import kotlin.math.roundToInt
@@ -78,6 +81,7 @@ import kotlin.math.roundToInt
 
 private val GoblinBrown = Color(0xFF8C5A2B)
 private val GoblinDim = Color(0xFF9A9A9A)
+private val GoblinText = Color(0xFFECECEC)
 private val GoblinDebugBg = Color(0xAA000000)
 
 private enum class TouchZone { CENTER, LEFT }
@@ -116,6 +120,41 @@ private fun StatusPill(
             textAlign = TextAlign.Center
         )
     }
+}
+
+
+@Composable
+private fun BottomCloseCircleButton(
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .background(Color(0x99000000))
+            .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "×",
+            color = Color.White.copy(alpha = 0.88f),
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+
+@Composable
+private fun ThinDivider(alpha: Float = 0.12f) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(Color.White.copy(alpha = alpha))
+    )
 }
 /* ================= PULSE LIMITER ================= */
 
@@ -195,6 +234,7 @@ fun TapScreen(
     hapticsEnabled: Boolean,
     downbeatHapticsEnabled: Boolean,
     transportHapticsEnabled: Boolean,
+    onCloseOscMonitor: (() -> Unit)? = null,
     onLongPress: () -> Unit
 ) {
     val context = LocalContext.current
@@ -690,13 +730,14 @@ val statusText = remember(showStatusLine, activePresetName, activeTargetIp, acti
         contentAlignment = Alignment.Center
     ) {
 
-// ===== Status line (live HUD) — round-safe pill =====
+// ===== Status line (live HUD) — mouth-safe pill =====
 if (showStatusLine && statusText.isNotEmpty()) {
     val cfg = LocalConfiguration.current
     val isRound = cfg.isScreenRound
     val minDp = min(cfg.screenWidthDp, cfg.screenHeightDp).dp
-    val topPad = if (isRound) (minDp * 0.12f) else 10.dp
     val edgePad = if (isRound) 18.dp else 12.dp
+    // Mouth-ish anchor: center + down a bit (round screens need a bigger safe offset)
+    val y = if (isRound) (minDp * 0.18f) else 64.dp
 
     val c = when {
         !heartbeatEnabled -> GoblinDim
@@ -707,8 +748,8 @@ if (showStatusLine && statusText.isNotEmpty()) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .align(Alignment.TopCenter)
-            .padding(top = topPad)
+            .align(Alignment.Center)
+            .offset(y = y)
             .padding(horizontal = edgePad)
             .zIndex(30f),
         contentAlignment = Alignment.Center
@@ -735,7 +776,7 @@ if (showStatusLine && statusText.isNotEmpty()) {
 
         /* ================= UI overlays (text) ================= */
 
-        // External BPM monitor (Resolume -> Watch):
+                // External BPM monitor (Resolume -> Watch):
         // Show ONLY the integer BPM, centered under the goblin "chin", with a smooth value animation.
         val extBpmTarget = (extBpm ?: 0.0).toFloat()
         val extBpmAnimated by animateFloatAsState(
@@ -759,83 +800,87 @@ if (showStatusLine && statusText.isNotEmpty()) {
                 modifier = Modifier.fillMaxWidth()
             )
         }
-        // ===== OSC DEBUG OVERLAY (MODERN GLASS PANEL) =====
-        if (showOscDebug) {
-            val cfg = LocalConfiguration.current
-            val isRound = cfg.isScreenRound
-            val edgePad = if (isRound) 18.dp else 12.dp
-            val topInset = if (isRound) 30.dp else 16.dp
 
+        // OSC Monitor: fullscreen, scrollable, close (X) bottom-center
+        if (showOscDebug) {
+            val dbg by oscDebugState.collectAsState(initial = OscInputReceiver.OscDebugState())
             val scroll = rememberScrollState()
+            val isRound = LocalConfiguration.current.isScreenRound
+            val edgePad = if (isRound) 18.dp else 12.dp
+            val topPad = if (isRound) 14.dp else 12.dp
+            val bottomPad = if (isRound) 16.dp else 12.dp
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .zIndex(21f)
-                    .padding(edgePad)
-                    .clip(androidx.compose.foundation.shape.CircleShape)
-                    .background(Color(0xB0000000))
-                    .border(
-                        1.dp,
-                        GoblinBrown.copy(alpha = 0.22f),
-                        androidx.compose.foundation.shape.CircleShape
-                    )
+                    .zIndex(60f)
+                    // swallow touches so tap gestures don't leak through
+                    .pointerInteropFilter { true }
+                    .background(Color(0xF0000000))
             ) {
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = topInset, bottom = 14.dp, start = 14.dp, end = 14.dp)
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(Color(0xAA0B0B0B))
-                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(22.dp))
-                        .padding(14.dp)
+                        .padding(horizontal = edgePad)
+                        .padding(top = topPad, bottom = bottomPad + 72.dp)
+                        .verticalScroll(scroll),
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(scroll)
-                    ) {
-                        Text(
-                            text = "OSC Monitor",
-                            color = Color.White.copy(alpha = 0.92f),
-                            fontSize = 14.sp
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        
-                        @Composable
-                        fun line(label: String, value: String) {
-                            Text(label, color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp)
-                            Text(value, color = Color.White.copy(alpha = 0.90f), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "OSC Monitor",
+                        color = GoblinText,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    @Composable
+                    fun row(label: String, value: String) {
+                        val shape = RoundedCornerShape(16.dp)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(shape)
+                                .background(Color(0x22000000))
+                                .border(1.dp, Color.White.copy(alpha = 0.06f), shape)
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Text(label, color = GoblinDim, fontSize = 11.sp)
+                            Text(
+                                value,
+                                color = GoblinText,
+                                fontSize = 13.sp,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
-
-                        line("Packets", dbg.packetsTotal.toString())
-                        line("Last address", dbg.lastAddress ?: "-")
-                        line("Args", dbg.lastArgs ?: "-")
-                        line("External BPM", dbg.externalBpm?.let { "%.2f".format(it) } ?: "-")
-                        line("Tempo raw", dbg.externalTempoRaw?.let { "%.4f".format(it) } ?: "-")
-                        line("Confidence", dbg.externalConfidence?.let { "%.2f".format(it) } ?: "-")
-                        line("Phase", dbg.externalPhase?.let { "%.3f".format(it) } ?: "-")
-
-                        val age = dbg.externalDownbeatMs?.let { ms ->
-                            val a = (SystemClock.elapsedRealtime() - ms).coerceAtLeast(0L)
-                            "${a}ms"
-                        } ?: "-"
-                        line("Downbeat age", age)
-
-                        Text(
-                            text = "Tipp: Debug overlay ist absichtlich groß + lesbar.",
-                            color = Color.White.copy(alpha = 0.40f),
-                            fontSize = 10.sp
-                        )
                     }
+
+                    row("Packets", dbg.packetsTotal.toString())
+                    row("Last address", dbg.lastAddress ?: "-")
+                    row("Args", dbg.lastArgs ?: "-")
+                    row("External BPM", dbg.externalBpm?.let { "%.2f".format(it) } ?: "-")
+                    row("Tempo raw", dbg.externalTempoRaw?.let { "%.4f".format(it) } ?: "-")
+                    row("Confidence", dbg.externalConfidence?.let { "%.2f".format(it) } ?: "-")
+                    row("Phase", dbg.externalPhase?.let { "%.3f".format(it) } ?: "-")
+
+                    val age = dbg.externalDownbeatMs?.let { ms ->
+                        val a = (SystemClock.elapsedRealtime() - ms).coerceAtLeast(0L)
+                        "${a}ms"
+                    } ?: "-"
+                    row("Downbeat age", age)
                 }
+
+                BottomCloseCircleButton(
+                    onClick = { onCloseOscMonitor?.invoke() },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = bottomPad)
+                )
             }
         }
 
-
-
         /* ================= OSC pulse dot ================= */
+
 
         if (showOscDot) {
             val radiusTouch = min(widthPx, heightPx) / 2f
@@ -843,8 +888,8 @@ if (showStatusLine && statusText.isNotEmpty()) {
                 modifier = Modifier
                     .size(10.dp)
                     .offset(
-                        x = (radiusTouch * 0.36f).dp,
-                        y = (radiusTouch * 0.28f).dp
+                        x = (radiusTouch * 0.39f).dp,
+                        y = (radiusTouch * 0.26f).dp
                     )
                     .zIndex(18f)
             ) {
