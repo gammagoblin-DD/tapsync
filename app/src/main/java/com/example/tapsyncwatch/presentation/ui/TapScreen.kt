@@ -234,6 +234,11 @@ fun TapScreen(
     hapticsEnabled: Boolean,
     downbeatHapticsEnabled: Boolean,
     transportHapticsEnabled: Boolean,
+
+    // Right-edge paging (deterministic, avoids gesture conflicts)
+    onPageNext: (() -> Unit)? = null,
+    onPagePrev: (() -> Unit)? = null,
+
     onCloseOscMonitor: (() -> Unit)? = null,
     onLongPress: () -> Unit
 ) {
@@ -574,6 +579,21 @@ fun TapScreen(
 
     /* ================= UI / INPUT ================= */
 
+    // RIGHT EDGE paging zone (start touch in last ~12% width)
+    // - swipe LEFT  => next page
+    // - swipe RIGHT => previous page
+    val density = metrics.density
+    val rightEdgeWidthPx = 26f * density
+    val edgeSwipeThresholdPx = 34f * density
+    val edgeVerticalSlopPx = 22f * density
+    val rightEdgeStartPx = widthPx - rightEdgeWidthPx
+
+    var edgeCandidate by remember { mutableStateOf(false) }
+    var edgeDownX by remember { mutableStateOf(0f) }
+    var edgeDownY by remember { mutableStateOf(0f) }
+    var edgeTriggered by remember { mutableStateOf(false) }
+
+
     var zone by remember { mutableStateOf(TouchZone.CENTER) }
     var downTime by remember { mutableStateOf(0L) }
     var startX by remember { mutableStateOf(0f) }
@@ -606,6 +626,15 @@ val statusText = remember(showStatusLine, activePresetName, activeTargetIp, acti
                 when (event.actionMasked) {
 
                     MotionEvent.ACTION_DOWN -> {
+
+                        // RIGHT EDGE PAGING (swallow touches so they never hit center/left gestures)
+                        if ((onPageNext != null || onPagePrev != null) && event.x >= rightEdgeStartPx) {
+                            edgeCandidate = true
+                            edgeTriggered = false
+                            edgeDownX = event.x
+                            edgeDownY = event.y
+                            return@pointerInteropFilter true
+                        }
                         downTime = SystemClock.elapsedRealtime()
                         startX = event.x
                         startY = event.y
@@ -617,6 +646,25 @@ val statusText = remember(showStatusLine, activePresetName, activeTargetIp, acti
                     }
 
                     MotionEvent.ACTION_MOVE -> {
+
+                        if (edgeCandidate) {
+                            val dx = event.x - edgeDownX
+                            val dy = event.y - edgeDownY
+
+                            if (!edgeTriggered && abs(dy) <= edgeVerticalSlopPx) {
+                                when {
+                                    dx <= -edgeSwipeThresholdPx -> {
+                                        edgeTriggered = true
+                                        onPageNext?.invoke()
+                                    }
+                                    dx >= edgeSwipeThresholdPx -> {
+                                        edgeTriggered = true
+                                        onPagePrev?.invoke()
+                                    }
+                                }
+                            }
+                            return@pointerInteropFilter true
+                        }
 
                         val dxT = event.x - startX
                         val dyT = event.y - startY
@@ -690,6 +738,12 @@ val statusText = remember(showStatusLine, activePresetName, activeTargetIp, acti
 
                     MotionEvent.ACTION_UP,
                     MotionEvent.ACTION_CANCEL -> {
+
+                        if (edgeCandidate) {
+                            edgeCandidate = false
+                            edgeTriggered = false
+                            return@pointerInteropFilter true
+                        }
 
                         if (zone == TouchZone.LEFT) {
                             if (nudgeStarted) {

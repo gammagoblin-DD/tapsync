@@ -14,6 +14,7 @@ import com.example.tapsyncwatch.input.osc.OscInputReceiver
 import com.example.tapsyncwatch.input.osc.OscOutputSender
 import com.example.tapsyncwatch.presentation.data.SettingsStore
 import com.example.tapsyncwatch.presentation.ui.TapScreen
+import com.example.tapsyncwatch.presentation.ui.FftGainScreen
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -22,6 +23,16 @@ import kotlinx.coroutines.flow.collectLatest
 import com.example.tapsyncwatch.presentation.ui.SettingsScreen
 import android.os.SystemClock
 import kotlinx.coroutines.flow.MutableStateFlow
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import kotlin.math.abs
+import kotlin.math.round
+import android.view.KeyEvent
+import android.view.KeyEvent.KEYCODE_STEM_2
+import androidx.activity.compose.BackHandler
+
+
+private enum class HomePage { TAP, FFT_GAIN }
 
 class MainActivity : ComponentActivity() {
 
@@ -37,6 +48,19 @@ class MainActivity : ComponentActivity() {
         super.onPause()
     }
 
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        return when (keyCode) {
+            KeyEvent.KEYCODE_BACK,
+            KEYCODE_STEM_2 -> {
+                // Force the bottom hardware key to behave as Back everywhere.
+                onBackPressedDispatcher.onBackPressed()
+                true
+            }
+
+            else -> super.onKeyDown(keyCode, event)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,7 +115,10 @@ class MainActivity : ComponentActivity() {
                         } else {
                             val lastPong = oscReceiver.lastPongMs.value
                             val now = SystemClock.elapsedRealtime()
-                            val age = if (lastPong <= 0L) Long.MAX_VALUE else (now - lastPong).coerceAtLeast(0L)
+                            val age =
+                                if (lastPong <= 0L) Long.MAX_VALUE else (now - lastPong).coerceAtLeast(
+                                    0L
+                                )
                             val linkOk = age < graceMs
                             if (linkOk) {
                                 baseIntervalMs
@@ -108,6 +135,32 @@ class MainActivity : ComponentActivity() {
         setContent {
 
             var showSettings by remember { mutableStateOf(false) }
+            var homePage by remember { mutableStateOf(HomePage.TAP) }
+
+            BackHandler(enabled = !showSettings && homePage != HomePage.TAP) {
+                homePage = HomePage.TAP
+            }
+
+
+            // FFT Input Gain (0..1). Prefer incoming Resolume value if available.
+            var localFftGain01 by remember { mutableStateOf(0.5f) }
+            val remoteFftGain01 by oscReceiver.fftInputGain01.collectAsState(initial = null)
+            val fftGain01 = (remoteFftGain01 ?: localFftGain01).coerceIn(0f, 1f)
+
+            fun goNextPage() {
+                homePage = when (homePage) {
+                    HomePage.TAP -> HomePage.FFT_GAIN
+                    HomePage.FFT_GAIN -> HomePage.TAP
+                }
+            }
+
+            fun goPrevPage() {
+                // only 2 pages for now -> symmetric
+                homePage = when (homePage) {
+                    HomePage.TAP -> HomePage.FFT_GAIN
+                    HomePage.FFT_GAIN -> HomePage.TAP
+                }
+            }
 
             val uiScope = rememberCoroutineScope()
 
@@ -133,51 +186,133 @@ class MainActivity : ComponentActivity() {
                         onClose = { showSettings = false }
                     )
                 } else {
-                    TapScreen(
-                        externalClockActivity = oscReceiver.externalBpmActivity,
-                        externalTransportIn = oscReceiver.transportIn,
-                        showOscDot = s.showOscDot,
-                        showStatusLine = s.showStatusLine,
-                        activePresetName = s.presets.getOrNull(s.activePreset)?.name ?: "Preset",
-                        activeTargetIp = s.presets.getOrNull(s.activePreset)?.ip ?: "-",
-                        activeTargetPort = s.presets.getOrNull(s.activePreset)?.port ?: 0,
-                        showBpm = false,
-                        bpm = clockState.bpm,
+                    when (homePage) {
+                        HomePage.TAP -> TapScreen(
+                            externalClockActivity = oscReceiver.externalBpmActivity,
+                            externalTransportIn = oscReceiver.transportIn,
+                            showOscDot = s.showOscDot,
+                            showStatusLine = s.showStatusLine,
+                            activePresetName = s.presets.getOrNull(s.activePreset)?.name
+                                ?: "Preset",
+                            activeTargetIp = s.presets.getOrNull(s.activePreset)?.ip ?: "-",
+                            activeTargetPort = s.presets.getOrNull(s.activePreset)?.port ?: 0,
+                            showBpm = false,
+                            bpm = clockState.bpm,
 
-                        lastPongMs = oscReceiver.lastPongMs,
-                        heartbeatEnabled = s.heartbeatEnabled,
-                        signalGraceMs = s.signalGraceMs,
+                            lastPongMs = oscReceiver.lastPongMs,
+                            heartbeatEnabled = s.heartbeatEnabled,
+                            signalGraceMs = s.signalGraceMs,
 
+                            showExternalBpm = s.showExternalBpm,
+                            externalBpm = oscReceiver.externalBpm,
+                            externalConfidence = oscReceiver.externalConfidence,
+                            showOscDebug = s.showOscDebug,
+                            oscDebugState = oscReceiver.debugState,
+                            remoteGhost = oscReceiver.remoteGhost,
+                            phaseVisualizerEnabled = s.phaseVisualizerEnabled,
+                            phaseSpiralEnabled = s.phaseSpiralEnabled,
 
-                        showExternalBpm = s.showExternalBpm,
-                        externalBpm = oscReceiver.externalBpm,
-                        externalConfidence = oscReceiver.externalConfidence,
-                        showOscDebug = s.showOscDebug,
-                        oscDebugState = oscReceiver.debugState,
-                        remoteGhost = oscReceiver.remoteGhost,
-                        phaseVisualizerEnabled = s.phaseVisualizerEnabled,
-                        phaseSpiralEnabled = s.phaseSpiralEnabled,
+                            animationsEnabled = s.animationsEnabled,
+                            remoteAnimationsEnabled = s.remoteAnimationsEnabled,
+                            remoteGhostModeEnabled = s.remoteGhostModeEnabled,
+                            goblinFlashEnabled = s.goblinFlashEnabled,
+                            rippleEnabled = s.rippleEnabled,
+                            oscPulseEnabled = s.oscPulseEnabled,
 
-                        animationsEnabled = s.animationsEnabled,
-                        remoteAnimationsEnabled = s.remoteAnimationsEnabled,
-                        remoteGhostModeEnabled = s.remoteGhostModeEnabled,
-                        goblinFlashEnabled = s.goblinFlashEnabled,
-                        rippleEnabled = s.rippleEnabled,
-                        oscPulseEnabled = s.oscPulseEnabled,
+                            action = actionEngine,
+                            oscHealth = oscSender.health,
+                            clockVisualState = clock.visualState,
+                            externalActivity = clock.externalActivity,
+                            clockMode = s.clockMode,
+                            hapticsEnabled = s.hapticsEnabled,
+                            downbeatHapticsEnabled = s.downbeatHapticsEnabled,
+                            transportHapticsEnabled = s.transportHapticsEnabled,
 
-                        action = actionEngine,
-                        oscHealth = oscSender.health,
-                        clockVisualState = clock.visualState,
-                        externalActivity = clock.externalActivity,
-                        clockMode = s.clockMode,
-                        hapticsEnabled = s.hapticsEnabled,
-                        downbeatHapticsEnabled = s.downbeatHapticsEnabled,
-                        transportHapticsEnabled = s.transportHapticsEnabled,
-                        onLongPress = { showSettings = true },
-                        onCloseOscMonitor = { uiScope.launch { settingsStore.setShowOscDebug(false) } }
-                    )
+                            // Right-edge paging
+                            onPageNext = ::goNextPage,
+                            onPagePrev = ::goPrevPage,
+
+                            onLongPress = { showSettings = true },
+                            onCloseOscMonitor = {
+                                uiScope.launch {
+                                    settingsStore.setShowOscDebug(
+                                        false
+                                    )
+                                }
+                            }
+                        )
+
+                        HomePage.FFT_GAIN -> {
+                            val (uiGainState, setUiTarget) = rememberOscGainSmoother(
+                                initial = fftGain01,
+                                send = { v -> oscSender.sendFftInputGain01(v) },
+                                frameMs = 33L,
+                                smoothMs = 90,
+                                sendEpsilon = 0.002f,
+                                quantizeStep = 0.001f,
+                            )
+
+                            FftGainScreen(
+                                value01 = uiGainState.value,
+                                onBackToTap = { homePage = HomePage.TAP },
+                                onSetValue01 = { v ->
+                                    localFftGain01 = v
+                                    setUiTarget(v)
+                                },
+                                onResetToDefault = {
+                                    localFftGain01 = 0.5f
+                                    setUiTarget(0.5f)
+                                    oscSender.resetFftInputGainToDefault()
+                                },
+                                onPageNext = ::goNextPage,
+                                onPagePrev = ::goPrevPage
+                            )
+                        }
+                    }
                 }
             }
         }
+    }
+
+
+    @Composable
+    private fun rememberOscGainSmoother(
+        initial: Float,
+        send: (Float) -> Unit,
+        frameMs: Long = 33L,          // ~30 Hz
+        smoothMs: Int = 90,           // 60–120ms feels good on stage
+        sendEpsilon: Float = 0.002f,  // ~0.1 dB steps (48 dB range)
+        quantizeStep: Float = 0.001f, // optional raster to fight jitter
+    ): Pair<State<Float>, (Float) -> Unit> {
+        var uiTarget by remember { mutableStateOf(initial.coerceIn(0f, 1f)) }
+        val anim = remember { Animatable(uiTarget) }
+
+        val uiValueState: State<Float> = derivedStateOf { uiTarget }
+
+        LaunchedEffect(uiTarget) {
+            anim.animateTo(uiTarget, animationSpec = tween(durationMillis = smoothMs))
+        }
+
+        LaunchedEffect(Unit) {
+            var lastSent = Float.NaN
+            while (true) {
+                val v = anim.value
+                val q = if (quantizeStep > 0f) {
+                    (round(v / quantizeStep) * quantizeStep).coerceIn(0f, 1f)
+                } else v
+
+                if (lastSent.isNaN() || abs(q - lastSent) >= sendEpsilon) {
+                    send(q)
+                    lastSent = q
+                }
+                delay(frameMs)
+            }
+        }
+
+        val setTarget: (Float) -> Unit = { v ->
+            uiTarget = v.coerceIn(0f, 1f)
+        }
+
+        return uiValueState to setTarget
     }
 }

@@ -67,7 +67,24 @@ class OscOutputSender(
         )
     }
 
-    /* ================= CORE SEND ================= */
+    
+    /* ================= FFT INPUT GAIN ================= */
+
+    private companion object {
+        const val OSC_FFT_INPUT_GAIN = "/audiodevicemanager/params/fftinputgain"
+    }
+
+    /** Send FFT input gain (0..1). Center/default is 0.5 (= 0 dB). */
+    fun sendFftInputGain01(value01: Float) {
+        sendFloat(OSC_FFT_INPUT_GAIN, value01.coerceIn(0f, 1f))
+    }
+
+    /** Hard reset FFT input gain to default (0.5). */
+    fun resetFftInputGainToDefault() {
+        sendFftInputGain01(0.5f)
+    }
+
+/* ================= CORE SEND ================= */
 
     private fun sendAsync(data: ByteArray) {
         executor.execute {

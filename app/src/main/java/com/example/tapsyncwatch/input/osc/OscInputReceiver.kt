@@ -72,6 +72,12 @@ class OscInputReceiver(
     private val _externalDownbeat = MutableSharedFlow<Unit>(extraBufferCapacity = 8)
     val externalDownbeat: SharedFlow<Unit> = _externalDownbeat.asSharedFlow()
 
+    
+    /* ================= Resolume Audio Device Params (UI-only) ================= */
+
+    private val _fftInputGain01 = MutableStateFlow<Float?>(null)
+    val fftInputGain01: StateFlow<Float?> = _fftInputGain01.asStateFlow()
+
     /* ================= Debug ================= */
 
     data class OscDebugState(
@@ -372,6 +378,16 @@ class OscInputReceiver(
                 val v = readFirstNumber(typeTags, bb)
                 val trigger = v == null || v > 0.5
                 if (trigger) onExternalDownbeat()
+            }
+            
+            /* =================================================
+             * Resolume Audio Device Params (UI-only)
+             * ================================================= */
+
+            "/audiodevicemanager/params/fftinputgain" -> {
+                // Float 0..1 (maps to -24..+24 dB in Resolume). Default is 0.5 (= 0 dB).
+                val v = readFirstNumber(typeTags, bb)?.toFloat() ?: return
+                _fftInputGain01.value = v.coerceIn(0f, 1f)
             }
 
             /* =================================================
