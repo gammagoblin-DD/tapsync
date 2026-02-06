@@ -248,6 +248,16 @@ preflightOutOkMs = s.preflightOutOkMs,
                              fxAlpha = s.fxAlpha,
                              phaseAlpha = s.phaseAlpha,
                              ghostAlpha = s.ghostAlpha,
+                            // Phase 5: Goblin Instrument visuals
+                            moodsEnabled = s.moodsEnabled,
+                            moodIntensity = s.moodIntensity,
+                            phaseAuraEnabled = s.phaseAuraEnabled,
+                            microParticlesEnabled = s.microParticlesEnabled,
+                            visualSwing = s.visualSwing,
+                            ghostEchoEnabled = s.ghostEchoEnabled,
+                            ghostEchoStrength = s.ghostEchoStrength,
+
+
                             animationsEnabled = s.animationsEnabled,
                             remoteAnimationsEnabled = s.remoteAnimationsEnabled,
                             remoteGhostModeEnabled = s.remoteGhostModeEnabled,

@@ -474,6 +474,15 @@ fun TapScreen(
     phaseAlpha: Float = 1.0f,
     ghostAlpha: Float = 1.0f,
 
+    // Phase 5: Goblin Instrument visuals
+    moodsEnabled: Boolean,
+    moodIntensity: Float,
+    phaseAuraEnabled: Boolean,
+    microParticlesEnabled: Boolean,
+    visualSwing: Float,
+    ghostEchoEnabled: Boolean,
+    ghostEchoStrength: Float,
+
     // UI motion
     animationsEnabled: Boolean,
     remoteAnimationsEnabled: Boolean,
@@ -506,6 +515,13 @@ fun TapScreen(
     val phaseMul = (if (phaseAlpha.isFinite()) phaseAlpha else 1.0f).coerceIn(0.30f, 2.00f)
     val ghostMul = (if (ghostAlpha.isFinite()) ghostAlpha else 1.0f).coerceIn(0.30f, 2.00f)
 
+    // Phase 5: Goblin Instrument (visual-only)
+    val moodIntensitySafe = (if (moodIntensity.isFinite()) moodIntensity else 0f).coerceIn(0f, 0.20f)
+    val moodT = (moodIntensitySafe / 0.20f).coerceIn(0f, 1f)
+    val swingAmount = (if (visualSwing.isFinite()) visualSwing else 0f).coerceIn(0f, 0.25f)
+    val ghostEchoStrengthSafe = (if (ghostEchoStrength.isFinite()) ghostEchoStrength else 0f).coerceIn(0f, 1f)
+    val ghostEchoOn = ghostEchoEnabled && ghostEchoStrengthSafe > 0f
+
 
 // Safety helpers: avoid NaN/Infinity bricking Canvas (coerceIn does NOT fix NaN)
 fun safeAlpha(a: Float): Float = if (a.isFinite()) a.coerceIn(0f, 1f) else 0f
@@ -516,6 +532,21 @@ fun safePhase(v: Float, default: Float = 0f): Float {
     val m = v % 1f
     val w = if (m < 0f) m + 1f else m
     return w.coerceIn(0f, 1f)
+}
+
+
+
+fun applySwingWarp(phase: Float, swing: Float): Float {
+    val p = safePhase(phase, default = 0f)
+    val s = if (swing.isFinite()) swing.coerceIn(0f, 0.25f) else 0f
+    if (s <= 0f) return p
+    // Swing = non-linear mapping: first half slower, second half faster (offbeat is delayed)
+    val pivot = (0.5f + s * 0.4f).coerceIn(0.5f, 0.75f)
+    return if (p < pivot) {
+        ((p / pivot) * 0.5f).coerceIn(0f, 1f)
+    } else {
+        (0.5f + ((p - pivot) / (1f - pivot)) * 0.5f).coerceIn(0f, 1f)
+    }
 }
 
     val remoteTransportLimiter = remember { PulseLimiter(minIntervalMs = 180) }
@@ -839,9 +870,9 @@ LaunchedEffect(heartbeatEnabled) {
 }
 
 // Phase ticker cadence (watch-friendly). Only fast when phase visuals are on.
-val phaseTickMs: Long = remember(phaseVisualizerEnabled, phaseSpiralEnabled, downbeatHapticsEnabled) {
+val phaseTickMs: Long = remember(phaseVisualizerEnabled, phaseSpiralEnabled, phaseAuraEnabled, microParticlesEnabled, visualSwing, downbeatHapticsEnabled) {
     when {
-        phaseVisualizerEnabled || phaseSpiralEnabled -> 33L   // ~30Hz
+        phaseVisualizerEnabled || phaseSpiralEnabled || phaseAuraEnabled || microParticlesEnabled || (visualSwing.isFinite() && visualSwing > 0f) -> 33L   // ~30Hz
         downbeatHapticsEnabled -> 60L                         // keep wrap detection reliable
         else -> 120L
     }
@@ -1114,6 +1145,15 @@ if (!swipeHandled && zone == TouchZone.RIGHT_EDGE) {
             },
         contentAlignment = Alignment.Center
     ) {
+
+        // Mood overlay: super subtle background tint (online grin / offline grumble)
+        if (moodsEnabled && moodT > 0f) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val a = (if (hasSignal) 0.028f else 0.018f) * moodT
+                val c = if (hasSignal) GoblinOrange else GoblinDim
+                drawRect(color = c.copy(alpha = safeAlpha(a)))
+            }
+        }
 
 // ===== Status line (live HUD) — mouth-safe pill =====
 if (showStatusLine && statusText.isNotEmpty()) {
@@ -1497,6 +1537,23 @@ if (showStatusLine && showTimeline) {
                     center = Offset(cx, cy),
                     style = Stroke(width = strokeW)
                 )
+
+
+                // Ghost Echo: secondary, delayed ripple trail (visual-only)
+                if (ghostEchoOn) {
+                    val pe = (p - 0.22f).coerceIn(0f, 1f)
+                    if (pe > 0f) {
+                        val pr2 = (pe * pe * (3f - 2f * pe))
+                        val r2 = if (grow) maxRadius * pr2 else overscan * (1f - pr2)
+                        val a2 = (alpha * ghostEchoStrengthSafe * 0.55f * fadeLate(pe)).coerceIn(0f, 1f)
+                        drawCircle(
+                            color = GoblinBrown.copy(alpha = a2),
+                            radius = r2,
+                            center = Offset(cx, cy),
+                            style = Stroke(width = strokeW * 0.70f)
+                        )
+                    }
+                }
             }
 
             drawRipple(Voice.LOCAL, localKind, localRipple.value)
@@ -1515,6 +1572,53 @@ if (showStatusLine && showTimeline) {
             val baseRadius = min(size.width, size.height) * 0.78f / 2f
 
             if (!hasSignal) return@Canvas
+
+            val phaseDraw = applySwingWarp(extPhase, swingAmount)
+            val stableT = ((stability - 0.80f) / 0.20f).coerceIn(0f, 1f)
+
+            // Mood: tiny center glow
+            if (moodsEnabled && moodT > 0f) {
+                val a = safeAlpha(0.045f * moodT * phaseMul)
+                if (a > 0f) {
+                    drawCircle(
+                        color = GoblinOrange.copy(alpha = a),
+                        radius = baseRadius * 0.55f,
+                        center = Offset(cx, cy)
+                    )
+                }
+            }
+
+            // Aura: only when stable
+            if (phaseAuraEnabled && stableT > 0f) {
+                val a = safeAlpha(0.055f * stableT * phaseMul * (1f + 0.30f * moodT))
+                val w = baseRadius * 0.14f
+                drawCircle(
+                    color = GoblinOrange.copy(alpha = a),
+                    radius = baseRadius * 1.02f,
+                    center = Offset(cx, cy),
+                    style = Stroke(width = w)
+                )
+            }
+
+            // Micro particles: subtle sparkle on the ring (stable only)
+            if (microParticlesEnabled && stableT > 0f) {
+                val n = (6 + (6 * stableT)).toInt().coerceIn(6, 12)
+                val baseA = safeAlpha(0.14f * stableT * phaseMul)
+                val baseR = baseRadius * 0.96f
+                val t = phaseDraw
+                for (i in 0 until n) {
+                    val theta = (t.toDouble() * 2.0 * PI) + (i.toDouble() * 2.0 * PI / n.toDouble()) + (sin((t * 2f * PI.toFloat()) * (i + 1) * 0.7f).toDouble() * 0.22)
+                    val wob = sin((t * 2f * PI.toFloat()) * (i + 1) * 1.3f).toFloat()
+                    val r = baseR + wob * (baseRadius * 0.03f)
+                    val x = cx + cos(theta).toFloat() * r
+                    val y = cy + sin(theta).toFloat() * r
+                    drawCircle(
+                        color = GoblinOrange.copy(alpha = baseA * 0.55f),
+                        radius = 2.0f + 1.6f * stableT,
+                        center = Offset(x, y)
+                    )
+                }
+            }
 
             if (phaseVisualizerEnabled) {
                 val strokeW = 10f
@@ -1538,7 +1642,7 @@ if (showStatusLine && showTimeline) {
                 )
 
                 // phase dot
-                val a = (extPhase.toDouble() * 2.0 * PI) - (PI / 2.0)
+                val a = (phaseDraw.toDouble() * 2.0 * PI) - (PI / 2.0)
                 val px = cx + cos(a).toFloat() * baseRadius
                 val py = cy + sin(a).toFloat() * baseRadius
                 drawCircle(
@@ -1555,7 +1659,7 @@ if (phaseSpiralEnabled) {
     val r1 = baseRadius * 0.98f
     val wobble = (1f - stability) * (baseRadius * 0.07f)
 
-    val a0 = (extPhase.toDouble() * 2.0 * PI) - (PI / 2.0)
+    val a0 = (phaseDraw.toDouble() * 2.0 * PI) - (PI / 2.0)
     val steps = 320
     val path = Path()
 
