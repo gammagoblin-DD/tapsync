@@ -141,6 +141,12 @@ class MainActivity : ComponentActivity() {
                 homePage = HomePage.TAP
             }
 
+            // On TapScreen: Back should do nothing (stay in-app).
+            BackHandler(enabled = !showSettings && homePage == HomePage.TAP) {
+                // swallow
+            }
+
+
 
             // FFT Input Gain (0..1). Prefer incoming Resolume value if available.
             var localFftGain01 by remember { mutableStateOf(0.5f) }
@@ -183,7 +189,11 @@ class MainActivity : ComponentActivity() {
                     SettingsScreen(
                         settingsStore = settingsStore,
                         lastPongMs = oscReceiver.lastPongMs,
-                        onClose = { showSettings = false }
+                        onClose = {
+                            // In settings root, Back should always bring us back to the TapScreen.
+                            showSettings = false
+                            homePage = HomePage.TAP
+                        }
                     )
                 } else {
                     when (homePage) {
@@ -211,7 +221,9 @@ class MainActivity : ComponentActivity() {
                             remoteGhost = oscReceiver.remoteGhost,
                             phaseVisualizerEnabled = s.phaseVisualizerEnabled,
                             phaseSpiralEnabled = s.phaseSpiralEnabled,
-
+                             fxAlpha = s.fxAlpha,
+                             phaseAlpha = s.phaseAlpha,
+                             ghostAlpha = s.ghostAlpha,
                             animationsEnabled = s.animationsEnabled,
                             remoteAnimationsEnabled = s.remoteAnimationsEnabled,
                             remoteGhostModeEnabled = s.remoteGhostModeEnabled,

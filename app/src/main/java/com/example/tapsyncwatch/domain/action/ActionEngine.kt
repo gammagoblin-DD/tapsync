@@ -16,12 +16,12 @@ class ActionEngine(
     }
 
     fun multiply() {
-        haptics.onMultiplyDivide()
+        haptics.onMultiply()
         clock.handle(ClockEvent.Multiply)
     }
 
     fun divide() {
-        haptics.onMultiplyDivide()
+        haptics.onDivide()
         clock.handle(ClockEvent.Divide)
     }
 

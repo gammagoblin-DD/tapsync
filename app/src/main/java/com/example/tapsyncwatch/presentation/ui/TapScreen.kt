@@ -80,11 +80,13 @@ import kotlin.math.roundToInt
 /* ================= GOBLIN STYLE ================= */
 
 private val GoblinBrown = Color(0xFF8C5A2B)
+private val GoblinOrange = Color(0xFFE8802A)
 private val GoblinDim = Color(0xFF9A9A9A)
 private val GoblinText = Color(0xFFECECEC)
 private val GoblinDebugBg = Color(0xAA000000)
 
-private enum class TouchZone { CENTER, LEFT }
+private enum class TouchZone {CENTER, LEFT,
+    RIGHT_EDGE}
 private enum class Voice { LOCAL, REMOTE }
 
 private enum class RippleKind {
@@ -215,6 +217,9 @@ fun TapScreen(
     remoteGhost: StateFlow<OscInputReceiver.RemoteGhostSnapshot?>,
     phaseVisualizerEnabled: Boolean,
     phaseSpiralEnabled: Boolean,
+    fxAlpha: Float = 1.0f,
+    phaseAlpha: Float = 1.0f,
+    ghostAlpha: Float = 1.0f,
 
     // UI motion
     animationsEnabled: Boolean,
@@ -234,11 +239,8 @@ fun TapScreen(
     hapticsEnabled: Boolean,
     downbeatHapticsEnabled: Boolean,
     transportHapticsEnabled: Boolean,
-
-    // Right-edge paging (deterministic, avoids gesture conflicts)
     onPageNext: (() -> Unit)? = null,
     onPagePrev: (() -> Unit)? = null,
-
     onCloseOscMonitor: (() -> Unit)? = null,
     onLongPress: () -> Unit
 ) {
@@ -247,6 +249,22 @@ fun TapScreen(
     val metrics = context.resources.displayMetrics
     val scope = rememberCoroutineScope()
     val oscPulseLimiter = remember { PulseLimiter(minIntervalMs = 120) }
+    val fxMul = (if (fxAlpha.isFinite()) fxAlpha else 1.0f).coerceIn(0.30f, 2.00f)
+    val phaseMul = (if (phaseAlpha.isFinite()) phaseAlpha else 1.0f).coerceIn(0.30f, 2.00f)
+    val ghostMul = (if (ghostAlpha.isFinite()) ghostAlpha else 1.0f).coerceIn(0.30f, 2.00f)
+
+
+// Safety helpers: avoid NaN/Infinity bricking Canvas (coerceIn does NOT fix NaN)
+fun safeAlpha(a: Float): Float = if (a.isFinite()) a.coerceIn(0f, 1f) else 0f
+fun safe01(v: Float, default: Float = 0f): Float = if (v.isFinite()) v.coerceIn(0f, 1f) else default
+fun safePhase(v: Float, default: Float = 0f): Float {
+    if (!v.isFinite()) return default
+    // wrap to [0..1)
+    val m = v % 1f
+    val w = if (m < 0f) m + 1f else m
+    return w.coerceIn(0f, 1f)
+}
+
     val remoteTransportLimiter = remember { PulseLimiter(minIntervalMs = 180) }
 
     fun uiHapticAllowed(): Boolean =
@@ -268,6 +286,7 @@ fun TapScreen(
     val widthPx = metrics.widthPixels.toFloat()
     val heightPx = metrics.heightPixels.toFloat()
     val leftZoneEdgePx = widthPx * 0.25f
+    val rightZoneEdgePx = widthPx * 0.86f // ~14% right edge for paging
 
     val longPressMs = 600L
     val swipeMinDist = 70f
@@ -486,21 +505,32 @@ fun TapScreen(
         OscHealth.Idle -> Color(0xFFB86CFF)
     }
 
-    // Heartbeat-based link state (do NOT depend on BPM updates)
-    val lastPong by lastPongMs.collectAsState()
-    var nowMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
+// Heartbeat-based link state (do NOT depend on BPM updates)
+val lastPong by lastPongMs.collectAsState()
+var signalNowMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
 
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            nowMs = SystemClock.elapsedRealtime()
-            delay(120)
-        }
+// Keep signal freshness updated at low frequency (avoid 30Hz recomposition in Settings/idle cases)
+LaunchedEffect(heartbeatEnabled) {
+    if (!heartbeatEnabled) return@LaunchedEffect
+    while (isActive) {
+        signalNowMs = SystemClock.elapsedRealtime()
+        delay(500L)
     }
+}
 
-    val hasSignal = remember(heartbeatEnabled, lastPong, nowMs, signalGraceMs) {
-        if (!heartbeatEnabled) true
-        else lastPong > 0L && (nowMs - lastPong) <= signalGraceMs
+// Phase ticker cadence (watch-friendly). Only fast when phase visuals are on.
+val phaseTickMs: Long = remember(phaseVisualizerEnabled, phaseSpiralEnabled, downbeatHapticsEnabled) {
+    when {
+        phaseVisualizerEnabled || phaseSpiralEnabled -> 33L   // ~30Hz
+        downbeatHapticsEnabled -> 60L                         // keep wrap detection reliable
+        else -> 120L
     }
+}
+
+val hasSignal = remember(heartbeatEnabled, lastPong, signalNowMs, signalGraceMs) {
+    if (!heartbeatEnabled) true
+    else lastPong > 0L && (signalNowMs - lastPong) <= signalGraceMs
+}
 
     val goblinBaseAlphaTarget = if (hasSignal) 1f else 0.35f
     val goblinBaseAlpha by animateFloatAsState(
@@ -534,14 +564,16 @@ fun TapScreen(
         while (isActive) {
             val now = SystemClock.elapsedRealtime()
             val anchorMs = (ghost?.lastSeenMs ?: now).coerceAtMost(now)
-            val anchorPhase = (ghost?.phase ?: extPhase).coerceIn(0f, 1f)
+            val anchorPhase = safePhase(ghost?.phase ?: extPhase, default = 0f)
 
             val dtSec = (now - anchorMs).coerceAtLeast(0).toFloat() / 1000f
             val beats = dtSec * (bpmF / 60f)
             val p = ((anchorPhase + beats) % 1f)
+            val pSafe = safePhase(p, default = 0f)
+
 
             // Downbeat: detect phase wrap
-            val wrapped = (prevPhase > 0.80f && p < 0.20f)
+            val wrapped = (prevPhase > 0.80f && pSafe < 0.20f)
             if (wrapped && (now - lastDownbeatTriggerMs) > 250L) {
                 lastDownbeatTriggerMs = now
 
@@ -558,13 +590,13 @@ fun TapScreen(
                 }
             }
 
-            prevPhase = p
-            extPhase = p
+            prevPhase = pSafe
+            extPhase = pSafe
 
-            val conf = (ghost?.confidence ?: extConf ?: 1f).coerceIn(0f, 1f)
+            val conf = safe01((ghost?.confidence ?: extConf ?: 1f), default = 1f)
             stability = conf
 
-            delay(16)
+            delay(phaseTickMs)
         }
     }
 
@@ -578,21 +610,6 @@ fun TapScreen(
         (abs(dy) - abs(dx)) >= axisDominanceMargin
 
     /* ================= UI / INPUT ================= */
-
-    // RIGHT EDGE paging zone (start touch in last ~12% width)
-    // - swipe LEFT  => next page
-    // - swipe RIGHT => previous page
-    val density = metrics.density
-    val rightEdgeWidthPx = 26f * density
-    val edgeSwipeThresholdPx = 34f * density
-    val edgeVerticalSlopPx = 22f * density
-    val rightEdgeStartPx = widthPx - rightEdgeWidthPx
-
-    var edgeCandidate by remember { mutableStateOf(false) }
-    var edgeDownX by remember { mutableStateOf(0f) }
-    var edgeDownY by remember { mutableStateOf(0f) }
-    var edgeTriggered by remember { mutableStateOf(false) }
-
 
     var zone by remember { mutableStateOf(TouchZone.CENTER) }
     var downTime by remember { mutableStateOf(0L) }
@@ -626,48 +643,34 @@ val statusText = remember(showStatusLine, activePresetName, activeTargetIp, acti
                 when (event.actionMasked) {
 
                     MotionEvent.ACTION_DOWN -> {
-
-                        // RIGHT EDGE PAGING (swallow touches so they never hit center/left gestures)
-                        if ((onPageNext != null || onPagePrev != null) && event.x >= rightEdgeStartPx) {
-                            edgeCandidate = true
-                            edgeTriggered = false
-                            edgeDownX = event.x
-                            edgeDownY = event.y
-                            return@pointerInteropFilter true
-                        }
                         downTime = SystemClock.elapsedRealtime()
                         startX = event.x
                         startY = event.y
                         swipeHandled = false
                         tapCanceled = false
                         nudgeStarted = false
-                        zone = if (event.x <= leftZoneEdgePx) TouchZone.LEFT else TouchZone.CENTER
+                        zone = if (event.x > rightZoneEdgePx) TouchZone.RIGHT_EDGE else if (event.x <= leftZoneEdgePx) TouchZone.LEFT else TouchZone.CENTER
                         true
                     }
 
                     MotionEvent.ACTION_MOVE -> {
 
-                        if (edgeCandidate) {
-                            val dx = event.x - edgeDownX
-                            val dy = event.y - edgeDownY
-
-                            if (!edgeTriggered && abs(dy) <= edgeVerticalSlopPx) {
-                                when {
-                                    dx <= -edgeSwipeThresholdPx -> {
-                                        edgeTriggered = true
-                                        onPageNext?.invoke()
-                                    }
-                                    dx >= edgeSwipeThresholdPx -> {
-                                        edgeTriggered = true
-                                        onPagePrev?.invoke()
-                                    }
-                                }
-                            }
-                            return@pointerInteropFilter true
-                        }
-
                         val dxT = event.x - startX
                         val dyT = event.y - startY
+
+// Right edge paging: swipe horizontally to switch pages (keeps center gestures safe)
+if (!swipeHandled && zone == TouchZone.RIGHT_EDGE) {
+    val absX = abs(dxT)
+    val absY = abs(dyT)
+    if (isHorizontalSwipe(dxT, dyT) && absX > swipeMinDist && absY < swipeMaxOffAxis) {
+        swipeHandled = true
+        if (dxT < 0) onPageNext?.invoke() else onPagePrev?.invoke()
+        return@pointerInteropFilter true
+    }
+    // swallow vertical / small movements on the paging edge
+    return@pointerInteropFilter true
+}
+
 
                         if (!tapCanceled && (abs(dxT) > swipeArmDist || abs(dyT) > swipeArmDist)) {
                             tapCanceled = true
@@ -738,12 +741,6 @@ val statusText = remember(showStatusLine, activePresetName, activeTargetIp, acti
 
                     MotionEvent.ACTION_UP,
                     MotionEvent.ACTION_CANCEL -> {
-
-                        if (edgeCandidate) {
-                            edgeCandidate = false
-                            edgeTriggered = false
-                            return@pointerInteropFilter true
-                        }
 
                         if (zone == TouchZone.LEFT) {
                             if (nudgeStarted) {
@@ -949,7 +946,7 @@ if (showStatusLine && statusText.isNotEmpty()) {
             ) {
                 drawCircle(
                     color = oscDotColor,
-                    alpha = 0.18f + oscPulse.value * 0.82f
+                    alpha = ((0.18f + (if (oscPulse.value.isFinite()) oscPulse.value else 0f) * 0.82f) * fxMul).coerceIn(0f, 1f)
                 )
             }
         }
@@ -973,7 +970,7 @@ if (showStatusLine && statusText.isNotEmpty()) {
             val stale = (nowMs - g.lastSeenMs) > 1500L
             val locked = !stale
 
-            val baseAlpha = if (stale) 0.06f else if (locked) 0.18f else 0.12f
+            val baseAlpha = (if (stale) 0.06f else if (locked) 0.18f else 0.12f) * ghostMul
             val dash = PathEffect.dashPathEffect(floatArrayOf(16f, 12f), 0f)
 
             drawCircle(
@@ -988,7 +985,7 @@ if (showStatusLine && statusText.isNotEmpty()) {
                 val mx = cx
                 val my = cy - radius
                 drawCircle(
-                    color = GoblinBrown.copy(alpha = 0.35f),
+                    color = GoblinBrown.copy(alpha = safeAlpha(0.35f * ghostMul)),
                     radius = 10f,
                     center = Offset(mx, my)
                 )
@@ -1016,7 +1013,12 @@ if (showStatusLine && statusText.isNotEmpty()) {
                     RippleKind.RESYNC -> 0.60f
                     RippleKind.NUDGE_PLUS, RippleKind.NUDGE_MINUS -> 0.45f
                 }
-                return if (voice == Voice.LOCAL) base else if (remoteGhostModeEnabled) base * 0.18f else base * 0.35f
+                return if (voice == Voice.LOCAL) {
+                    base * fxMul
+                } else {
+                    val remoteBase = if (remoteGhostModeEnabled) base * 0.18f else base * 0.35f
+                    remoteBase * fxMul * ghostMul
+                }
             }
 
             fun drawRipple(voice: Voice, kind: RippleKind?, p: Float) {
@@ -1037,7 +1039,7 @@ if (showStatusLine && statusText.isNotEmpty()) {
                     return 1f - (t * t)
                 }
 
-                val alpha = intensityFor(voice, kind) * fadeLate(p)
+                val alpha = (intensityFor(voice, kind) * fadeLate(p)).coerceIn(0f, 1f)
 
                 val strokeW = if (voice == Voice.REMOTE && remoteGhostModeEnabled) 10f else stroke
 
@@ -1104,7 +1106,7 @@ if (showStatusLine && statusText.isNotEmpty()) {
 
                 // base ring (very subtle)
                 drawCircle(
-                    color = GoblinBrown.copy(alpha = 0.08f),
+                    color = GoblinBrown.copy(alpha = safeAlpha(0.16f * phaseMul)),
                     radius = baseRadius,
                     center = Offset(cx, cy),
                     style = Stroke(width = strokeW)
@@ -1113,7 +1115,7 @@ if (showStatusLine && statusText.isNotEmpty()) {
                 // downbeat marker (12 o'clock)
                 val markerLen = 22f
                 drawLine(
-                    color = GoblinBrown.copy(alpha = 0.22f),
+                    color = GoblinOrange.copy(alpha = safeAlpha(0.58f * phaseMul)),
                     start = Offset(cx, cy - baseRadius - markerLen),
                     end = Offset(cx, cy - baseRadius + markerLen),
                     strokeWidth = 6f,
@@ -1125,35 +1127,49 @@ if (showStatusLine && statusText.isNotEmpty()) {
                 val px = cx + cos(a).toFloat() * baseRadius
                 val py = cy + sin(a).toFloat() * baseRadius
                 drawCircle(
-                    color = GoblinBrown.copy(alpha = 0.30f),
+                    color = GoblinOrange.copy(alpha = safeAlpha(0.72f * phaseMul)),
                     radius = 12f,
                     center = Offset(px, py)
                 )
             }
 
-            if (phaseSpiralEnabled) {
-                // stability -> wobble amount (instability makes it spiral/wobble)
-                val wobble = (1f - stability) * (baseRadius * 0.10f)
-                val k = 5.0  // wave count around the ring
-                val path = Path()
+if (phaseSpiralEnabled) {
+    // A real spiral (Archimedean). It "breathes" with stability and rotates with phase.
+    val turns = 2.35f + (1f - stability) * 0.55f
+    val r0 = baseRadius * 0.22f
+    val r1 = baseRadius * 0.98f
+    val wobble = (1f - stability) * (baseRadius * 0.07f)
 
-                val steps = 240
-                for (i in 0..steps) {
-                    val t = i.toDouble() / steps.toDouble()
-                    val theta = (t * 2.0 * PI) - (PI / 2.0)
-                    val w = sin(theta * k + (extPhase.toDouble() * 2.0 * PI)).toFloat()
-                    val r = baseRadius + wobble * w
-                    val x = cx + cos(theta).toFloat() * r
-                    val y = cy + sin(theta).toFloat() * r
-                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                }
+    val a0 = (extPhase.toDouble() * 2.0 * PI) - (PI / 2.0)
+    val steps = 320
+    val path = Path()
 
-                drawPath(
-                    path = path,
-                    color = GoblinBrown.copy(alpha = 0.12f + (1f - stability) * 0.12f),
-                    style = Stroke(width = 10f, cap = StrokeCap.Round)
-                )
-            }
+    for (i in 0..steps) {
+        val t = i.toFloat() / steps.toFloat()
+        val theta = a0 + (t * turns * 2.0 * PI)
+        val wave = sin(theta * 3.0 + a0).toFloat()
+        val r = (r0 + (r1 - r0) * t) + wobble * wave
+        val x = cx + cos(theta).toFloat() * r
+        val y = cy + sin(theta).toFloat() * r
+        if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+    }
+
+    val aBase = ((0.22f + (1f - stability) * 0.22f) * phaseMul).coerceIn(0f, 1f)
+val aHi = ((0.10f + (1f - stability) * 0.10f) * phaseMul).coerceIn(0f, 1f)
+
+// Body (darker) - thinner so it reads as spiral, not ring
+drawPath(
+    path = path,
+    color = GoblinBrown.copy(alpha = aBase),
+    style = Stroke(width = 7f, cap = StrokeCap.Round)
+)
+// Highlight (orange) - very subtle edge
+drawPath(
+    path = path,
+    color = GoblinOrange.copy(alpha = aHi),
+    style = Stroke(width = 3f, cap = StrokeCap.Round)
+)
+}
         }
 
         /* ================= Downbeat pulse ring ================= */
@@ -1170,7 +1186,7 @@ if (showStatusLine && statusText.isNotEmpty()) {
             if (!hasSignal) return@Canvas
 
             drawCircle(
-                color = GoblinBrown.copy(alpha = 0.28f * downbeatPulse.value),
+                color = GoblinBrown.copy(alpha = safeAlpha(0.28f * downbeatPulse.value * fxMul)),
                 radius = safeRadius * (1.0f + downbeatPulse.value * 0.06f),
                 center = Offset(cx, cy),
                 style = Stroke(width = 14f)

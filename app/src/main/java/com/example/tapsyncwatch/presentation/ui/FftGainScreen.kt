@@ -102,6 +102,16 @@ fun FftGainScreen(
     var lastResetTapMs by remember { mutableStateOf(0L) }
     val resetDoubleTapWindowMs = 360L
 
+    // Visual 'armed' hint for double-tap reset (no text, just a tiny blink).
+    var resetArmPulseKey by remember { mutableStateOf(0) }
+    val resetArmPulse = remember { Animatable(0f) }
+    LaunchedEffect(resetArmPulseKey) {
+        if (resetArmPulseKey == 0) return@LaunchedEffect
+        resetArmPulse.snapTo(1f)
+        resetArmPulse.animateTo(0f, animationSpec = tween(260))
+    }
+
+
 
     // Swipe-to-step gesture (multiply/divide feel)
     val armDistPx = with(density) { 10.dp.toPx() }
@@ -271,6 +281,7 @@ fun FftGainScreen(
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     } else {
                         lastResetTapMs = now
+                        resetArmPulseKey += 1
                         // first tap arms reset; no action to avoid accidents
                     }
                 },
@@ -287,6 +298,16 @@ fun FftGainScreen(
                         .background(Color.Black.copy(alpha = 0.18f)),
                     contentAlignment = Alignment.Center
                 ) {
+                    Canvas(modifier = Modifier.matchParentSize()) {
+                        val a = (resetArmPulse.value * 0.55f).coerceIn(0f, 0.55f)
+                        // soft blink ring
+                        drawCircle(
+                            color = goblinOrange.copy(alpha = a),
+                            radius = size.minDimension * 0.48f,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = size.minDimension * 0.12f)
+                        )
+                    }
+
                     Icon(
                         imageVector = Icons.Filled.Refresh,
                         contentDescription = "Reset",

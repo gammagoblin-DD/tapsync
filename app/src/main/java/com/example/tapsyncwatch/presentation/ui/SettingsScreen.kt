@@ -177,6 +177,69 @@ private fun SettingsToggleChip(
 }
 
 @Composable
+private fun SettingsSliderChip(
+    title: String,
+    subtitle: String? = null,
+    value: Float,
+    min: Float = 0.30f,
+    max: Float = 2.00f,
+    enabled: Boolean = true,
+    onValueChange: (Float) -> Unit
+) {
+    var local by remember(value) { mutableStateOf(value.coerceIn(min, max)) }
+    val pct = (local * 100f).toInt().coerceIn((min * 100f).toInt(), (max * 100f).toInt())
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp)),
+        color = GoblinCard,
+        elevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .border(1.dp, GoblinBorder, RoundedCornerShape(22.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        title,
+                        color = if (enabled) GoblinText else GoblinDim,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (subtitle != null) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(subtitle, color = GoblinDim, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                Text(
+                    "${pct}%",
+                    color = if (enabled) GoblinAccent else GoblinDim,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Spacer(Modifier.height(6.dp))
+
+            Slider(
+                value = local,
+                onValueChange = { if (enabled) local = it.coerceIn(min, max) },
+                onValueChangeFinished = { if (enabled) onValueChange(local.coerceIn(min, max)) },
+                valueRange = min..max,
+                enabled = enabled,
+                colors = SliderDefaults.colors(
+                    thumbColor = GoblinAccent,
+                    activeTrackColor = GoblinAccent.copy(alpha = 0.55f),
+                    inactiveTrackColor = GoblinBorder
+                )
+            )
+        }
+    }
+}
+
+@Composable
 private fun SettingsCloseButton(
     onClose: () -> Unit,
     modifier: Modifier = Modifier
@@ -425,22 +488,46 @@ fun SettingsScreen(
 ) {
     val settings by settingsStore.settings.collectAsState(initial = DEFAULT_SETTINGS_STATE)
     val s = settings
-
     val lastPong by lastPongMs.collectAsState()
-    var nowMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            nowMs = SystemClock.elapsedRealtime()
-            delay(250)
-        }
-    }
+    var nowMs by remember { mutableStateOf(0L) }
 
     val scope = rememberCoroutineScope()
     var page by rememberSaveable { mutableStateOf(SettingsPage.ROOT) }
-    var presetsSession by remember { mutableStateOf(0) }
+
+    // Only tick when we actually show time-based network info (pong age).
+    LaunchedEffect(page) {
+        if (page != SettingsPage.NETWORK) return@LaunchedEffect
+        while (isActive) {
+            nowMs = SystemClock.elapsedRealtime()
+            delay(500)
+        }
+    }
+
+var presetsSession by remember { mutableStateOf(0) }
+
+    // Hardware back on some watches may fire twice (DOWN/UP or duplicated keycodes).
+    // We must prevent a "submenu -> ROOT -> close" within the same physical press.
+    var backBlockUntilMs by rememberSaveable { mutableStateOf(0L) }
+    var lastBackHandledMs by rememberSaveable { mutableStateOf(0L) }
+
 
     BackHandler {
-        if (page != SettingsPage.ROOT) page = SettingsPage.ROOT else onClose()
+        val now = SystemClock.elapsedRealtime()
+
+        // Debounce ultra-fast duplicates (some devices deliver two back callbacks per physical press)
+        if (now - lastBackHandledMs < 140L) return@BackHandler
+        lastBackHandledMs = now
+
+        if (page != SettingsPage.ROOT) {
+            page = SettingsPage.ROOT
+            // Block closing for a short window so a duplicated back doesn't immediately close Settings.
+            backBlockUntilMs = now + 420L
+            return@BackHandler
+        }
+
+        // At ROOT: only close if we're outside the block window.
+        if (now < backBlockUntilMs) return@BackHandler
+        onClose()
     }
 
     val isRound = LocalConfiguration.current.isScreenRound
@@ -449,7 +536,11 @@ fun SettingsScreen(
     val bottomPad = if (isRound) 18.dp else 12.dp
 
     // Link status
-    val pongAge = if (lastPong <= 0L) null else (nowMs - lastPong).coerceAtLeast(0L)
+    val pongAge = remember(page, lastPong, nowMs) {
+        if (page != SettingsPage.NETWORK) null
+        else if (lastPong <= 0L || nowMs <= 0L) null
+        else (nowMs - lastPong).coerceAtLeast(0L)
+    }
     val linkOk = if (!s.heartbeatEnabled) true else (pongAge != null && pongAge < s.signalGraceMs)
     val linkLabel = when {
         !s.heartbeatEnabled -> "Link Check OFF"
@@ -512,6 +603,29 @@ fun SettingsScreen(
 
                     item { SettingsToggleChip("Phase Ring", "Downbeat + Phase", s.phaseVisualizerEnabled) { v -> scope.launch { settingsStore.setPhaseVisualizerEnabled(v) } } }
                     item { SettingsToggleChip("Phase Spiral", "Stability visual", s.phaseSpiralEnabled) { v -> scope.launch { settingsStore.setPhaseSpiralEnabled(v) } } }
+                    item {
+                        SettingsSliderChip(
+                            title = "Phase Sichtbarkeit",
+                            subtitle = "Ring + Spiral",
+                            value = s.phaseAlpha
+                        ) { v -> scope.launch { settingsStore.setPhaseAlpha(v) } }
+                    }
+                    item {
+                        SettingsSliderChip(
+                            title = "Ghost Sichtbarkeit",
+                            subtitle = "Remote overlays",
+                            value = s.ghostAlpha,
+                            enabled = s.animationsEnabled && s.remoteAnimationsEnabled && s.remoteGhostModeEnabled
+                        ) { v -> scope.launch { settingsStore.setGhostAlpha(v) } }
+                    }
+                    item {
+                        SettingsSliderChip(
+                            title = "FX Sichtbarkeit",
+                            subtitle = "Ripples / Pulse / Downbeat",
+                            value = s.fxAlpha,
+                            enabled = s.animationsEnabled
+                        ) { v -> scope.launch { settingsStore.setFxAlpha(v) } }
+                    }
                 }
 
                 SettingsPage.MOTION -> {

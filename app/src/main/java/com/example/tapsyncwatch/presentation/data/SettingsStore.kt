@@ -40,6 +40,11 @@ object SettingsKeys {
     val PHASE_VISUALIZER_ENABLED = booleanPreferencesKey("phase_visualizer_enabled")
     val PHASE_SPIRAL_ENABLED = booleanPreferencesKey("phase_spiral_enabled")
 
+    // Visual alpha multipliers (0.30 .. 2.00)
+    val FX_ALPHA = floatPreferencesKey("fx_alpha")
+    val PHASE_ALPHA = floatPreferencesKey("phase_alpha")
+    val GHOST_ALPHA = floatPreferencesKey("ghost_alpha")
+
     val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
     val DOWNBEAT_HAPTICS_ENABLED = booleanPreferencesKey("downbeat_haptics_enabled")
 
@@ -91,6 +96,11 @@ data class SettingsState(
     val phaseVisualizerEnabled: Boolean,
     val phaseSpiralEnabled: Boolean,
 
+    // Visual alpha multipliers (0.30 .. 2.00)
+    val fxAlpha: Float,
+    val phaseAlpha: Float,
+    val ghostAlpha: Float,
+
     // UI motion
     val animationsEnabled: Boolean,
     val remoteAnimationsEnabled: Boolean,
@@ -135,6 +145,10 @@ val DEFAULT_SETTINGS_STATE = SettingsState(
     showOscDebug = false,
     phaseVisualizerEnabled = true,
     phaseSpiralEnabled = false,
+
+    fxAlpha = 1.0f,
+    phaseAlpha = 1.0f,
+    ghostAlpha = 1.0f,
 
     animationsEnabled = true,
     remoteAnimationsEnabled = true,
@@ -196,6 +210,10 @@ class SettingsStore(
                 phaseVisualizerEnabled = prefs[SettingsKeys.PHASE_VISUALIZER_ENABLED] ?: DEFAULT_SETTINGS_STATE.phaseVisualizerEnabled,
                 phaseSpiralEnabled = prefs[SettingsKeys.PHASE_SPIRAL_ENABLED] ?: DEFAULT_SETTINGS_STATE.phaseSpiralEnabled,
 
+                fxAlpha = ((prefs[SettingsKeys.FX_ALPHA] ?: DEFAULT_SETTINGS_STATE.fxAlpha).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.fxAlpha }).coerceIn(0.30f, 2.00f),
+                phaseAlpha = ((prefs[SettingsKeys.PHASE_ALPHA] ?: DEFAULT_SETTINGS_STATE.phaseAlpha).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.phaseAlpha }).coerceIn(0.30f, 2.00f),
+                ghostAlpha = ((prefs[SettingsKeys.GHOST_ALPHA] ?: DEFAULT_SETTINGS_STATE.ghostAlpha).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.ghostAlpha }).coerceIn(0.30f, 2.00f),
+
                 animationsEnabled = prefs[SettingsKeys.ANIMATIONS_ENABLED] ?: DEFAULT_SETTINGS_STATE.animationsEnabled,
                 remoteAnimationsEnabled = prefs[SettingsKeys.REMOTE_ANIMATIONS_ENABLED] ?: DEFAULT_SETTINGS_STATE.remoteAnimationsEnabled,
                 remoteGhostModeEnabled = prefs[SettingsKeys.REMOTE_GHOST_MODE_ENABLED] ?: DEFAULT_SETTINGS_STATE.remoteGhostModeEnabled,
@@ -247,6 +265,28 @@ class SettingsStore(
 
     suspend fun setPhaseSpiralEnabled(enabled: Boolean) {
         context.dataStore.edit { it[SettingsKeys.PHASE_SPIRAL_ENABLED] = enabled }
+    }
+
+
+    suspend fun setFxAlpha(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.fxAlpha
+            prefs[SettingsKeys.FX_ALPHA] = (if (v.isFinite()) v else DEFAULT_SETTINGS_STATE.fxAlpha).coerceIn(0.30f, 2.00f)
+        }
+    }
+
+    suspend fun setPhaseAlpha(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.phaseAlpha
+            prefs[SettingsKeys.PHASE_ALPHA] = (if (v.isFinite()) v else DEFAULT_SETTINGS_STATE.phaseAlpha).coerceIn(0.30f, 2.00f)
+        }
+    }
+
+    suspend fun setGhostAlpha(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.ghostAlpha
+            prefs[SettingsKeys.GHOST_ALPHA] = (if (v.isFinite()) v else DEFAULT_SETTINGS_STATE.ghostAlpha).coerceIn(0.30f, 2.00f)
+        }
     }
 
     // Animations
