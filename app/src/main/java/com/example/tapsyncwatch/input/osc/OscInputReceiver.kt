@@ -51,6 +51,14 @@ class OscInputReceiver(
     private val _lastAnyRxMs = MutableStateFlow(0L)
     val lastAnyRxMs: StateFlow<Long> = _lastAnyRxMs.asStateFlow()
 
+// Phase + downbeat freshness (for Preflight)
+private val _lastPhaseRxMs = MutableStateFlow(0L)
+val lastPhaseRxMs: StateFlow<Long> = _lastPhaseRxMs.asStateFlow()
+
+private val _lastDownbeatRxMs = MutableStateFlow(0L)
+val lastDownbeatRxMs: StateFlow<Long> = _lastDownbeatRxMs.asStateFlow()
+
+
     private val _externalBpmActivity = MutableSharedFlow<Unit>(extraBufferCapacity = 8)
     val externalBpmActivity: SharedFlow<Unit> = _externalBpmActivity.asSharedFlow()
 
@@ -88,6 +96,8 @@ class OscInputReceiver(
         val lastSeenMs: Long = 0L,
         val lastPongMs: Long = 0L,
         val lastAnyRxMs: Long = 0L,
+        val lastPhaseRxMs: Long = 0L,
+        val lastDownbeatRxMs: Long = 0L,
         val externalTempoRaw: Double? = null,
         val externalBpm: Double? = null,
         val externalConfidence: Float? = null,
@@ -234,6 +244,8 @@ class OscInputReceiver(
                 lastSeenMs = nowMs,
                 lastPongMs = _lastPongMs.value,
                 lastAnyRxMs = _lastAnyRxMs.value,
+                lastPhaseRxMs = _lastPhaseRxMs.value,
+                lastDownbeatRxMs = _lastDownbeatRxMs.value,
                 externalTempoRaw = _debugState.value.externalTempoRaw,
                 externalBpm = _externalBpm.value,
                 externalConfidence = _externalConfidence.value,
@@ -446,6 +458,7 @@ class OscInputReceiver(
     private fun onExternalPhase(phase01: Float) {
         val nowMs = SystemClock.elapsedRealtime()
         val nowNs = SystemClock.elapsedRealtimeNanos()
+        _lastPhaseRxMs.value = nowMs
 
         val p = phase01.coerceIn(0f, 1f)
         _externalPhase.value = p
@@ -462,6 +475,7 @@ class OscInputReceiver(
     private fun onExternalDownbeat() {
         val nowMs = SystemClock.elapsedRealtime()
         val nowNs = SystemClock.elapsedRealtimeNanos()
+        _lastDownbeatRxMs.value = nowMs
 
         remoteLastDownbeatMs = nowMs
         remoteLastSeenMs = nowMs

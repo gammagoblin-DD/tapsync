@@ -12,6 +12,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
@@ -50,6 +53,7 @@ import com.example.tapsyncwatch.domain.clock.ClockVisualState
 import com.example.tapsyncwatch.domain.transport.TransportFeedback
 import com.example.tapsyncwatch.input.osc.OscInputReceiver
 import com.example.tapsyncwatch.osc.OscHealth
+import com.example.tapsyncwatch.presentation.data.PreflightMode
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -76,6 +80,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.shape.RoundedCornerShape
 import kotlin.math.roundToInt
+
+
+private fun safe01(v: Float, default: Float = 0f): Float = if (v.isFinite()) v.coerceIn(0f, 1f) else default
 
 /* ================= GOBLIN STYLE ================= */
 
@@ -104,15 +111,24 @@ private enum class RippleKind {
 private fun StatusPill(
     text: String,
     stateColor: Color,
+    warnTint: Color? = null,
     modifier: Modifier = Modifier
 ) {
+    val borderC = (warnTint ?: stateColor).copy(alpha = 0.35f)
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(999.dp))
             .background(Color(0xB3000000))
-            .border(1.dp, stateColor.copy(alpha = 0.35f), RoundedCornerShape(999.dp))
+            .border(1.dp, borderC, RoundedCornerShape(999.dp))
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
+        if (warnTint != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(warnTint.copy(alpha = 0.10f))
+            )
+        }
         Text(
             text = text,
             color = stateColor,
@@ -147,6 +163,224 @@ private fun BottomCloseCircleButton(
         )
     }
 }
+
+
+@Composable
+private fun StatusLamp(
+    label: String?,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .clip(CircleShape)
+                .background(color.copy(alpha = 0.92f))
+                .border(1.dp, Color.Black.copy(alpha = 0.45f), CircleShape)
+        )
+        if (!label.isNullOrBlank()) {
+            Text(
+                text = label,
+                color = Color.White.copy(alpha = 0.78f),
+                fontSize = 9.sp,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+private enum class TimelineKind {
+    LOCAL_TAP, LOCAL_MULTIPLY, LOCAL_DIVIDE, LOCAL_RESYNC, LOCAL_NUDGE,
+    REMOTE_TAP, REMOTE_MULTIPLY, REMOTE_DIVIDE, REMOTE_RESYNC, REMOTE_NUDGE,
+    PONG, OSC_OUT, OSC_ERR
+}
+
+private data class TimelineEvent(
+    val atMs: Long,
+    val kind: TimelineKind
+)
+
+private enum class TimelineLaneType { LOCAL, REMOTE, HEALTH }
+
+private data class TimelineLaneSpec(
+    val type: TimelineLaneType,
+    val alpha: Float
+)
+
+@Composable
+private fun TimelineLane(
+    nowMs: Long,
+    windowMs: Long,
+    events: List<TimelineEvent>,
+    showLocal: Boolean,
+    showRemote: Boolean,
+    showHealth: Boolean,
+    importantOnly: Boolean,
+    remoteAlpha: Float,
+    modifier: Modifier = Modifier
+) {
+    val isRound = LocalConfiguration.current.isScreenRound
+    val edgePad = if (isRound) 18.dp else 12.dp
+
+    val remoteA = safe01(remoteAlpha, 1f)
+    val laneSpecs = remember(showLocal, showRemote, showHealth, remoteA) {
+        buildList {
+            if (showLocal) add(TimelineLaneSpec(TimelineLaneType.LOCAL, 1f))
+            if (showRemote) add(TimelineLaneSpec(TimelineLaneType.REMOTE, remoteA))
+            if (showHealth) add(TimelineLaneSpec(TimelineLaneType.HEALTH, 1f))
+        }
+    }
+
+    if (laneSpecs.isEmpty()) return
+
+    val lanes = laneSpecs.size
+    val heightDp = when (lanes) {
+        1 -> 20.dp
+        2 -> 30.dp
+        else -> 40.dp
+    }
+
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(heightDp)
+            .padding(horizontal = edgePad)
+    ) {
+        val w = size.width
+        val h = size.height
+        val stroke = 2.5.dp.toPx()
+        val baseAlpha = 0.18f
+
+        val laneH = (h / lanes.toFloat()).coerceAtLeast(1f)
+
+        fun laneType(k: TimelineKind): TimelineLaneType = when (k) {
+            TimelineKind.LOCAL_TAP,
+            TimelineKind.LOCAL_MULTIPLY,
+            TimelineKind.LOCAL_DIVIDE,
+            TimelineKind.LOCAL_RESYNC,
+            TimelineKind.LOCAL_NUDGE -> TimelineLaneType.LOCAL
+
+            TimelineKind.REMOTE_TAP,
+            TimelineKind.REMOTE_MULTIPLY,
+            TimelineKind.REMOTE_DIVIDE,
+            TimelineKind.REMOTE_RESYNC,
+            TimelineKind.REMOTE_NUDGE -> TimelineLaneType.REMOTE
+
+            TimelineKind.PONG,
+            TimelineKind.OSC_OUT,
+            TimelineKind.OSC_ERR -> TimelineLaneType.HEALTH
+        }
+
+        fun laneIndex(k: TimelineKind): Int? {
+            val t = laneType(k)
+            val idx = laneSpecs.indexOfFirst { it.type == t }
+            return if (idx >= 0) idx else null
+        }
+
+        fun laneMidY(i: Int): Float = (i + 0.5f) * laneH
+
+        // baselines
+        for (i in 0 until lanes) {
+            val a = baseAlpha * laneSpecs[i].alpha
+            if (a <= 0.01f) continue
+            drawLine(
+                color = Color.White.copy(alpha = a),
+                start = Offset(0f, laneMidY(i)),
+                end = Offset(w, laneMidY(i)),
+                strokeWidth = stroke
+            )
+        }
+
+        fun isImportant(k: TimelineKind): Boolean = when (k) {
+            TimelineKind.LOCAL_TAP,
+            TimelineKind.LOCAL_RESYNC,
+            TimelineKind.LOCAL_NUDGE,
+
+            TimelineKind.REMOTE_TAP,
+            TimelineKind.REMOTE_RESYNC,
+            TimelineKind.REMOTE_NUDGE -> true
+
+            TimelineKind.OSC_ERR,
+            TimelineKind.PONG -> true
+
+            else -> false
+        }
+
+        fun colorFor(k: TimelineKind): Color = when (k) {
+            TimelineKind.PONG -> Color(0xFF6DFF8F)
+            TimelineKind.OSC_OUT -> Color(0xFFB86CFF)
+            TimelineKind.OSC_ERR -> Color(0xFFFF6D6D)
+
+            TimelineKind.LOCAL_MULTIPLY -> Color(0xFF6DFF8F)
+            TimelineKind.LOCAL_DIVIDE -> Color(0xFFFFD36D)
+            TimelineKind.LOCAL_RESYNC -> Color(0xFFFF6D6D)
+            TimelineKind.LOCAL_TAP,
+            TimelineKind.LOCAL_NUDGE -> GoblinOrange
+
+            // remote
+            else -> Color(0xFF6D9BFF)
+        }
+
+        fun heightFor(k: TimelineKind): Float {
+            val lh = laneH
+            return when (k) {
+                TimelineKind.LOCAL_RESYNC -> lh * 0.95f
+                TimelineKind.LOCAL_MULTIPLY, TimelineKind.LOCAL_DIVIDE -> lh * 0.85f
+                TimelineKind.LOCAL_TAP -> lh * 0.75f
+                TimelineKind.LOCAL_NUDGE -> lh * 0.65f
+
+                TimelineKind.OSC_ERR -> lh * 0.95f
+                TimelineKind.PONG -> lh * 0.75f
+                TimelineKind.OSC_OUT -> lh * 0.55f
+
+                else -> lh * 0.60f
+            }.coerceIn(2f, lh)
+        }
+
+        for (e in events) {
+            if (importantOnly && !isImportant(e.kind)) continue
+
+            val age = (nowMs - e.atMs).coerceAtLeast(0L)
+            if (age > windowMs) continue
+
+            val t = age.toFloat() / windowMs.toFloat()
+            val x = w * (1f - t)
+
+            val li = laneIndex(e.kind) ?: continue
+            val laneA = laneSpecs[li].alpha
+            if (laneA <= 0.01f) continue
+
+            val mid = laneMidY(li)
+            val hh = heightFor(e.kind)
+            val y0 = (mid - hh * 0.5f).coerceAtLeast(li * laneH)
+            val y1 = (mid + hh * 0.5f).coerceAtMost((li + 1) * laneH)
+
+            val fade = (1f - t * 0.65f).coerceIn(0.25f, 1f)
+            val a = 0.92f * laneA * fade
+
+            drawLine(
+                color = colorFor(e.kind).copy(alpha = a),
+                start = Offset(x, y0),
+                end = Offset(x, y1),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round
+            )
+        }
+
+        // "now" marker
+        drawLine(
+            color = Color.White.copy(alpha = 0.55f),
+            start = Offset(w, 0f),
+            end = Offset(w, h),
+            strokeWidth = 1.dp.toPx()
+        )
+    }
+}
+
 
 
 @Composable
@@ -197,6 +431,23 @@ private fun circularDelta(a: Float, b: Float): Float {
 fun TapScreen(
     showOscDot: Boolean,
     showStatusLine: Boolean,
+    statusLineAlpha: Float = 1.0f,
+    preflightAlpha: Float = 1.0f,
+    timelineAlpha: Float = 1.0f,
+    showPreflight: Boolean,
+    preflightMode: PreflightMode,
+    statusbarAutoDimWarn: Boolean,
+    showTimeline: Boolean,
+    timelineWindowMs: Long,
+    timelineShowLocal: Boolean,
+    timelineShowRemote: Boolean,
+    timelineShowHealth: Boolean,
+    timelineImportantOnly: Boolean,
+    timelineRemoteAlpha: Float,
+    remoteEventMinIntervalMs: Long,
+    preflightPhaseOkMs: Long,
+    preflightDownbeatOkMs: Long,
+    preflightOutOkMs: Long,
     activePresetName: String,
     activeTargetIp: String,
     activeTargetPort: Int,
@@ -205,6 +456,8 @@ fun TapScreen(
 
     // Link health (Heartbeat Pong)
     lastPongMs: StateFlow<Long>,
+    lastPhaseRxMs: StateFlow<Long>,
+    lastDownbeatRxMs: StateFlow<Long>,
     heartbeatEnabled: Boolean,
     signalGraceMs: Long,
 
@@ -471,10 +724,65 @@ fun safePhase(v: Float, default: Float = 0f): Float {
         }
     }
 
+
+// ===== Timeline (last N seconds) =====
+val timelineWindowMsSafe = timelineWindowMs.coerceIn(2000L, 15000L)
+var timelineNowMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
+val timelineEvents = remember { androidx.compose.runtime.mutableStateListOf<TimelineEvent>() }
+
+fun pushTimeline(kind: TimelineKind) {
+    val t = SystemClock.elapsedRealtime()
+    timelineEvents.add(TimelineEvent(atMs = t, kind = kind))
+    // hard cap to avoid unbounded growth even if prune loop stalls
+    if (timelineEvents.size > 96) {
+        timelineEvents.subList(0, timelineEvents.size - 96).clear()
+    }
+}
+
+// Remote spam guard for timeline (Resolume can flood)
+val remoteDebounceMs = remoteEventMinIntervalMs.coerceIn(0L, 2000L)
+var lastRemoteTimelineMs by remember { mutableStateOf(0L) }
+
+fun pushTimelineRemote(kind: TimelineKind) {
+    val now = SystemClock.elapsedRealtime()
+    // Debounce only the noisy kinds (keep TAP/RESYNC crisp)
+    val debouncedKinds = setOf(
+        TimelineKind.REMOTE_MULTIPLY,
+        TimelineKind.REMOTE_DIVIDE,
+        TimelineKind.REMOTE_NUDGE
+    )
+    if (remoteDebounceMs > 0L && kind in debouncedKinds) {
+        if (now - lastRemoteTimelineMs < remoteDebounceMs) return
+        lastRemoteTimelineMs = now
+    }
+    pushTimeline(kind)
+}
+
+// Drive "now" + prune old events. Only when status HUD is shown.
+LaunchedEffect(showStatusLine, showTimeline, timelineWindowMsSafe) {
+    if (!showStatusLine || !showTimeline) return@LaunchedEffect
+    while (isActive) {
+        val now = SystemClock.elapsedRealtime()
+        timelineNowMs = now
+        val cut = now - timelineWindowMsSafe
+        while (timelineEvents.isNotEmpty() && timelineEvents.first().atMs < cut) {
+            timelineEvents.removeAt(0)
+        }
+        delay(66L)
+    }
+}
+
     // Remote transport in (Resolume -> Watch): NO goblin flash
     LaunchedEffect(remoteAnimationsEnabled, animationsEnabled, rippleEnabled, remoteGhostModeEnabled) {
         externalTransportIn.collect { fb ->
             pulseOsc()
+            when (fb) {
+                TransportFeedback.Tap -> pushTimelineRemote(TimelineKind.REMOTE_TAP)
+                TransportFeedback.Multiply -> pushTimelineRemote(TimelineKind.REMOTE_MULTIPLY)
+                TransportFeedback.Divide -> pushTimelineRemote(TimelineKind.REMOTE_DIVIDE)
+                TransportFeedback.Resync -> pushTimelineRemote(TimelineKind.REMOTE_RESYNC)
+                TransportFeedback.NudgeStart, TransportFeedback.NudgeStop -> pushTimelineRemote(TimelineKind.REMOTE_NUDGE)
+            }
             if (!animationsEnabled || !remoteAnimationsEnabled || !rippleEnabled) return@collect
             if (!remoteTransportLimiter.allow()) return@collect
 
@@ -505,8 +813,20 @@ fun safePhase(v: Float, default: Float = 0f): Float {
         OscHealth.Idle -> Color(0xFFB86CFF)
     }
 
+
+
+LaunchedEffect(health) {
+    when (health) {
+        is OscHealth.Sending -> pushTimeline(TimelineKind.OSC_OUT)
+        is OscHealth.Error -> pushTimeline(TimelineKind.OSC_ERR)
+        else -> Unit
+    }
+}
+
 // Heartbeat-based link state (do NOT depend on BPM updates)
 val lastPong by lastPongMs.collectAsState()
+val lastPhaseRx by lastPhaseRxMs.collectAsState()
+val lastDownbeatRx by lastDownbeatRxMs.collectAsState()
 var signalNowMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
 
 // Keep signal freshness updated at low frequency (avoid 30Hz recomposition in Settings/idle cases)
@@ -532,6 +852,13 @@ val hasSignal = remember(heartbeatEnabled, lastPong, signalNowMs, signalGraceMs)
     else lastPong > 0L && (signalNowMs - lastPong) <= signalGraceMs
 }
 
+
+
+// Timeline: record each pong as a blip
+LaunchedEffect(lastPong) {
+    if (lastPong > 0L) pushTimeline(TimelineKind.PONG)
+}
+
     val goblinBaseAlphaTarget = if (hasSignal) 1f else 0.35f
     val goblinBaseAlpha by animateFloatAsState(
         targetValue = goblinBaseAlphaTarget,
@@ -549,6 +876,7 @@ val hasSignal = remember(heartbeatEnabled, lastPong, signalNowMs, signalGraceMs)
     var stability by remember { mutableStateOf(1f) }
     var prevPhase by remember { mutableStateOf(0f) }
     var lastDownbeatTriggerMs by remember { mutableStateOf(0L) }
+
 
     LaunchedEffect(hasSignal, extBpm, ghost, extConf) {
         if (!hasSignal) {
@@ -683,6 +1011,7 @@ if (!swipeHandled && zone == TouchZone.RIGHT_EDGE) {
 
                                 if (nudgePlus) action.nudgeRightStart() else action.nudgeLeftStart()
                                 lightHaptic()
+                                pushTimeline(TimelineKind.LOCAL_NUDGE)
 
                                 val kind = if (nudgePlus) RippleKind.NUDGE_PLUS else RippleKind.NUDGE_MINUS
 
@@ -718,10 +1047,12 @@ if (!swipeHandled && zone == TouchZone.RIGHT_EDGE) {
                                 if (dyT < 0) {
                                     action.multiply()
                                     lightHaptic()
+                                    pushTimeline(TimelineKind.LOCAL_MULTIPLY)
                                     startRipple(Voice.LOCAL, RippleKind.MULTIPLY, hold = false)
                                 } else {
                                     action.divide()
                                     lightHaptic()
+                                    pushTimeline(TimelineKind.LOCAL_DIVIDE)
                                     startRipple(Voice.LOCAL, RippleKind.DIVIDE, hold = false)
                                 }
                                 return@pointerInteropFilter true
@@ -731,6 +1062,7 @@ if (!swipeHandled && zone == TouchZone.RIGHT_EDGE) {
                                 swipeHandled = true
                                 action.resync()
                                 strongHaptic()
+                                pushTimeline(TimelineKind.LOCAL_RESYNC)
                                 startRipple(Voice.LOCAL, RippleKind.RESYNC, hold = false)
                                 return@pointerInteropFilter true
                             }
@@ -745,6 +1077,7 @@ if (!swipeHandled && zone == TouchZone.RIGHT_EDGE) {
                         if (zone == TouchZone.LEFT) {
                             if (nudgeStarted) {
                                 action.nudgeStop()
+                                pushTimeline(TimelineKind.LOCAL_NUDGE)
                             }
                             nudgeStarted = false
 
@@ -769,6 +1102,7 @@ if (!swipeHandled && zone == TouchZone.RIGHT_EDGE) {
                                 if (animationsEnabled && goblinFlashEnabled) goblinFlashTrigger++
                                 action.tap()
                                 lightHaptic()
+                                pushTimeline(TimelineKind.LOCAL_TAP)
                                 startRipple(Voice.LOCAL, RippleKind.TAP, hold = false)
                             }
                         }
@@ -790,10 +1124,39 @@ if (showStatusLine && statusText.isNotEmpty()) {
     // Mouth-ish anchor: center + down a bit (round screens need a bigger safe offset)
     val y = if (isRound) (minDp * 0.18f) else 64.dp
 
+    // Preflight lamps (live sanity): Pong / Inbound phase+downbeat / OSC out
+    val nowHud = timelineNowMs
+    val phaseOk = (lastPhaseRx > 0L && (nowHud - lastPhaseRx) <= preflightPhaseOkMs) ||
+        (lastDownbeatRx > 0L && (nowHud - lastDownbeatRx) <= preflightDownbeatOkMs)
+
+    val inboundColor = when {
+        !heartbeatEnabled -> GoblinDim
+        !hasSignal -> Color(0xFFFF6D6D)
+        phaseOk -> Color(0xFF6DFF8F)
+        else -> Color(0xFFFFD36D)
+    }
+
+    val outColor = when (health) {
+        is OscHealth.Error -> Color(0xFFFF6D6D)
+        is OscHealth.Sending -> {
+            val age = nowHud - (health as OscHealth.Sending).atMs
+            if (age <= preflightOutOkMs) Color(0xFF6DFF8F) else GoblinDim
+        }
+        OscHealth.Idle -> GoblinDim
+    }
+
     val c = when {
         !heartbeatEnabled -> GoblinDim
         hasSignal -> Color(0xFF6DFF8F)
         else -> Color(0xFFFF6D6D)
+    }
+
+    val warnTint = if (!statusbarAutoDimWarn) null else when {
+        !heartbeatEnabled -> null
+        !hasSignal -> Color(0xFFFF6D6D)
+        inboundColor == Color(0xFFFF6D6D) -> Color(0xFFFF6D6D)
+        inboundColor == Color(0xFFFFD36D) -> Color(0xFFFFD36D)
+        else -> null
     }
 
     Box(
@@ -805,7 +1168,36 @@ if (showStatusLine && statusText.isNotEmpty()) {
             .zIndex(30f),
         contentAlignment = Alignment.Center
     ) {
-        StatusPill(text = statusText, stateColor = c)
+        StatusPill(
+            text = statusText,
+            stateColor = c,
+            warnTint = warnTint,
+            modifier = Modifier.alpha(safe01(statusLineAlpha, 1f))
+        )
+
+        if (showPreflight) {
+            val minimal = (preflightMode == PreflightMode.MINIMAL)
+            Row(
+                modifier = Modifier
+                    .padding(top = if (minimal) 6.dp else 8.dp)
+                    .fillMaxWidth()
+                    .alpha(safe01(preflightAlpha, 1f)),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                StatusLamp(
+                    label = if (minimal) null else "P",
+                    color = when {
+                        !heartbeatEnabled -> GoblinDim
+                        hasSignal -> Color(0xFF6DFF8F)
+                        else -> Color(0xFFFF6D6D)
+                    }
+                )
+                Spacer(modifier = Modifier.width(if (minimal) 8.dp else 10.dp))
+                StatusLamp(label = if (minimal) null else "IN", color = inboundColor)
+                Spacer(modifier = Modifier.width(if (minimal) 8.dp else 10.dp))
+                StatusLamp(label = if (minimal) null else "OUT", color = outColor)
+            }
+        }
     }
 }
 
@@ -851,6 +1243,29 @@ if (showStatusLine && statusText.isNotEmpty()) {
                 modifier = Modifier.fillMaxWidth()
             )
         }
+
+
+// Timeline lane (last few seconds): blips for transport / pong / osc out
+if (showStatusLine && showTimeline) {
+    Box(
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .offset(y = (-10).dp)
+            .zIndex(25f)
+            .alpha(safe01(timelineAlpha, 1f))
+    ) {
+        TimelineLane(
+            nowMs = timelineNowMs,
+            windowMs = timelineWindowMsSafe,
+            events = timelineEvents,
+            showLocal = timelineShowLocal,
+            showRemote = timelineShowRemote,
+            showHealth = timelineShowHealth,
+            importantOnly = timelineImportantOnly,
+            remoteAlpha = timelineRemoteAlpha
+        )
+    }
+}
 
         // OSC Monitor: fullscreen, scrollable, close (X) bottom-center
         if (showOscDebug) {
