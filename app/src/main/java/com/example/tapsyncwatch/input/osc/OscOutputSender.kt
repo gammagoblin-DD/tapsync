@@ -1,5 +1,6 @@
 package com.example.tapsyncwatch.input.osc
 
+import android.os.SystemClock
 import android.util.Log
 import com.example.tapsyncwatch.domain.transport.TransportFeedback
 import com.example.tapsyncwatch.osc.OscHealth
@@ -93,7 +94,7 @@ class OscOutputSender(
                     socket = DatagramSocket()
                 }
 
-                _health.value = OscHealth.Sending(System.currentTimeMillis())
+                _health.value = OscHealth.Sending(SystemClock.elapsedRealtime())
 
                 val packet = DatagramPacket(
                     data,

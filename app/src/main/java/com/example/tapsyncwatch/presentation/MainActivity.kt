@@ -202,6 +202,28 @@ class MainActivity : ComponentActivity() {
                             externalTransportIn = oscReceiver.transportIn,
                             showOscDot = s.showOscDot,
                             showStatusLine = s.showStatusLine,
+                            statusLineAlpha = s.statusLineAlpha,
+                            preflightAlpha = s.preflightAlpha,
+                            timelineAlpha = s.timelineAlpha,
+
+                            showPreflight = s.showPreflight,
+                            preflightMode = s.preflightMode,
+                            statusbarAutoDimWarn = s.statusbarAutoDimWarn,
+
+                            showTimeline = s.showTimeline,
+                            timelineWindowMs = s.timelineWindowMs,
+
+                            timelineShowLocal = s.timelineShowLocal,
+                            timelineShowRemote = s.timelineShowRemote,
+                            timelineShowHealth = s.timelineShowHealth,
+                            timelineImportantOnly = s.timelineImportantOnly,
+                            timelineRemoteAlpha = s.timelineRemoteAlpha,
+                            remoteEventMinIntervalMs = s.remoteEventMinIntervalMs,
+
+preflightPhaseOkMs = s.preflightPhaseOkMs,
+preflightDownbeatOkMs = s.preflightDownbeatOkMs,
+preflightOutOkMs = s.preflightOutOkMs,
+
                             activePresetName = s.presets.getOrNull(s.activePreset)?.name
                                 ?: "Preset",
                             activeTargetIp = s.presets.getOrNull(s.activePreset)?.ip ?: "-",
@@ -210,6 +232,8 @@ class MainActivity : ComponentActivity() {
                             bpm = clockState.bpm,
 
                             lastPongMs = oscReceiver.lastPongMs,
+                            lastPhaseRxMs = oscReceiver.lastPhaseRxMs,
+                            lastDownbeatRxMs = oscReceiver.lastDownbeatRxMs,
                             heartbeatEnabled = s.heartbeatEnabled,
                             signalGraceMs = s.signalGraceMs,
 
@@ -224,6 +248,16 @@ class MainActivity : ComponentActivity() {
                              fxAlpha = s.fxAlpha,
                              phaseAlpha = s.phaseAlpha,
                              ghostAlpha = s.ghostAlpha,
+                            // Phase 5: Goblin Instrument visuals
+                            moodsEnabled = s.moodsEnabled,
+                            moodIntensity = s.moodIntensity,
+                            phaseAuraEnabled = s.phaseAuraEnabled,
+                            microParticlesEnabled = s.microParticlesEnabled,
+                            visualSwing = s.visualSwing,
+                            ghostEchoEnabled = s.ghostEchoEnabled,
+                            ghostEchoStrength = s.ghostEchoStrength,
+
+
                             animationsEnabled = s.animationsEnabled,
                             remoteAnimationsEnabled = s.remoteAnimationsEnabled,
                             remoteGhostModeEnabled = s.remoteGhostModeEnabled,

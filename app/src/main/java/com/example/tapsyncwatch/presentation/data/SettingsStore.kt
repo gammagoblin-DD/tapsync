@@ -72,6 +72,44 @@ object SettingsKeys {
 
     // TapScreen HUD
     val SHOW_STATUS_LINE = booleanPreferencesKey("show_status_line")
+
+    // HUD Opacity (0..1)
+    val STATUS_LINE_ALPHA = floatPreferencesKey("status_line_alpha")
+    val PREFLIGHT_ALPHA = floatPreferencesKey("preflight_alpha")
+    val TIMELINE_ALPHA = floatPreferencesKey("timeline_alpha")
+
+
+    // Phase 2: Preflight + Timeline
+    val SHOW_PREFLIGHT = booleanPreferencesKey("show_preflight")
+    val SHOW_TIMELINE = booleanPreferencesKey("show_timeline")
+    val TIMELINE_WINDOW_MS = longPreferencesKey("timeline_window_ms")
+
+// Phase 2.2: Preflight thresholds (ms)
+val PREFLIGHT_PHASE_OK_MS = longPreferencesKey("preflight_phase_ok_ms")
+val PREFLIGHT_DOWNBEAT_OK_MS = longPreferencesKey("preflight_downbeat_ok_ms")
+val PREFLIGHT_OUT_OK_MS = longPreferencesKey("preflight_out_ok_ms")
+
+    // Phase 2.4: Timeline lanes + filters + remote noise control
+    val TIMELINE_SHOW_LOCAL = booleanPreferencesKey("timeline_show_local")
+    val TIMELINE_SHOW_REMOTE = booleanPreferencesKey("timeline_show_remote")
+    val TIMELINE_SHOW_HEALTH = booleanPreferencesKey("timeline_show_health")
+    val TIMELINE_IMPORTANT_ONLY = booleanPreferencesKey("timeline_important_only")
+    val TIMELINE_REMOTE_ALPHA = floatPreferencesKey("timeline_remote_alpha")
+    val REMOTE_EVENT_MIN_INTERVAL_MS = longPreferencesKey("remote_event_min_interval_ms")
+
+    // Phase 2.4: Preflight mode + HUD auto-dim
+    val PREFLIGHT_MODE = stringPreferencesKey("preflight_mode")
+    val STATUSBAR_AUTO_DIM_WARN = booleanPreferencesKey("statusbar_auto_dim_warn")
+
+    // Phase 5: Goblin Instrument visuals
+    val MOODS_ENABLED = booleanPreferencesKey("moods_enabled")
+    val MOOD_INTENSITY = floatPreferencesKey("mood_intensity")
+    val PHASE_AURA_ENABLED = booleanPreferencesKey("phase_aura_enabled")
+    val MICRO_PARTICLES_ENABLED = booleanPreferencesKey("micro_particles_enabled")
+    val VISUAL_SWING = floatPreferencesKey("visual_swing")
+    val GHOST_ECHO_ENABLED = booleanPreferencesKey("ghost_echo_enabled")
+    val GHOST_ECHO_STRENGTH = floatPreferencesKey("ghost_echo_strength")
+
 }
 
 /* =========================================================
@@ -84,11 +122,38 @@ data class OscTarget(
     val port: Int
 )
 
+enum class PreflightMode { FULL, MINIMAL }
+
 data class SettingsState(
     val presets: List<OscTarget>,
     val activePreset: Int,
     val showOscDot: Boolean,
     val showStatusLine: Boolean,
+
+    // HUD opacity (0..1)
+    val statusLineAlpha: Float,
+    val preflightAlpha: Float,
+    val timelineAlpha: Float,
+
+    // TapScreen HUD (Phase 2)
+    val showPreflight: Boolean,
+    val preflightMode: PreflightMode,
+    val statusbarAutoDimWarn: Boolean,
+
+    val showTimeline: Boolean,
+    val timelineWindowMs: Long,
+
+    // Phase 2.4: Timeline lanes + filters + remote noise control
+    val timelineShowLocal: Boolean,
+    val timelineShowRemote: Boolean,
+    val timelineShowHealth: Boolean,
+    val timelineImportantOnly: Boolean,
+    val timelineRemoteAlpha: Float,
+    val remoteEventMinIntervalMs: Long,
+
+    val preflightPhaseOkMs: Long,
+val preflightDownbeatOkMs: Long,
+val preflightOutOkMs: Long,
 
     // UI monitors
     val showExternalBpm: Boolean,
@@ -100,6 +165,15 @@ data class SettingsState(
     val fxAlpha: Float,
     val phaseAlpha: Float,
     val ghostAlpha: Float,
+
+    // Phase 5: Goblin Instrument visuals
+    val moodsEnabled: Boolean,
+    val moodIntensity: Float,
+    val phaseAuraEnabled: Boolean,
+    val microParticlesEnabled: Boolean,
+    val visualSwing: Float,
+    val ghostEchoEnabled: Boolean,
+    val ghostEchoStrength: Float,
 
     // UI motion
     val animationsEnabled: Boolean,
@@ -141,6 +215,28 @@ val DEFAULT_SETTINGS_STATE = SettingsState(
     showOscDot = true,
     showStatusLine = true,
 
+    statusLineAlpha = 1.0f,
+    preflightAlpha = 1.0f,
+    timelineAlpha = 1.0f,
+
+    showPreflight = true,
+    preflightMode = PreflightMode.FULL,
+    statusbarAutoDimWarn = false,
+
+    showTimeline = true,
+    timelineWindowMs = 5000L,
+
+    timelineShowLocal = true,
+    timelineShowRemote = true,
+    timelineShowHealth = true,
+    timelineImportantOnly = false,
+    timelineRemoteAlpha = 0.60f,
+    remoteEventMinIntervalMs = 120L,
+
+    preflightPhaseOkMs = 1500L,
+preflightDownbeatOkMs = 6000L,
+preflightOutOkMs = 6000L,
+
     showExternalBpm = true,
     showOscDebug = false,
     phaseVisualizerEnabled = true,
@@ -149,6 +245,14 @@ val DEFAULT_SETTINGS_STATE = SettingsState(
     fxAlpha = 1.0f,
     phaseAlpha = 1.0f,
     ghostAlpha = 1.0f,
+
+    moodsEnabled = true,
+    moodIntensity = 0.08f,
+    phaseAuraEnabled = true,
+    microParticlesEnabled = true,
+    visualSwing = 0.0f,
+    ghostEchoEnabled = true,
+    ghostEchoStrength = 0.35f,
 
     animationsEnabled = true,
     remoteAnimationsEnabled = true,
@@ -205,6 +309,31 @@ class SettingsStore(
                 showOscDot = prefs[SettingsKeys.SHOW_OSC_DOT] ?: DEFAULT_SETTINGS_STATE.showOscDot,
                 showStatusLine = prefs[SettingsKeys.SHOW_STATUS_LINE] ?: DEFAULT_SETTINGS_STATE.showStatusLine,
 
+                statusLineAlpha = ((prefs[SettingsKeys.STATUS_LINE_ALPHA] ?: DEFAULT_SETTINGS_STATE.statusLineAlpha).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.statusLineAlpha }).coerceIn(0f, 1f),
+                preflightAlpha = ((prefs[SettingsKeys.PREFLIGHT_ALPHA] ?: DEFAULT_SETTINGS_STATE.preflightAlpha).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.preflightAlpha }).coerceIn(0f, 1f),
+                timelineAlpha = ((prefs[SettingsKeys.TIMELINE_ALPHA] ?: DEFAULT_SETTINGS_STATE.timelineAlpha).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.timelineAlpha }).coerceIn(0f, 1f),
+
+                showPreflight = prefs[SettingsKeys.SHOW_PREFLIGHT] ?: DEFAULT_SETTINGS_STATE.showPreflight,
+                preflightMode = runCatching {
+                    PreflightMode.valueOf(prefs[SettingsKeys.PREFLIGHT_MODE] ?: DEFAULT_SETTINGS_STATE.preflightMode.name)
+                }.getOrElse { DEFAULT_SETTINGS_STATE.preflightMode },
+                statusbarAutoDimWarn = prefs[SettingsKeys.STATUSBAR_AUTO_DIM_WARN] ?: DEFAULT_SETTINGS_STATE.statusbarAutoDimWarn,
+
+                showTimeline = prefs[SettingsKeys.SHOW_TIMELINE] ?: DEFAULT_SETTINGS_STATE.showTimeline,
+                timelineWindowMs = (prefs[SettingsKeys.TIMELINE_WINDOW_MS] ?: DEFAULT_SETTINGS_STATE.timelineWindowMs).coerceIn(2000L, 15000L),
+
+                timelineShowLocal = prefs[SettingsKeys.TIMELINE_SHOW_LOCAL] ?: DEFAULT_SETTINGS_STATE.timelineShowLocal,
+                timelineShowRemote = prefs[SettingsKeys.TIMELINE_SHOW_REMOTE] ?: DEFAULT_SETTINGS_STATE.timelineShowRemote,
+                timelineShowHealth = prefs[SettingsKeys.TIMELINE_SHOW_HEALTH] ?: DEFAULT_SETTINGS_STATE.timelineShowHealth,
+                timelineImportantOnly = prefs[SettingsKeys.TIMELINE_IMPORTANT_ONLY] ?: DEFAULT_SETTINGS_STATE.timelineImportantOnly,
+                timelineRemoteAlpha = ((prefs[SettingsKeys.TIMELINE_REMOTE_ALPHA] ?: DEFAULT_SETTINGS_STATE.timelineRemoteAlpha).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.timelineRemoteAlpha }).coerceIn(0f, 1f),
+                remoteEventMinIntervalMs = (prefs[SettingsKeys.REMOTE_EVENT_MIN_INTERVAL_MS] ?: DEFAULT_SETTINGS_STATE.remoteEventMinIntervalMs).coerceIn(0L, 2000L),
+
+preflightPhaseOkMs = (prefs[SettingsKeys.PREFLIGHT_PHASE_OK_MS] ?: DEFAULT_SETTINGS_STATE.preflightPhaseOkMs).coerceIn(300L, 8000L),
+preflightDownbeatOkMs = (prefs[SettingsKeys.PREFLIGHT_DOWNBEAT_OK_MS] ?: DEFAULT_SETTINGS_STATE.preflightDownbeatOkMs).coerceIn(500L, 15000L),
+preflightOutOkMs = (prefs[SettingsKeys.PREFLIGHT_OUT_OK_MS] ?: DEFAULT_SETTINGS_STATE.preflightOutOkMs).coerceIn(500L, 15000L),
+
+
                 showExternalBpm = prefs[SettingsKeys.SHOW_EXTERNAL_BPM] ?: DEFAULT_SETTINGS_STATE.showExternalBpm,
                 showOscDebug = prefs[SettingsKeys.SHOW_OSC_DEBUG] ?: DEFAULT_SETTINGS_STATE.showOscDebug,
                 phaseVisualizerEnabled = prefs[SettingsKeys.PHASE_VISUALIZER_ENABLED] ?: DEFAULT_SETTINGS_STATE.phaseVisualizerEnabled,
@@ -213,6 +342,16 @@ class SettingsStore(
                 fxAlpha = ((prefs[SettingsKeys.FX_ALPHA] ?: DEFAULT_SETTINGS_STATE.fxAlpha).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.fxAlpha }).coerceIn(0.30f, 2.00f),
                 phaseAlpha = ((prefs[SettingsKeys.PHASE_ALPHA] ?: DEFAULT_SETTINGS_STATE.phaseAlpha).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.phaseAlpha }).coerceIn(0.30f, 2.00f),
                 ghostAlpha = ((prefs[SettingsKeys.GHOST_ALPHA] ?: DEFAULT_SETTINGS_STATE.ghostAlpha).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.ghostAlpha }).coerceIn(0.30f, 2.00f),
+
+
+                // Phase 5: Goblin Instrument visuals
+                moodsEnabled = prefs[SettingsKeys.MOODS_ENABLED] ?: DEFAULT_SETTINGS_STATE.moodsEnabled,
+                moodIntensity = ((prefs[SettingsKeys.MOOD_INTENSITY] ?: DEFAULT_SETTINGS_STATE.moodIntensity).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.moodIntensity }).coerceIn(0f, 0.20f),
+                phaseAuraEnabled = prefs[SettingsKeys.PHASE_AURA_ENABLED] ?: DEFAULT_SETTINGS_STATE.phaseAuraEnabled,
+                microParticlesEnabled = prefs[SettingsKeys.MICRO_PARTICLES_ENABLED] ?: DEFAULT_SETTINGS_STATE.microParticlesEnabled,
+                visualSwing = ((prefs[SettingsKeys.VISUAL_SWING] ?: DEFAULT_SETTINGS_STATE.visualSwing).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.visualSwing }).coerceIn(0f, 0.25f),
+                ghostEchoEnabled = prefs[SettingsKeys.GHOST_ECHO_ENABLED] ?: DEFAULT_SETTINGS_STATE.ghostEchoEnabled,
+                ghostEchoStrength = ((prefs[SettingsKeys.GHOST_ECHO_STRENGTH] ?: DEFAULT_SETTINGS_STATE.ghostEchoStrength).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.ghostEchoStrength }).coerceIn(0f, 1f),
 
                 animationsEnabled = prefs[SettingsKeys.ANIMATIONS_ENABLED] ?: DEFAULT_SETTINGS_STATE.animationsEnabled,
                 remoteAnimationsEnabled = prefs[SettingsKeys.REMOTE_ANIMATIONS_ENABLED] ?: DEFAULT_SETTINGS_STATE.remoteAnimationsEnabled,
@@ -251,6 +390,100 @@ class SettingsStore(
         context.dataStore.edit { it[SettingsKeys.SHOW_STATUS_LINE] = enabled }
     }
 
+    suspend fun setStatusLineAlpha(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.statusLineAlpha
+            prefs[SettingsKeys.STATUS_LINE_ALPHA] = v.coerceIn(0f, 1f)
+        }
+    }
+
+    suspend fun setPreflightAlpha(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.preflightAlpha
+            prefs[SettingsKeys.PREFLIGHT_ALPHA] = v.coerceIn(0f, 1f)
+        }
+    }
+
+    suspend fun setTimelineAlpha(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.timelineAlpha
+            prefs[SettingsKeys.TIMELINE_ALPHA] = v.coerceIn(0f, 1f)
+        }
+    }
+
+
+    // Phase 2 HUD
+    suspend fun setShowPreflight(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.SHOW_PREFLIGHT] = enabled }
+    }
+
+    suspend fun setShowTimeline(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.SHOW_TIMELINE] = enabled }
+    }
+
+    suspend fun setTimelineWindowMs(value: Long) {
+        context.dataStore.edit {
+            it[SettingsKeys.TIMELINE_WINDOW_MS] = value.coerceIn(2000L, 15000L)
+        }
+    }
+
+    // Phase 2.4: Timeline lanes + filters
+    suspend fun setTimelineShowLocal(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.TIMELINE_SHOW_LOCAL] = enabled }
+    }
+
+    suspend fun setTimelineShowRemote(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.TIMELINE_SHOW_REMOTE] = enabled }
+    }
+
+    suspend fun setTimelineShowHealth(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.TIMELINE_SHOW_HEALTH] = enabled }
+    }
+
+    suspend fun setTimelineImportantOnly(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.TIMELINE_IMPORTANT_ONLY] = enabled }
+    }
+
+    suspend fun setTimelineRemoteAlpha(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.timelineRemoteAlpha
+            prefs[SettingsKeys.TIMELINE_REMOTE_ALPHA] = v.coerceIn(0f, 1f)
+        }
+    }
+
+    suspend fun setRemoteEventMinIntervalMs(value: Long) {
+        context.dataStore.edit {
+            it[SettingsKeys.REMOTE_EVENT_MIN_INTERVAL_MS] = value.coerceIn(0L, 2000L)
+        }
+    }
+
+    // Phase 2.4: Preflight mode + HUD auto-dim
+    suspend fun setPreflightMode(mode: PreflightMode) {
+        context.dataStore.edit { it[SettingsKeys.PREFLIGHT_MODE] = mode.name }
+    }
+
+    suspend fun setStatusbarAutoDimWarn(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.STATUSBAR_AUTO_DIM_WARN] = enabled }
+    }
+
+suspend fun setPreflightPhaseOkMs(value: Long) {
+    context.dataStore.edit {
+        it[SettingsKeys.PREFLIGHT_PHASE_OK_MS] = value.coerceIn(300L, 8000L)
+    }
+}
+
+suspend fun setPreflightDownbeatOkMs(value: Long) {
+    context.dataStore.edit {
+        it[SettingsKeys.PREFLIGHT_DOWNBEAT_OK_MS] = value.coerceIn(500L, 15000L)
+    }
+}
+
+suspend fun setPreflightOutOkMs(value: Long) {
+    context.dataStore.edit {
+        it[SettingsKeys.PREFLIGHT_OUT_OK_MS] = value.coerceIn(500L, 15000L)
+    }
+}
+
     suspend fun setShowExternalBpm(show: Boolean) {
         context.dataStore.edit { it[SettingsKeys.SHOW_EXTERNAL_BPM] = show }
     }
@@ -286,6 +519,45 @@ class SettingsStore(
         context.dataStore.edit { prefs ->
             val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.ghostAlpha
             prefs[SettingsKeys.GHOST_ALPHA] = (if (v.isFinite()) v else DEFAULT_SETTINGS_STATE.ghostAlpha).coerceIn(0.30f, 2.00f)
+        }
+    }
+
+
+    // Phase 5: Goblin Instrument visuals
+    suspend fun setMoodsEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.MOODS_ENABLED] = enabled }
+    }
+
+    suspend fun setMoodIntensity(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.moodIntensity
+            prefs[SettingsKeys.MOOD_INTENSITY] = v.coerceIn(0f, 0.20f)
+        }
+    }
+
+    suspend fun setPhaseAuraEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.PHASE_AURA_ENABLED] = enabled }
+    }
+
+    suspend fun setMicroParticlesEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.MICRO_PARTICLES_ENABLED] = enabled }
+    }
+
+    suspend fun setVisualSwing(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.visualSwing
+            prefs[SettingsKeys.VISUAL_SWING] = v.coerceIn(0f, 0.25f)
+        }
+    }
+
+    suspend fun setGhostEchoEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.GHOST_ECHO_ENABLED] = enabled }
+    }
+
+    suspend fun setGhostEchoStrength(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.ghostEchoStrength
+            prefs[SettingsKeys.GHOST_ECHO_STRENGTH] = v.coerceIn(0f, 1f)
         }
     }
 
