@@ -82,6 +82,7 @@ private enum class SettingsPage {
     MOTION_FX,
     HAPTICS,
     NETWORK,
+    NETWORK_DEBUG,
     CLOCK,
     TARGETS,
     TARGET_EDIT
@@ -110,6 +111,23 @@ private fun SettingsTitleRow(
             overflow = TextOverflow.Ellipsis
         )
     }
+}
+
+@Composable
+private fun SettingsSectionHeader(
+    title: String
+) {
+    // Small, watch-friendly section label used inside LazyColumn.
+    Text(
+        text = title.uppercase(),
+        color = GoblinDim,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.6.sp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 2.dp, start = 6.dp, end = 6.dp)
+    )
 }
 
 
@@ -1445,6 +1463,8 @@ BackHandler {
                     item { SettingsToggleChip("Nur Vordergrund", "weniger OSC + Akku", s.heartbeatForegroundOnly, enabled = s.heartbeatEnabled) { v -> scope.launch { settingsStore.setHeartbeatForegroundOnly(v) } } }
                     item { SettingsToggleChip("Adaptive recovery", "ping schneller wenn down", s.heartbeatAdaptiveEnabled, enabled = s.heartbeatEnabled) { v -> scope.launch { settingsStore.setHeartbeatAdaptiveEnabled(v) } } }
 
+                    item { SettingsNavChip(Icons.Filled.BugReport, "Debug", "OSC, Timeline, Preflight, FX") { push(SettingsPage.NETWORK_DEBUG) } }
+
                     item {
                         val shape = RoundedCornerShape(26.dp)
                         Column(
@@ -1467,6 +1487,52 @@ BackHandler {
                             Text("Grace: ${s.signalGraceMs}ms", color = GoblinDim, fontSize = 11.sp)
                         }
                     }
+                }
+
+
+                SettingsPage.NETWORK_DEBUG -> {
+                    item { SettingsTitleRow("Debug", showBack = true) { pop() } }
+
+                    item { SettingsSectionHeader("OSC") }
+                    item { SettingsToggleChip("OSC Dot", "kleiner Aktivitäts-Punkt", s.showOscDot) { v -> scope.launch { settingsStore.setShowOscDot(v) } } }
+                    item { SettingsToggleChip("OSC Pulse", "kurzer Pulse bei OSC", s.oscPulseEnabled, enabled = s.animationsEnabled) { v -> scope.launch { settingsStore.setOscPulseEnabled(v) } } }
+                    item { SettingsToggleChip("OSC Monitor", "Input/Output Debug Overlay", s.showOscDebug) { v -> scope.launch { settingsStore.setShowOscDebug(v) } } }
+
+                    item { SettingsSectionHeader("HUD") }
+                    item { SettingsToggleChip("Statusbar", "Status oben", s.showStatusLine) { v -> scope.launch { settingsStore.setShowStatusLine(v) } } }
+                    item { SettingsSliderChip("Statusbar Opacity", "${(s.statusLineAlpha * 100f).roundToLong()}%", s.statusLineAlpha, 0f, 1f, enabled = s.showStatusLine) { v -> scope.launch { settingsStore.setStatusLineAlpha(v) } } }
+
+                    item { SettingsToggleChip("Preflight", "Health dots", s.showPreflight, enabled = s.showStatusLine) { v -> scope.launch { settingsStore.setShowPreflight(v) } } }
+                    item { SettingsNavChip(Icons.Filled.Tune, "Preflight Tuning", "Thresholds & Mode") { push(SettingsPage.PREFLIGHT_TUNING) } }
+
+                    item { SettingsToggleChip("Timeline", "Events overlay", s.showTimeline, enabled = s.showStatusLine) { v -> scope.launch { settingsStore.setShowTimeline(v) } } }
+                    item { SettingsSliderChip("Timeline Opacity", "${(s.timelineAlpha * 100f).roundToLong()}%", s.timelineAlpha, 0f, 1f, enabled = s.showTimeline && s.showStatusLine) { v -> scope.launch { settingsStore.setTimelineAlpha(v) } } }
+
+                    item { SettingsSectionHeader("Timeline Filter") }
+                    item { SettingsToggleChip("Local", "eigene Aktionen", s.timelineShowLocal, enabled = s.showTimeline) { v -> scope.launch { settingsStore.setTimelineShowLocal(v) } } }
+                    item { SettingsToggleChip("Remote", "Resolume/OSC", s.timelineShowRemote, enabled = s.showTimeline) { v -> scope.launch { settingsStore.setTimelineShowRemote(v) } } }
+                    item { SettingsToggleChip("Health", "Ping/Errors", s.timelineShowHealth, enabled = s.showTimeline) { v -> scope.launch { settingsStore.setTimelineShowHealth(v) } } }
+                    item { SettingsToggleChip("Important only", "Tap/Resync/Nudge + Errors", s.timelineImportantOnly, enabled = s.showTimeline) { v -> scope.launch { settingsStore.setTimelineImportantOnly(v) } } }
+                    item { SettingsSliderChip("Remote Alpha", "${(s.timelineRemoteAlpha * 100f).roundToLong()}%", s.timelineRemoteAlpha, 0.1f, 1f, enabled = s.showTimeline && s.timelineShowRemote) { v -> scope.launch { settingsStore.setTimelineRemoteAlpha(v) } } }
+                    item { SettingsSliderChip("Remote Debounce", "${s.remoteEventMinIntervalMs}ms", s.remoteEventMinIntervalMs.toFloat(), 0f, 500f, enabled = s.showTimeline && s.timelineShowRemote) { v -> scope.launch { settingsStore.setRemoteEventMinIntervalMs(v.roundToLong()) } } }
+
+                    item { SettingsSectionHeader("Visuals / Motion") }
+                    item { SettingsToggleChip("Animations", "Master switch", s.animationsEnabled) { v -> scope.launch { settingsStore.setAnimationsEnabled(v) } } }
+                    item { SettingsToggleChip("Ripples", "Transport rings", s.rippleEnabled, enabled = s.animationsEnabled) { v -> scope.launch { settingsStore.setRippleEnabled(v) } } }
+                    item { SettingsToggleChip("Phase Visualizer", "Ring phase dot", s.phaseVisualizerEnabled, enabled = s.animationsEnabled) { v -> scope.launch { settingsStore.setPhaseVisualizerEnabled(v) } } }
+                    item { SettingsToggleChip("Phase Spiral", "Spiral visual", s.phaseSpiralEnabled, enabled = s.animationsEnabled) { v -> scope.launch { settingsStore.setPhaseSpiralEnabled(v) } } }
+                    item { SettingsToggleChip("Remote Ghost", "remote visuals", s.remoteGhostModeEnabled, enabled = s.animationsEnabled) { v -> scope.launch { settingsStore.setRemoteGhostModeEnabled(v) } } }
+                    item { SettingsToggleChip("Remote Animations", "remote motion", s.remoteAnimationsEnabled, enabled = s.animationsEnabled) { v -> scope.launch { settingsStore.setRemoteAnimationsEnabled(v) } } }
+                    item { SettingsToggleChip("Goblin Flash", "accent flashes", s.goblinFlashEnabled, enabled = s.animationsEnabled) { v -> scope.launch { settingsStore.setGoblinFlashEnabled(v) } } }
+
+                    item { SettingsSectionHeader("Instrument") }
+                    item { SettingsToggleChip("Moods", "online grin / offline grummeln", s.moodsEnabled, enabled = s.animationsEnabled) { v -> scope.launch { settingsStore.setMoodsEnabled(v) } } }
+                    item { SettingsSliderChip("Mood Intensity", "${(s.moodIntensity * 100f).roundToLong()}%", s.moodIntensity, 0f, 0.2f, enabled = s.animationsEnabled && s.moodsEnabled) { v -> scope.launch { settingsStore.setMoodIntensity(v) } } }
+                    item { SettingsToggleChip("Aura", "nur wenn stable", s.phaseAuraEnabled, enabled = s.animationsEnabled) { v -> scope.launch { settingsStore.setPhaseAuraEnabled(v) } } }
+                    item { SettingsToggleChip("Micro Particles", "nur wenn stable", s.microParticlesEnabled, enabled = s.animationsEnabled) { v -> scope.launch { settingsStore.setMicroParticlesEnabled(v) } } }
+                    item { SettingsSliderChip("Swing", "${(s.visualSwing * 100f).roundToLong()}%", s.visualSwing, 0f, 0.3f, enabled = s.animationsEnabled) { v -> scope.launch { settingsStore.setVisualSwing(v) } } }
+                    item { SettingsToggleChip("Ghost Echo", "afterglow trail", s.ghostEchoEnabled, enabled = s.animationsEnabled) { v -> scope.launch { settingsStore.setGhostEchoEnabled(v) } } }
+                    item { SettingsSliderChip("Echo Strength", "${(s.ghostEchoStrength * 100f).roundToLong()}%", s.ghostEchoStrength, 0f, 1f, enabled = s.animationsEnabled && s.ghostEchoEnabled) { v -> scope.launch { settingsStore.setGhostEchoStrength(v) } } }
                 }
 
                 SettingsPage.CLOCK -> {

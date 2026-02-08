@@ -15,6 +15,7 @@ import com.example.tapsyncwatch.input.osc.OscOutputSender
 import com.example.tapsyncwatch.presentation.data.SettingsStore
 import com.example.tapsyncwatch.presentation.ui.TapScreen
 import com.example.tapsyncwatch.presentation.ui.FftGainScreen
+import com.example.tapsyncwatch.presentation.ui.DebugScreen
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -32,7 +33,7 @@ import android.view.KeyEvent.KEYCODE_STEM_2
 import androidx.activity.compose.BackHandler
 
 
-private enum class HomePage { TAP, FFT_GAIN }
+private enum class HomePage { TAP, FFT_GAIN, DEBUG }
 
 class MainActivity : ComponentActivity() {
 
@@ -138,7 +139,11 @@ class MainActivity : ComponentActivity() {
             var homePage by remember { mutableStateOf(HomePage.TAP) }
 
             BackHandler(enabled = !showSettings && homePage != HomePage.TAP) {
-                homePage = HomePage.TAP
+                homePage = when (homePage) {
+                    HomePage.DEBUG -> HomePage.FFT_GAIN
+                    HomePage.FFT_GAIN -> HomePage.TAP
+                    HomePage.TAP -> HomePage.TAP
+                }
             }
 
             // On TapScreen: Back should do nothing (stay in-app).
@@ -156,15 +161,16 @@ class MainActivity : ComponentActivity() {
             fun goNextPage() {
                 homePage = when (homePage) {
                     HomePage.TAP -> HomePage.FFT_GAIN
-                    HomePage.FFT_GAIN -> HomePage.TAP
+                    HomePage.FFT_GAIN -> HomePage.DEBUG
+                    HomePage.DEBUG -> HomePage.TAP
                 }
             }
 
             fun goPrevPage() {
-                // only 2 pages for now -> symmetric
                 homePage = when (homePage) {
-                    HomePage.TAP -> HomePage.FFT_GAIN
+                    HomePage.TAP -> HomePage.DEBUG
                     HomePage.FFT_GAIN -> HomePage.TAP
+                    HomePage.DEBUG -> HomePage.FFT_GAIN
                 }
             }
 
@@ -209,10 +215,8 @@ class MainActivity : ComponentActivity() {
                             showPreflight = s.showPreflight,
                             preflightMode = s.preflightMode,
                             statusbarAutoDimWarn = s.statusbarAutoDimWarn,
-
                             showTimeline = s.showTimeline,
                             timelineWindowMs = s.timelineWindowMs,
-
                             timelineShowLocal = s.timelineShowLocal,
                             timelineShowRemote = s.timelineShowRemote,
                             timelineShowHealth = s.timelineShowHealth,
@@ -220,9 +224,9 @@ class MainActivity : ComponentActivity() {
                             timelineRemoteAlpha = s.timelineRemoteAlpha,
                             remoteEventMinIntervalMs = s.remoteEventMinIntervalMs,
 
-preflightPhaseOkMs = s.preflightPhaseOkMs,
-preflightDownbeatOkMs = s.preflightDownbeatOkMs,
-preflightOutOkMs = s.preflightOutOkMs,
+                            preflightPhaseOkMs = s.preflightPhaseOkMs,
+                            preflightDownbeatOkMs = s.preflightDownbeatOkMs,
+                            preflightOutOkMs = s.preflightOutOkMs,
 
                             activePresetName = s.presets.getOrNull(s.activePreset)?.name
                                 ?: "Preset",
@@ -240,7 +244,9 @@ preflightOutOkMs = s.preflightOutOkMs,
                             showExternalBpm = s.showExternalBpm,
                             externalBpm = oscReceiver.externalBpm,
                             externalConfidence = oscReceiver.externalConfidence,
-                            showOscDebug = s.showOscDebug,
+                            // IMPORTANT: The legacy fullscreen OSC monitor in TapScreen must NEVER show again.
+                            // The OSC monitor toggle is now scoped to the DebugScreen only.
+                            showOscDebug = false,
                             oscDebugState = oscReceiver.debugState,
                             remoteGhost = oscReceiver.remoteGhost,
                             phaseVisualizerEnabled = s.phaseVisualizerEnabled,
@@ -248,7 +254,6 @@ preflightOutOkMs = s.preflightOutOkMs,
                              fxAlpha = s.fxAlpha,
                              phaseAlpha = s.phaseAlpha,
                              ghostAlpha = s.ghostAlpha,
-                            // Phase 5: Goblin Instrument visuals
                             moodsEnabled = s.moodsEnabled,
                             moodIntensity = s.moodIntensity,
                             phaseAuraEnabled = s.phaseAuraEnabled,
@@ -256,8 +261,6 @@ preflightOutOkMs = s.preflightOutOkMs,
                             visualSwing = s.visualSwing,
                             ghostEchoEnabled = s.ghostEchoEnabled,
                             ghostEchoStrength = s.ghostEchoStrength,
-
-
                             animationsEnabled = s.animationsEnabled,
                             remoteAnimationsEnabled = s.remoteAnimationsEnabled,
                             remoteGhostModeEnabled = s.remoteGhostModeEnabled,
@@ -314,6 +317,46 @@ preflightOutOkMs = s.preflightOutOkMs,
                                 onPagePrev = ::goPrevPage
                             )
                         }
+                        HomePage.DEBUG -> DebugScreen(
+                            lastPongMs = oscReceiver.lastPongMs,
+                            lastPhaseRxMs = oscReceiver.lastPhaseRxMs,
+                            lastDownbeatRxMs = oscReceiver.lastDownbeatRxMs,
+                            signalGraceMs = s.signalGraceMs,
+                            heartbeatEnabled = s.heartbeatEnabled,
+
+                            oscHealth = oscSender.health,
+
+                            // OSC debug (summary + last packet)
+                            showOscMonitor = s.showOscDebug,
+                            oscDebugState = oscReceiver.debugState,
+
+                            // Timeline / transport
+                            showTimeline = s.showTimeline,
+                            timelineWindowMs = s.timelineWindowMs,
+                            timelineShowLocal = s.timelineShowLocal,
+                            timelineShowRemote = s.timelineShowRemote,
+                            timelineShowHealth = s.timelineShowHealth,
+                            timelineImportantOnly = s.timelineImportantOnly,
+                            timelineRemoteAlpha = s.timelineRemoteAlpha,
+                            remoteEventMinIntervalMs = s.remoteEventMinIntervalMs,
+                            transportIn = oscReceiver.transportIn,
+
+                            // Preflight visibility + alpha
+                            showPreflight = s.showPreflight,
+                            preflightMode = s.preflightMode,
+                            preflightPhaseOkMs = s.preflightPhaseOkMs,
+                            preflightDownbeatOkMs = s.preflightDownbeatOkMs,
+                            preflightOutOkMs = s.preflightOutOkMs,
+                            preflightAlpha = s.preflightAlpha,
+
+                            // Targets (presets)
+                            presets = s.presets,
+                            activePreset = s.activePreset,
+
+                            onPageNext = ::goNextPage,
+                            onPagePrev = ::goPrevPage,
+                        )
+
                     }
                 }
             }

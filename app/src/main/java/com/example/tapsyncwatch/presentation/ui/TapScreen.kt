@@ -193,24 +193,6 @@ private fun StatusLamp(
     }
 }
 
-private enum class TimelineKind {
-    LOCAL_TAP, LOCAL_MULTIPLY, LOCAL_DIVIDE, LOCAL_RESYNC, LOCAL_NUDGE,
-    REMOTE_TAP, REMOTE_MULTIPLY, REMOTE_DIVIDE, REMOTE_RESYNC, REMOTE_NUDGE,
-    PONG, OSC_OUT, OSC_ERR
-}
-
-private data class TimelineEvent(
-    val atMs: Long,
-    val kind: TimelineKind
-)
-
-private enum class TimelineLaneType { LOCAL, REMOTE, HEALTH }
-
-private data class TimelineLaneSpec(
-    val type: TimelineLaneType,
-    val alpha: Float
-)
-
 @Composable
 private fun TimelineLane(
     nowMs: Long,
@@ -1307,8 +1289,10 @@ if (showStatusLine && showTimeline) {
     }
 }
 
-        // OSC Monitor: fullscreen, scrollable, close (X) bottom-center
-        if (showOscDebug) {
+        // OSC Monitor: legacy fullscreen overlay (DEPRECATED)
+        // This previously lived on TapScreen and swallowed gestures, breaking paging/navigation.
+        // The OSC monitor is now only shown inside DebugScreen.
+        if (false && showOscDebug) {
             val dbg by oscDebugState.collectAsState(initial = OscInputReceiver.OscDebugState())
             val scroll = rememberScrollState()
             val isRound = LocalConfiguration.current.isScreenRound

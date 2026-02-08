@@ -12,16 +12,19 @@ import androidx.compose.material.IconButton
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Surface
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -54,18 +57,25 @@ fun FftGainScreen(
 ) {
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
+    val isRound = LocalConfiguration.current.isScreenRound
 
     // Right-edge paging zone (avoid collisions with center swipe)
-    val edgeWidthDp = 26.dp
+    // NOTE: On round screens, the extreme edge is partly non-touchable. Make this zone wider.
+    val edgeWidthDp = 40.dp
     val edgeWidthPx = with(density) { edgeWidthDp.toPx() }
-    val pageSwipeThresholdPx = with(density) { 34.dp.toPx() }
-    val pageVerticalSlopPx = with(density) { 22.dp.toPx() }
-
-    var layoutWidthPx by remember { mutableStateOf(0f) }
+    val pageSwipeThresholdPx = with(density) { 26.dp.toPx() }
+    val pageVerticalSlopPx = with(density) { 40.dp.toPx() }
     var edgeCandidate by remember { mutableStateOf(false) }
     var edgeStartX by remember { mutableStateOf(0f) }
     var edgeStartY by remember { mutableStateOf(0f) }
     var edgeTriggered by remember { mutableStateOf(false) }
+
+    // Debug quick-jump icon (top-right). Needs a safe inset for round displays.
+    val bugSizeDp = 56.dp
+    // Extra inset for round screens: the visible corner can be non-touchable.
+    val bugPadDp = if (isRound) 34.dp else 10.dp
+    val bugSizePx = with(density) { bugSizeDp.toPx() }
+    val bugPadPx = with(density) { bugPadDp.toPx() }
 
     // TapScreen-ish palette (brown/orange)
     val goblinBg = Color(0xFF0B0B0B)
@@ -141,14 +151,22 @@ fun FftGainScreen(
             .clip(CircleShape),
         color = goblinBg
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .onSizeChanged { layoutWidthPx = it.width.toFloat() }
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val wPx = with(density) { maxWidth.toPx() }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
                 // Right-edge paging: swallow touch to avoid fighting center swipe.
                 .pointerInteropFilter { ev ->
-                    val w = layoutWidthPx
+                    val w = wPx
                     if (w <= 0f) return@pointerInteropFilter false
+
+                    // Don't steal taps meant for the debug icon.
+                    val inBugZone = onPageNext != null &&
+                        ev.x >= (w - bugPadPx - bugSizePx) &&
+                        ev.y <= (bugPadPx + bugSizePx)
+                    if (inBugZone) return@pointerInteropFilter false
 
                     val inRightEdge = ev.x >= (w - edgeWidthPx)
                     if (!inRightEdge) {
@@ -183,6 +201,16 @@ fun FftGainScreen(
                         }
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                             val was = edgeCandidate
+
+                            // Fallback on release: accept slightly diagonal swipes.
+                            if (was && !edgeTriggered) {
+                                val dx = ev.x - edgeStartX
+                                val dy = ev.y - edgeStartY
+                                if (abs(dx) >= pageSwipeThresholdPx && abs(dx) >= abs(dy) * 0.75f) {
+                                    edgeTriggered = true
+                                    if (dx <= 0f) onPageNext?.invoke() else onPagePrev?.invoke()
+                                }
+                            }
                             edgeCandidate = false
                             edgeTriggered = false
                             was
@@ -191,6 +219,38 @@ fun FftGainScreen(
                     }
                 }
         ) {
+
+            // Debug quick-jump (top-right)
+            if (onPageNext != null) {
+                IconButton(
+                    onClick = {
+                        // Give a tactile confirmation even if paging is finicky on some devices.
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onPageNext.invoke()
+                    },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = bugPadDp, end = bugPadDp)
+                        .size(bugSizeDp)
+                        .zIndex(50f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.22f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.BugReport,
+                            contentDescription = "Debug",
+                            tint = goblinOrange.copy(alpha = 0.92f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+
             // Ambient aura (subtle)
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val r = size.minDimension * 0.62f
@@ -216,7 +276,7 @@ fun FftGainScreen(
                     .padding(8.dp) // symmetric padding keeps the ring centered (a touch more bezel margin)
                     .pointerInteropFilter { ev ->
                         // Don't steal the right edge (paging)
-                        val w = layoutWidthPx
+                        val w = wPx
                         if (w > 0f && ev.x >= (w - edgeWidthPx)) return@pointerInteropFilter false
 
                         when (ev.actionMasked) {
@@ -316,6 +376,7 @@ fun FftGainScreen(
                     )
                 }
             }
+        }
         }
     }
 }
