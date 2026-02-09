@@ -55,13 +55,11 @@ class MainActivity : ComponentActivity() {
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         return when (keyCode) {
             KeyEvent.KEYCODE_BACK,
-            KeyEvent.KEYCODE_STEM_1,
-            KEYCODE_STEM_2,
-            KeyEvent.KEYCODE_STEM_3 -> {
+            KEYCODE_STEM_2 -> {
                 // Force the bottom hardware key to behave as Back everywhere,
                 // but debounce it so we don't skip Debug → FFTGain → Tap.
                 val now = SystemClock.elapsedRealtime()
-                if (now - lastBackKeyMs < 480L) return true
+                if (now - lastBackKeyMs < 240L) return true
                 lastBackKeyMs = now
                 onBackPressedDispatcher.onBackPressed()
                 true
@@ -246,13 +244,14 @@ class MainActivity : ComponentActivity() {
                             lastPongMs = oscReceiver.lastPongMs,
                             lastPhaseRxMs = oscReceiver.lastPhaseRxMs,
                             lastDownbeatRxMs = oscReceiver.lastDownbeatRxMs,
+                            lastAnyRxMs = oscReceiver.lastAnyRxMs,
                             heartbeatEnabled = s.heartbeatEnabled,
                             signalGraceMs = s.signalGraceMs,
 
                             showExternalBpm = s.showExternalBpm,
                             externalBpm = oscReceiver.externalBpm,
                             externalConfidence = oscReceiver.externalConfidence,
-                            showOscDebug = false, // legacy fullscreen OSC overlay disabled (use DebugScreen OSC monitor)
+                            showOscDebug = s.showOscDebug,
                             oscDebugState = oscReceiver.debugState,
                             remoteGhost = oscReceiver.remoteGhost,
                             phaseVisualizerEnabled = s.phaseVisualizerEnabled,

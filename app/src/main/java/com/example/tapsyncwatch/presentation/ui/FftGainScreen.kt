@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
@@ -54,14 +55,13 @@ fun FftGainScreen(
 ) {
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
+    val isRound = LocalConfiguration.current.isScreenRound
 
     // Right-edge paging zone (avoid collisions with center swipe)
-    val edgeWidthDp = 26.dp
+    val edgeWidthDp = if (isRound) 88.dp else 40.dp
     val edgeWidthPx = with(density) { edgeWidthDp.toPx() }
-    val pageSwipeThresholdPx = with(density) { 34.dp.toPx() }
-    val pageVerticalSlopPx = with(density) { 22.dp.toPx() }
-
-    var layoutWidthPx by remember { mutableStateOf(0f) }
+    val pageSwipeThresholdPx = with(density) { 28.dp.toPx() }
+    val pageVerticalSlopPx = with(density) { if (isRound) 38.dp.toPx() else 26.dp.toPx() }
     var edgeCandidate by remember { mutableStateOf(false) }
     var edgeStartX by remember { mutableStateOf(0f) }
     var edgeStartY by remember { mutableStateOf(0f) }
@@ -141,13 +141,15 @@ fun FftGainScreen(
             .clip(CircleShape),
         color = goblinBg
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .onSizeChanged { layoutWidthPx = it.width.toFloat() }
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val wPx = with(density) { maxWidth.toPx() }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
                 // Right-edge paging: swallow touch to avoid fighting center swipe.
                 .pointerInteropFilter { ev ->
-                    val w = layoutWidthPx
+                    val w = wPx
                     if (w <= 0f) return@pointerInteropFilter false
 
                     val inRightEdge = ev.x >= (w - edgeWidthPx)
@@ -216,7 +218,7 @@ fun FftGainScreen(
                     .padding(8.dp) // symmetric padding keeps the ring centered (a touch more bezel margin)
                     .pointerInteropFilter { ev ->
                         // Don't steal the right edge (paging)
-                        val w = layoutWidthPx
+                        val w = wPx
                         if (w > 0f && ev.x >= (w - edgeWidthPx)) return@pointerInteropFilter false
 
                         when (ev.actionMasked) {
@@ -316,6 +318,7 @@ fun FftGainScreen(
                     )
                 }
             }
+        }
         }
     }
 }
