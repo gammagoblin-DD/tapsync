@@ -31,19 +31,16 @@ object SettingsKeys {
 
     val ACTIVE_PRESET = intPreferencesKey("active_preset")
     val SHOW_OSC_DOT = booleanPreferencesKey("show_osc_dot")
+    val OSC_DOT_ALPHA = floatPreferencesKey("osc_dot_alpha")
+    val OSC_DOT_FADE_MS = longPreferencesKey("osc_dot_fade_ms")
+
 
     // UI-only monitors / debug
     val SHOW_EXTERNAL_BPM = booleanPreferencesKey("show_external_bpm")
+    val EXTERNAL_BPM_ALPHA = floatPreferencesKey("external_bpm_alpha")
     val SHOW_OSC_DEBUG = booleanPreferencesKey("show_osc_debug")
-
-    // HUD tuning
-    val OSC_DOT_OPACITY = floatPreferencesKey("osc_dot_opacity")
-    val OSC_DOT_FADE_MS = longPreferencesKey("osc_dot_fade_ms")
-    val BPM_OPACITY = floatPreferencesKey("bpm_opacity")
-    val BPM_FORMAT = stringPreferencesKey("bpm_format")
-    val SHOW_DOWNBEAT_INDICATOR = booleanPreferencesKey("show_downbeat_indicator")
-    val DOWNBEAT_STYLE = stringPreferencesKey("downbeat_style")
-    val DOWNBEAT_OPACITY = floatPreferencesKey("downbeat_opacity")
+    val DEBUG_SHOW_TARGETS = booleanPreferencesKey("debug_show_targets")
+    val DEBUG_SHOW_HEALTH = booleanPreferencesKey("debug_show_health")
 
     // Phase visualizer
     val PHASE_VISUALIZER_ENABLED = booleanPreferencesKey("phase_visualizer_enabled")
@@ -70,6 +67,10 @@ object SettingsKeys {
     val REMOTE_GHOST_MODE_ENABLED = booleanPreferencesKey("remote_ghost_mode_enabled")
     val GOBLIN_FLASH_ENABLED = booleanPreferencesKey("goblin_flash_enabled")
     val RIPPLE_ENABLED = booleanPreferencesKey("ripple_enabled")
+    val RIPPLE_ALPHA = floatPreferencesKey("ripple_alpha")
+    val RIPPLE_SPEED = floatPreferencesKey("ripple_speed")
+    val RIPPLE_THICKNESS = floatPreferencesKey("ripple_thickness")
+    val RIPPLE_RADIUS = floatPreferencesKey("ripple_radius")
     val OSC_PULSE_ENABLED = booleanPreferencesKey("osc_pulse_enabled")
 
     // Connection heartbeat (Ping/Pong via Resolume Wire)
@@ -133,13 +134,12 @@ data class OscTarget(
 
 enum class PreflightMode { FULL, MINIMAL }
 
-enum class BpmFormat { BPM, BPM_PHASE, BPM_BAR }
-enum class DownbeatStyle { DOT, TICK, PULSE }
-
 data class SettingsState(
     val presets: List<OscTarget>,
     val activePreset: Int,
     val showOscDot: Boolean,
+    val oscDotAlpha: Float,
+    val oscDotFadeMs: Long,
     val showStatusLine: Boolean,
 
     // HUD opacity (0..1)
@@ -169,16 +169,10 @@ val preflightOutOkMs: Long,
 
     // UI monitors
     val showExternalBpm: Boolean,
+    val externalBpmAlpha: Float,
     val showOscDebug: Boolean,
-
-    // HUD tuning
-    val oscDotOpacity: Float,
-    val oscDotFadeMs: Long,
-    val bpmOpacity: Float,
-    val bpmFormat: BpmFormat,
-    val showDownbeatIndicator: Boolean,
-    val downbeatStyle: DownbeatStyle,
-    val downbeatOpacity: Float,
+    val debugShowTargets: Boolean,
+    val debugShowHealth: Boolean,
     val phaseVisualizerEnabled: Boolean,
     val phaseSpiralEnabled: Boolean,
 
@@ -202,6 +196,10 @@ val preflightOutOkMs: Long,
     val remoteGhostModeEnabled: Boolean,
     val goblinFlashEnabled: Boolean,
     val rippleEnabled: Boolean,
+    val rippleAlpha: Float,
+    val rippleSpeed: Float,
+    val rippleThickness: Float,
+    val rippleRadius: Float,
     val oscPulseEnabled: Boolean,
 
     // Connection (Ping/Pong)
@@ -234,6 +232,8 @@ val DEFAULT_SETTINGS_STATE = SettingsState(
     activePreset = 0,
 
     showOscDot = true,
+    oscDotAlpha = 1.0f,
+    oscDotFadeMs = 180L,
     showStatusLine = true,
 
     statusLineAlpha = 1.0f,
@@ -259,15 +259,10 @@ preflightDownbeatOkMs = 6000L,
 preflightOutOkMs = 6000L,
 
     showExternalBpm = true,
+    externalBpmAlpha = 1.0f,
     showOscDebug = false,
-
-    oscDotOpacity = 1.0f,
-    oscDotFadeMs = 180L,
-    bpmOpacity = 1.0f,
-    bpmFormat = BpmFormat.BPM,
-    showDownbeatIndicator = true,
-    downbeatStyle = DownbeatStyle.PULSE,
-    downbeatOpacity = 1.0f,
+    debugShowTargets = true,
+    debugShowHealth = true,
     phaseVisualizerEnabled = true,
     phaseSpiralEnabled = false,
 
@@ -288,6 +283,10 @@ preflightOutOkMs = 6000L,
     remoteGhostModeEnabled = true,
     goblinFlashEnabled = true,
     rippleEnabled = true,
+    rippleAlpha = 1.0f,
+    rippleSpeed = 1.0f,
+    rippleThickness = 1.0f,
+    rippleRadius = 1.0f,
     oscPulseEnabled = true,
 
     heartbeatEnabled = true,
@@ -336,6 +335,8 @@ class SettingsStore(
                 presets = presets,
                 activePreset = prefs[SettingsKeys.ACTIVE_PRESET] ?: DEFAULT_SETTINGS_STATE.activePreset,
                 showOscDot = prefs[SettingsKeys.SHOW_OSC_DOT] ?: DEFAULT_SETTINGS_STATE.showOscDot,
+                oscDotAlpha = ((prefs[SettingsKeys.OSC_DOT_ALPHA] ?: DEFAULT_SETTINGS_STATE.oscDotAlpha).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.oscDotAlpha }).coerceIn(0f, 1f),
+                oscDotFadeMs = (prefs[SettingsKeys.OSC_DOT_FADE_MS] ?: DEFAULT_SETTINGS_STATE.oscDotFadeMs).coerceIn(80L, 800L),
                 showStatusLine = prefs[SettingsKeys.SHOW_STATUS_LINE] ?: DEFAULT_SETTINGS_STATE.showStatusLine,
 
                 statusLineAlpha = ((prefs[SettingsKeys.STATUS_LINE_ALPHA] ?: DEFAULT_SETTINGS_STATE.statusLineAlpha).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.statusLineAlpha }).coerceIn(0f, 1f),
@@ -364,27 +365,10 @@ preflightOutOkMs = (prefs[SettingsKeys.PREFLIGHT_OUT_OK_MS] ?: DEFAULT_SETTINGS_
 
 
                 showExternalBpm = prefs[SettingsKeys.SHOW_EXTERNAL_BPM] ?: DEFAULT_SETTINGS_STATE.showExternalBpm,
+                externalBpmAlpha = ((prefs[SettingsKeys.EXTERNAL_BPM_ALPHA] ?: DEFAULT_SETTINGS_STATE.externalBpmAlpha).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.externalBpmAlpha }).coerceIn(0f, 1f),
                 showOscDebug = prefs[SettingsKeys.SHOW_OSC_DEBUG] ?: DEFAULT_SETTINGS_STATE.showOscDebug,
-
-                oscDotOpacity = ((prefs[SettingsKeys.OSC_DOT_OPACITY] ?: DEFAULT_SETTINGS_STATE.oscDotOpacity)
-                    .let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.oscDotOpacity })
-                    .coerceIn(0f, 1f),
-                oscDotFadeMs = (prefs[SettingsKeys.OSC_DOT_FADE_MS] ?: DEFAULT_SETTINGS_STATE.oscDotFadeMs)
-                    .coerceIn(80L, 900L),
-                bpmOpacity = ((prefs[SettingsKeys.BPM_OPACITY] ?: DEFAULT_SETTINGS_STATE.bpmOpacity)
-                    .let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.bpmOpacity })
-                    .coerceIn(0f, 1f),
-                bpmFormat = runCatching {
-                    BpmFormat.valueOf(prefs[SettingsKeys.BPM_FORMAT] ?: DEFAULT_SETTINGS_STATE.bpmFormat.name)
-                }.getOrElse { DEFAULT_SETTINGS_STATE.bpmFormat },
-                showDownbeatIndicator = prefs[SettingsKeys.SHOW_DOWNBEAT_INDICATOR]
-                    ?: DEFAULT_SETTINGS_STATE.showDownbeatIndicator,
-                downbeatStyle = runCatching {
-                    DownbeatStyle.valueOf(prefs[SettingsKeys.DOWNBEAT_STYLE] ?: DEFAULT_SETTINGS_STATE.downbeatStyle.name)
-                }.getOrElse { DEFAULT_SETTINGS_STATE.downbeatStyle },
-                downbeatOpacity = ((prefs[SettingsKeys.DOWNBEAT_OPACITY] ?: DEFAULT_SETTINGS_STATE.downbeatOpacity)
-                    .let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.downbeatOpacity })
-                    .coerceIn(0f, 1f),
+                debugShowTargets = prefs[SettingsKeys.DEBUG_SHOW_TARGETS] ?: DEFAULT_SETTINGS_STATE.debugShowTargets,
+                debugShowHealth = prefs[SettingsKeys.DEBUG_SHOW_HEALTH] ?: DEFAULT_SETTINGS_STATE.debugShowHealth,
                 phaseVisualizerEnabled = prefs[SettingsKeys.PHASE_VISUALIZER_ENABLED] ?: DEFAULT_SETTINGS_STATE.phaseVisualizerEnabled,
                 phaseSpiralEnabled = prefs[SettingsKeys.PHASE_SPIRAL_ENABLED] ?: DEFAULT_SETTINGS_STATE.phaseSpiralEnabled,
 
@@ -407,6 +391,10 @@ preflightOutOkMs = (prefs[SettingsKeys.PREFLIGHT_OUT_OK_MS] ?: DEFAULT_SETTINGS_
                 remoteGhostModeEnabled = prefs[SettingsKeys.REMOTE_GHOST_MODE_ENABLED] ?: DEFAULT_SETTINGS_STATE.remoteGhostModeEnabled,
                 goblinFlashEnabled = prefs[SettingsKeys.GOBLIN_FLASH_ENABLED] ?: DEFAULT_SETTINGS_STATE.goblinFlashEnabled,
                 rippleEnabled = prefs[SettingsKeys.RIPPLE_ENABLED] ?: DEFAULT_SETTINGS_STATE.rippleEnabled,
+                rippleAlpha = ((prefs[SettingsKeys.RIPPLE_ALPHA] ?: DEFAULT_SETTINGS_STATE.rippleAlpha).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.rippleAlpha }).coerceIn(0f, 1f),
+                rippleSpeed = ((prefs[SettingsKeys.RIPPLE_SPEED] ?: DEFAULT_SETTINGS_STATE.rippleSpeed).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.rippleSpeed }).coerceIn(0.50f, 2.00f),
+                rippleThickness = ((prefs[SettingsKeys.RIPPLE_THICKNESS] ?: DEFAULT_SETTINGS_STATE.rippleThickness).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.rippleThickness }).coerceIn(0.50f, 2.00f),
+                rippleRadius = ((prefs[SettingsKeys.RIPPLE_RADIUS] ?: DEFAULT_SETTINGS_STATE.rippleRadius).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.rippleRadius }).coerceIn(0.50f, 1.50f),
                 oscPulseEnabled = prefs[SettingsKeys.OSC_PULSE_ENABLED] ?: DEFAULT_SETTINGS_STATE.oscPulseEnabled,
 
                 heartbeatEnabled = prefs[SettingsKeys.HEARTBEAT_ENABLED] ?: DEFAULT_SETTINGS_STATE.heartbeatEnabled,
@@ -433,6 +421,14 @@ preflightOutOkMs = (prefs[SettingsKeys.PREFLIGHT_OUT_OK_MS] ?: DEFAULT_SETTINGS_
 
     suspend fun setShowOscDot(show: Boolean) {
         context.dataStore.edit { it[SettingsKeys.SHOW_OSC_DOT] = show }
+    }
+
+    suspend fun setOscDotAlpha(value: Float) {
+        context.dataStore.edit { it[SettingsKeys.OSC_DOT_ALPHA] = value }
+    }
+
+    suspend fun setOscDotFadeMs(value: Long) {
+        context.dataStore.edit { it[SettingsKeys.OSC_DOT_FADE_MS] = value }
     }
 
     suspend fun setShowStatusLine(enabled: Boolean) {
@@ -537,48 +533,23 @@ suspend fun setPreflightOutOkMs(value: Long) {
         context.dataStore.edit { it[SettingsKeys.SHOW_EXTERNAL_BPM] = show }
     }
 
+suspend fun setExternalBpmAlpha(value: Float) {
+    context.dataStore.edit { it[SettingsKeys.EXTERNAL_BPM_ALPHA] = value }
+}
+
+
     suspend fun setShowOscDebug(show: Boolean) {
         context.dataStore.edit { it[SettingsKeys.SHOW_OSC_DEBUG] = show }
     }
 
-    suspend fun setOscDotOpacity(value: Float) {
-        context.dataStore.edit { prefs ->
-            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.oscDotOpacity
-            prefs[SettingsKeys.OSC_DOT_OPACITY] = v.coerceIn(0f, 1f)
-        }
-    }
+suspend fun setDebugShowTargets(enabled: Boolean) {
+    context.dataStore.edit { it[SettingsKeys.DEBUG_SHOW_TARGETS] = enabled }
+}
 
-    suspend fun setOscDotFadeMs(value: Long) {
-        context.dataStore.edit {
-            it[SettingsKeys.OSC_DOT_FADE_MS] = value.coerceIn(80L, 900L)
-        }
-    }
+suspend fun setDebugShowHealth(enabled: Boolean) {
+    context.dataStore.edit { it[SettingsKeys.DEBUG_SHOW_HEALTH] = enabled }
+}
 
-    suspend fun setBpmOpacity(value: Float) {
-        context.dataStore.edit { prefs ->
-            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.bpmOpacity
-            prefs[SettingsKeys.BPM_OPACITY] = v.coerceIn(0f, 1f)
-        }
-    }
-
-    suspend fun setBpmFormat(format: BpmFormat) {
-        context.dataStore.edit { it[SettingsKeys.BPM_FORMAT] = format.name }
-    }
-
-    suspend fun setShowDownbeatIndicator(show: Boolean) {
-        context.dataStore.edit { it[SettingsKeys.SHOW_DOWNBEAT_INDICATOR] = show }
-    }
-
-    suspend fun setDownbeatStyle(style: DownbeatStyle) {
-        context.dataStore.edit { it[SettingsKeys.DOWNBEAT_STYLE] = style.name }
-    }
-
-    suspend fun setDownbeatOpacity(value: Float) {
-        context.dataStore.edit { prefs ->
-            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.downbeatOpacity
-            prefs[SettingsKeys.DOWNBEAT_OPACITY] = v.coerceIn(0f, 1f)
-        }
-    }
 
     suspend fun setPhaseVisualizerEnabled(enabled: Boolean) {
         context.dataStore.edit { it[SettingsKeys.PHASE_VISUALIZER_ENABLED] = enabled }
@@ -669,6 +640,40 @@ suspend fun setPreflightOutOkMs(value: Long) {
     suspend fun setRippleEnabled(enabled: Boolean) {
         context.dataStore.edit { it[SettingsKeys.RIPPLE_ENABLED] = enabled }
     }
+
+suspend fun setRippleAlpha(value: Float) {
+    context.dataStore.edit { it[SettingsKeys.RIPPLE_ALPHA] = value }
+}
+
+suspend fun setRippleSpeed(value: Float) {
+    context.dataStore.edit { it[SettingsKeys.RIPPLE_SPEED] = value }
+}
+
+suspend fun setRippleThickness(value: Float) {
+    context.dataStore.edit { it[SettingsKeys.RIPPLE_THICKNESS] = value }
+}
+
+suspend fun setRippleRadius(value: Float) {
+    context.dataStore.edit { it[SettingsKeys.RIPPLE_RADIUS] = value }
+}
+
+
+    suspend fun setRippleAlpha(value: Float) {
+        context.dataStore.edit { it[SettingsKeys.RIPPLE_ALPHA] = value }
+    }
+
+    suspend fun setRippleSpeed(value: Float) {
+        context.dataStore.edit { it[SettingsKeys.RIPPLE_SPEED] = value }
+    }
+
+    suspend fun setRippleThickness(value: Float) {
+        context.dataStore.edit { it[SettingsKeys.RIPPLE_THICKNESS] = value }
+    }
+
+    suspend fun setRippleRadius(value: Float) {
+        context.dataStore.edit { it[SettingsKeys.RIPPLE_RADIUS] = value }
+    }
+
 
     suspend fun setOscPulseEnabled(enabled: Boolean) {
         context.dataStore.edit { it[SettingsKeys.OSC_PULSE_ENABLED] = enabled }

@@ -34,8 +34,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import com.example.tapsyncwatch.BuildConfig
 import com.example.tapsyncwatch.domain.clock.ClockMode
 import com.example.tapsyncwatch.presentation.data.DEFAULT_SETTINGS_STATE
+import com.example.tapsyncwatch.presentation.data.BpmFormat
+import com.example.tapsyncwatch.presentation.data.DownbeatStyle
+import com.example.tapsyncwatch.presentation.data.PreflightMode
 import com.example.tapsyncwatch.presentation.data.OscTarget
 import com.example.tapsyncwatch.presentation.data.SettingsStore
 import kotlinx.coroutines.Dispatchers
@@ -66,6 +70,9 @@ private val interaction = MutableInteractionSource()
 private enum class SettingsPage {
     ROOT,
     DISPLAY,
+    CONNECTION,
+    DEBUG_TOOLS,
+    ABOUT,
     STATUSBAR,
     PREFLIGHT,
     PREFLIGHT_TUNING,
@@ -168,6 +175,81 @@ private fun SettingsNavChip(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsFoldChip(
+    title: String,
+    subtitle: String? = null,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val interaction = remember { MutableInteractionSource() }
+    var expanded by rememberSaveable(title) { mutableStateOf(false) }
+
+    val shape = RoundedCornerShape(26.dp)
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .animateContentSize(),
+        color = GoblinCard,
+        elevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .border(1.dp, GoblinBorder, shape)
+                .padding(horizontal = 20.dp, vertical = 18.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = interaction,
+                        indication = null,
+                        enabled = enabled,
+                        onClick = { expanded = !expanded }
+                    ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        title,
+                        color = if (enabled) GoblinText else GoblinDim,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (subtitle != null) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            subtitle,
+                            color = GoblinDim,
+                            fontSize = 12.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Icon(
+                    imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = null,
+                    tint = if (enabled) GoblinDim else GoblinBorder
+                )
+            }
+
+            AnimatedVisibility(visible = expanded && enabled) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    content = content
                 )
             }
         }
@@ -935,42 +1017,150 @@ BackHandler {
             when (page) {
 
                 SettingsPage.ROOT -> {
-                    item { SettingsTitleRow("Settings", showBack = false, onBack = {}) }
+                    item { SettingsTitleRow("Einstellungen", showBack = false) { } }
 
-                    item { SettingsNavChip(Icons.Filled.Visibility, "Anzeige", "Status, OSC Dot, Monitor") { push(SettingsPage.DISPLAY) } }
-                    item { SettingsNavChip(Icons.Filled.Palette, "Visuals", "Phase Ring / Spiral") { push(SettingsPage.VISUALS) } }
-                    item { SettingsNavChip(Icons.Filled.Animation, "Animation", "Remote Ghost, Ripples, Pulse") { push(SettingsPage.MOTION) } }
+                    item { SettingsNavChip(Icons.Filled.Visibility, "Anzeige (HUD)", "OSC Dot, BPM, Downbeat") { push(SettingsPage.DISPLAY) } }
+                    item { SettingsNavChip(Icons.Filled.Palette, "Visuals", "Animationen, Phase, Ripples, Remote") { push(SettingsPage.VISUALS) } }
                     item { SettingsNavChip(Icons.Filled.Vibration, "Haptik", "Tap / Downbeat / Transport") { push(SettingsPage.HAPTICS) } }
-                    item { SettingsNavChip(Icons.Filled.Wifi, "Netzwerk", "Ping/Pong • $linkLabel") { push(SettingsPage.NETWORK) } }
-                    item { SettingsNavChip(Icons.Filled.Schedule, "Clock / Engine", "Clock enabled + mode") { push(SettingsPage.CLOCK) } }
-                    item {
-                        SettingsNavChip(
-                            Icons.Filled.Send,
-                            "OSC Targets",
-                            "${s.activeTarget.ip}:${s.activeTarget.port}"
-                        ) {
-                            presetsSession += 1
-                            push(SettingsPage.TARGETS)
-                        }
-                    }
+                    item { SettingsNavChip(Icons.Filled.Wifi, "Verbindung", "Preset/Targets, Clock, Heartbeat") { push(SettingsPage.CONNECTION) } }
+                    item { SettingsNavChip(Icons.Filled.BugReport, "Debug & Tools", "Preflight, Timeline, Monitor") { push(SettingsPage.DEBUG_TOOLS) } }
+                    item { SettingsNavChip(Icons.Filled.Info, "Über", "Version & Infos") { push(SettingsPage.ABOUT) } }
                 }
 
                 
                 SettingsPage.DISPLAY -> {
-    item { SettingsTitleRow("Anzeige", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Anzeige (HUD)", showBack = true) { pop() } }
 
-    item {
-        SettingsToggleNavChip(
-            title = "Statusbar",
-            subtitle = "Preset • IP:Port • Link",
-            checked = s.showStatusLine,
-            onToggle = { v -> scope.launch { settingsStore.setShowStatusLine(v) } },
-            onOpen = { push(SettingsPage.STATUSBAR) }
-        )
-    }
+                    item {
+                        SettingsToggleChip(
+                            title = "OSC Dot",
+                            subtitle = "Aktivitäts-Punkt",
+                            checked = s.showOscDot
+                        ) { v -> scope.launch { settingsStore.setShowOscDot(v) } }
+                    }
 
-    // (Optional) Add further display-related root toggles here.
-}
+                    item {
+                        SettingsToggleChip(
+                            title = "External BPM Anzeige",
+                            subtitle = "Resolume → Watch",
+                            checked = s.showExternalBpm
+                        ) { v -> scope.launch { settingsStore.setShowExternalBpm(v) } }
+                    }
+
+                    item {
+                        SettingsToggleChip(
+                            title = "Downbeat Indicator",
+                            subtitle = "Kick auf 1 (visuell)",
+                            checked = s.showDownbeatIndicator
+                        ) { v -> scope.launch { settingsStore.setShowDownbeatIndicator(v) } }
+                    }
+
+                    item {
+                        SettingsFoldChip(
+                            title = "Advanced",
+                            subtitle = "Opacity & Format"
+                        ) {
+                            SettingsSectionHeader("Statusbar")
+                            SettingsToggleChip(
+                                title = "Statusbar",
+                                subtitle = "Preset • IP:Port • Link",
+                                checked = s.showStatusLine
+                            ) { v -> scope.launch { settingsStore.setShowStatusLine(v) } }
+
+                            SettingsSliderChip(
+                                title = "Statusbar Opacity",
+                                subtitle = "${(s.statusLineAlpha * 100f).roundToLong()}%",
+                                value = s.statusLineAlpha,
+                                min = 0f,
+                                max = 1f,
+                                enabled = s.showStatusLine
+                            ) { v -> scope.launch { settingsStore.setStatusLineAlpha(v) } }
+
+                            SettingsSectionHeader("OSC Dot")
+                            SettingsSliderChip(
+                                title = "Opacity",
+                                subtitle = "${(s.oscDotOpacity * 100f).roundToLong()}%",
+                                value = s.oscDotOpacity,
+                                min = 0f,
+                                max = 1f,
+                                enabled = s.showOscDot
+                            ) { v -> scope.launch { settingsStore.setOscDotOpacity(v) } }
+
+                            val fadeOptions = listOf(120L, 180L, 260L, 400L, 650L)
+                            val fadeLabels = listOf("Fast", "Normal", "Smooth", "Slow", "Cinema")
+                            val fadeIndex = fadeOptions.indexOfFirst { it == s.oscDotFadeMs }.let { if (it < 0) 1 else it }
+                            SettingsSegmentChip(
+                                title = "Fade",
+                                subtitle = "${s.oscDotFadeMs}ms",
+                                options = fadeLabels,
+                                selectedIndex = fadeIndex,
+                                enabled = s.showOscDot
+                            ) { idx -> scope.launch { settingsStore.setOscDotFadeMs(fadeOptions[idx]) } }
+
+                            SettingsSectionHeader("External BPM")
+                            SettingsSliderChip(
+                                title = "Opacity",
+                                subtitle = "${(s.bpmOpacity * 100f).roundToLong()}%",
+                                value = s.bpmOpacity,
+                                min = 0f,
+                                max = 1f,
+                                enabled = s.showExternalBpm
+                            ) { v -> scope.launch { settingsStore.setBpmOpacity(v) } }
+
+                            val bpmFmtLabels = listOf("BPM", "BPM+Phase", "BPM+Bar")
+                            val bpmFmtIndex = when (s.bpmFormat) {
+                                BpmFormat.BPM -> 0
+                                BpmFormat.BPM_PHASE -> 1
+                                BpmFormat.BPM_BAR -> 2
+                            }
+                            SettingsSegmentChip(
+                                title = "Format",
+                                subtitle = bpmFmtLabels[bpmFmtIndex],
+                                options = bpmFmtLabels,
+                                selectedIndex = bpmFmtIndex,
+                                enabled = s.showExternalBpm
+                            ) { idx ->
+                                val v = when (idx) {
+                                    1 -> BpmFormat.BPM_PHASE
+                                    2 -> BpmFormat.BPM_BAR
+                                    else -> BpmFormat.BPM
+                                }
+                                scope.launch { settingsStore.setBpmFormat(v) }
+                            }
+
+                            SettingsSectionHeader("Downbeat")
+                            val dbLabels = listOf("Dot", "Tick", "Pulse")
+                            val dbIndex = when (s.downbeatStyle) {
+                                DownbeatStyle.DOT -> 0
+                                DownbeatStyle.TICK -> 1
+                                DownbeatStyle.PULSE -> 2
+                            }
+                            SettingsSegmentChip(
+                                title = "Style",
+                                subtitle = dbLabels[dbIndex],
+                                options = dbLabels,
+                                selectedIndex = dbIndex,
+                                enabled = s.showDownbeatIndicator
+                            ) { idx ->
+                                val v = when (idx) {
+                                    0 -> DownbeatStyle.DOT
+                                    1 -> DownbeatStyle.TICK
+                                    else -> DownbeatStyle.PULSE
+                                }
+                                scope.launch { settingsStore.setDownbeatStyle(v) }
+                            }
+
+                            SettingsSliderChip(
+                                title = "Opacity",
+                                subtitle = "${(s.downbeatOpacity * 100f).roundToLong()}%",
+                                value = s.downbeatOpacity,
+                                min = 0f,
+                                max = 1f,
+                                enabled = s.showDownbeatIndicator
+                            ) { v -> scope.launch { settingsStore.setDownbeatOpacity(v) } }
+                        }
+                    }
+                }
 
                 SettingsPage.STATUSBAR -> {
     item { SettingsTitleRow("Statusbar", showBack = true) { pop() } }
@@ -1196,8 +1386,112 @@ BackHandler {
                 SettingsPage.VISUALS -> {
                     item { SettingsTitleRow("Visuals", showBack = true) { pop() } }
 
-                    item { SettingsToggleChip("Phase Ring", "Downbeat + Phase", s.phaseVisualizerEnabled) { v -> scope.launch { settingsStore.setPhaseVisualizerEnabled(v) } } }
-                    item { SettingsToggleChip("Phase Spiral", "Stability visual", s.phaseSpiralEnabled) { v -> scope.launch { settingsStore.setPhaseSpiralEnabled(v) } } }
+                    item {
+                        SettingsToggleChip(
+                            title = "Animationen",
+                            subtitle = "Master switch",
+                            checked = s.animationsEnabled
+                        ) { v -> scope.launch { settingsStore.setAnimationsEnabled(v) } }
+                    }
+
+                    item {
+                        SettingsToggleChip(
+                            title = "Goblin Flash",
+                            subtitle = "Flash bei Events",
+                            checked = s.goblinFlashEnabled,
+                            enabled = s.animationsEnabled
+                        ) { v -> scope.launch { settingsStore.setGoblinFlashEnabled(v) } }
+                    }
+
+                    item {
+                        SettingsFoldChip(
+                            title = "Phase Visuals",
+                            subtitle = "Ring / Spiral"
+                        ) {
+                            SettingsToggleChip(
+                                title = "Phase Ring",
+                                subtitle = "Downbeat + Phase",
+                                checked = s.phaseVisualizerEnabled,
+                                enabled = s.animationsEnabled
+                            ) { v -> scope.launch { settingsStore.setPhaseVisualizerEnabled(v) } }
+
+                            SettingsToggleChip(
+                                title = "Phase Spiral",
+                                subtitle = "Stability visual",
+                                checked = s.phaseSpiralEnabled,
+                                enabled = s.animationsEnabled
+                            ) { v -> scope.launch { settingsStore.setPhaseSpiralEnabled(v) } }
+
+                            SettingsSliderChip(
+                                title = "Phase Opacity",
+                                subtitle = "${(s.phaseAlpha * 100f).roundToLong()}%",
+                                value = s.phaseAlpha,
+                                min = 0.30f,
+                                max = 2.00f,
+                                enabled = s.animationsEnabled
+                            ) { v -> scope.launch { settingsStore.setPhaseAlpha(v) } }
+                        }
+                    }
+
+                    item {
+                        SettingsFoldChip(
+                            title = "Ripples & FX",
+                            subtitle = "Ripples / OSC Pulse"
+                        ) {
+                            SettingsToggleChip(
+                                title = "Ripples",
+                                subtitle = "Wellen feedback",
+                                checked = s.rippleEnabled,
+                                enabled = s.animationsEnabled
+                            ) { v -> scope.launch { settingsStore.setRippleEnabled(v) } }
+
+                            SettingsToggleChip(
+                                title = "OSC Pulse",
+                                subtitle = "kurzer Pulse bei OSC",
+                                checked = s.oscPulseEnabled,
+                                enabled = s.animationsEnabled
+                            ) { v -> scope.launch { settingsStore.setOscPulseEnabled(v) } }
+
+                            SettingsSliderChip(
+                                title = "FX Opacity",
+                                subtitle = "${(s.fxAlpha * 100f).roundToLong()}%",
+                                value = s.fxAlpha,
+                                min = 0.30f,
+                                max = 2.00f,
+                                enabled = s.animationsEnabled
+                            ) { v -> scope.launch { settingsStore.setFxAlpha(v) } }
+                        }
+                    }
+
+                    item {
+                        SettingsFoldChip(
+                            title = "Remote Look",
+                            subtitle = "Ghost / Remote motion"
+                        ) {
+                            SettingsToggleChip(
+                                title = "Remote Animation",
+                                subtitle = "nur visuell",
+                                checked = s.remoteAnimationsEnabled,
+                                enabled = s.animationsEnabled
+                            ) { v -> scope.launch { settingsStore.setRemoteAnimationsEnabled(v) } }
+
+                            SettingsToggleChip(
+                                title = "Remote Ghost",
+                                subtitle = "Remote fühlt sich anders an",
+                                checked = s.remoteGhostModeEnabled,
+                                enabled = s.animationsEnabled && s.remoteAnimationsEnabled
+                            ) { v -> scope.launch { settingsStore.setRemoteGhostModeEnabled(v) } }
+
+                            SettingsSliderChip(
+                                title = "Ghost Opacity",
+                                subtitle = "${(s.ghostAlpha * 100f).roundToLong()}%",
+                                value = s.ghostAlpha,
+                                min = 0.30f,
+                                max = 2.00f,
+                                enabled = s.animationsEnabled && s.remoteAnimationsEnabled && s.remoteGhostModeEnabled
+                            ) { v -> scope.launch { settingsStore.setGhostAlpha(v) } }
+                        }
+                    }
 
                     item {
                         SettingsNavChip(
@@ -1456,14 +1750,207 @@ BackHandler {
                     item { SettingsToggleChip("Transport", "Nudge / Resync", s.transportHapticsEnabled, enabled = s.hapticsEnabled) { v -> scope.launch { settingsStore.setTransportHapticsEnabled(v) } } }
                 }
 
+                SettingsPage.CONNECTION -> {
+                    item { SettingsTitleRow("Verbindung", showBack = true) { pop() } }
+
+                    item {
+                        val shape = RoundedCornerShape(26.dp)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(shape)
+                                .background(GoblinCard)
+                                .border(1.dp, GoblinBorder, shape)
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Active Target", color = GoblinDim, fontSize = 11.sp)
+                            Text(
+                                "${s.activeTarget.name}  •  ${s.activeTarget.ip}:${s.activeTarget.port}",
+                                color = GoblinText,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text("Link: $linkLabel", color = if (linkOk) GoblinOk else GoblinBad, fontSize = 11.sp)
+                        }
+                    }
+
+                    item {
+                        SettingsNavChip(
+                            icon = Icons.Filled.Send,
+                            title = "Targets / Presets",
+                            subtitle = "IP:Port & Preset selection"
+                        ) {
+                            presetsSession += 1
+                            push(SettingsPage.TARGETS)
+                        }
+                    }
+
+                    item {
+                        SettingsNavChip(
+                            icon = Icons.Filled.Schedule,
+                            title = "Clock Source",
+                            subtitle = "Internal / External"
+                        ) { push(SettingsPage.CLOCK) }
+                    }
+
+                    item {
+                        SettingsNavChip(
+                            icon = Icons.Filled.Wifi,
+                            title = "Heartbeat",
+                            subtitle = "Ping/Pong • $linkLabel"
+                        ) { push(SettingsPage.NETWORK) }
+                    }
+
+                    item {
+                        SettingsFoldChip(
+                            title = "Coming soon",
+                            subtitle = "OSC Input / Output / Echo Guard"
+                        ) {
+                            Text(
+                                "Diese Unterpunkte sind im v${BuildConfig.VERSION_NAME} noch nicht umgesetzt.\n" +
+                                    "(Wir hängen sie hier nur schon logisch ein.)",
+                                color = GoblinDim,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+
+                SettingsPage.DEBUG_TOOLS -> {
+                    item { SettingsTitleRow("Debug & Tools", showBack = true) { pop() } }
+
+                    item { SettingsSectionHeader("Debug") }
+                    item {
+                        SettingsToggleChip(
+                            title = "OSC Monitor",
+                            subtitle = "DebugScreen: last packet + health",
+                            checked = s.showOscDebug
+                        ) { v -> scope.launch { settingsStore.setShowOscDebug(v) } }
+                    }
+
+                    item {
+                        SettingsToggleGroupChip(
+                            title = "Preflight",
+                            subtitle = "P / IN / OUT",
+                            checked = s.showPreflight,
+                            enabled = s.showStatusLine,
+                            onToggle = { v -> scope.launch { settingsStore.setShowPreflight(v) } }
+                        ) {
+                            val modeIdx = if (s.preflightMode == com.example.tapsyncwatch.presentation.data.PreflightMode.MINIMAL) 1 else 0
+                            SettingsSegmentChip(
+                                title = "Mode",
+                                subtitle = "FULL = labels, MIN = dots",
+                                options = listOf("FULL", "MIN"),
+                                selectedIndex = modeIdx,
+                                enabled = s.showStatusLine && s.showPreflight
+                            ) { i ->
+                                val v = if (i == 1) com.example.tapsyncwatch.presentation.data.PreflightMode.MINIMAL else com.example.tapsyncwatch.presentation.data.PreflightMode.FULL
+                                scope.launch { settingsStore.setPreflightMode(v) }
+                            }
+
+                            SettingsSliderChip(
+                                title = "Opacity",
+                                subtitle = "${(s.preflightAlpha * 100f).roundToLong()}%",
+                                value = s.preflightAlpha,
+                                min = 0f,
+                                max = 1f,
+                                enabled = s.showStatusLine && s.showPreflight
+                            ) { v -> scope.launch { settingsStore.setPreflightAlpha(v) } }
+
+                            SettingsNavChip(
+                                icon = Icons.Filled.Tune,
+                                title = "Tuning",
+                                subtitle = "Zeitfenster / Thresholds"
+                            ) { push(SettingsPage.PREFLIGHT_TUNING) }
+                        }
+                    }
+
+                    item {
+                        SettingsToggleGroupChip(
+                            title = "Timeline",
+                            subtitle = "Events overlay",
+                            checked = s.showTimeline,
+                            enabled = s.showStatusLine,
+                            onToggle = { v -> scope.launch { settingsStore.setShowTimeline(v) } }
+                        ) {
+
+                            SettingsSliderChip(
+                                title = "Opacity",
+                                subtitle = "${(s.timelineAlpha * 100f).roundToLong()}%",
+                                value = s.timelineAlpha,
+                                min = 0f,
+                                max = 1f,
+                                enabled = s.showStatusLine && s.showTimeline
+                            ) { v -> scope.launch { settingsStore.setTimelineAlpha(v) } }
+
+                            val winOpts = listOf(3000L, 5000L, 8000L, 12000L)
+                            val winLabels = listOf("3s", "5s", "8s", "12s")
+                            val winIdx = winOpts.indexOfFirst { it == s.timelineWindowMs }.let { if (it < 0) 1 else it }
+                            SettingsSegmentChip(
+                                title = "Window",
+                                subtitle = "${s.timelineWindowMs}ms",
+                                options = winLabels,
+                                selectedIndex = winIdx,
+                                enabled = s.showStatusLine && s.showTimeline
+                            ) { i -> scope.launch { settingsStore.setTimelineWindowMs(winOpts[i]) } }
+
+                            SettingsToggleChip(
+                                title = "Important only",
+                                subtitle = "Tap/Resync/Nudge + Errors",
+                                checked = s.timelineImportantOnly,
+                                enabled = s.showStatusLine && s.showTimeline
+                            ) { v -> scope.launch { settingsStore.setTimelineImportantOnly(v) } }
+                        }
+                    }
+
+                    item { DividerLine() }
+                    item {
+                        SettingsNavChip(
+                            icon = Icons.Filled.BugReport,
+                            title = "Legacy Debug (advanced)",
+                            subtitle = "Timeline filters, noise, HUD tuning"
+                        ) { push(SettingsPage.NETWORK_DEBUG) }
+                    }
+                }
+
+                SettingsPage.ABOUT -> {
+                    item { SettingsTitleRow("Über", showBack = true) { pop() } }
+
+                    item {
+                        val shape = RoundedCornerShape(26.dp)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(shape)
+                                .background(GoblinCard)
+                                .border(1.dp, GoblinBorder, shape)
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("TapSyncWatch", color = GoblinText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Version: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})", color = GoblinDim, fontSize = 12.sp)
+                            Text("Build: ${BuildConfig.BUILD_TYPE}", color = GoblinDim, fontSize = 12.sp)
+                        }
+                    }
+
+                    item {
+                        Text(
+                            "OSC Tempo/Transport sync für Live-Visuals.\n" +
+                                "Projekt: Uhr APP – TapSyncWatch",
+                            color = GoblinDim,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                    }
+                }
+
                 SettingsPage.NETWORK -> {
                     item { SettingsTitleRow("Netzwerk", showBack = true) { pop() } }
 
                     item { SettingsToggleChip("Link Check", "/tapsync/ping → /tapsync/pong", s.heartbeatEnabled) { v -> scope.launch { settingsStore.setHeartbeatEnabled(v) } } }
                     item { SettingsToggleChip("Nur Vordergrund", "weniger OSC + Akku", s.heartbeatForegroundOnly, enabled = s.heartbeatEnabled) { v -> scope.launch { settingsStore.setHeartbeatForegroundOnly(v) } } }
                     item { SettingsToggleChip("Adaptive recovery", "ping schneller wenn down", s.heartbeatAdaptiveEnabled, enabled = s.heartbeatEnabled) { v -> scope.launch { settingsStore.setHeartbeatAdaptiveEnabled(v) } } }
-
-                    item { SettingsNavChip(Icons.Filled.BugReport, "Debug", "OSC, Timeline, Preflight, FX") { push(SettingsPage.NETWORK_DEBUG) } }
 
                     item {
                         val shape = RoundedCornerShape(26.dp)

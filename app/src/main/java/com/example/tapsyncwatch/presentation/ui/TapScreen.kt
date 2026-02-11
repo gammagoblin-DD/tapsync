@@ -54,6 +54,8 @@ import com.example.tapsyncwatch.domain.transport.TransportFeedback
 import com.example.tapsyncwatch.input.osc.OscInputReceiver
 import com.example.tapsyncwatch.osc.OscHealth
 import com.example.tapsyncwatch.presentation.data.PreflightMode
+import com.example.tapsyncwatch.presentation.data.BpmFormat
+import com.example.tapsyncwatch.presentation.data.DownbeatStyle
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -412,6 +414,8 @@ private fun circularDelta(a: Float, b: Float): Float {
 @Composable
 fun TapScreen(
     showOscDot: Boolean,
+    oscDotOpacity: Float = 1.0f,
+    oscDotFadeMs: Long = 180L,
     showStatusLine: Boolean,
     statusLineAlpha: Float = 1.0f,
     preflightAlpha: Float = 1.0f,
@@ -433,6 +437,12 @@ fun TapScreen(
     activePresetName: String,
     activeTargetIp: String,
     activeTargetPort: Int,
+
+    // Downbeat HUD (visual "kick on 1")
+    showDownbeatIndicator: Boolean = true,
+    downbeatStyle: DownbeatStyle = DownbeatStyle.PULSE,
+    downbeatOpacity: Float = 1.0f,
+
     showBpm: Boolean,
     bpm: Double,
 
@@ -445,6 +455,8 @@ fun TapScreen(
 
     // UI-only monitors
     showExternalBpm: Boolean,
+    bpmOpacity: Float = 1.0f,
+    bpmFormat: BpmFormat = BpmFormat.BPM,
     externalBpm: StateFlow<Double?>,
     externalConfidence: StateFlow<Float?>,
     showOscDebug: Boolean,
@@ -579,8 +591,9 @@ fun applySwingWarp(phase: Float, swing: Float): Float {
         if (!oscPulseLimiter.allow()) return
 
         scope.launch {
+            val fade = oscDotFadeMs.coerceIn(80L, 900L).toInt()
             oscPulse.snapTo(1f)
-            oscPulse.animateTo(0f, tween(180, easing = FastOutSlowInEasing))
+            oscPulse.animateTo(0f, tween(fade, easing = FastOutSlowInEasing))
         }
     }
 
@@ -888,6 +901,7 @@ LaunchedEffect(lastPong) {
     var extPhase by remember { mutableStateOf(0f) }
     var stability by remember { mutableStateOf(1f) }
     var prevPhase by remember { mutableStateOf(0f) }
+    var barCount by remember { mutableStateOf(0) }
     var lastDownbeatTriggerMs by remember { mutableStateOf(0L) }
 
 
@@ -896,6 +910,7 @@ LaunchedEffect(lastPong) {
             extPhase = 0f
             stability = 1f
             prevPhase = 0f
+            barCount = 0
             return@LaunchedEffect
         }
 
@@ -917,6 +932,8 @@ LaunchedEffect(lastPong) {
             val wrapped = (prevPhase > 0.80f && pSafe < 0.20f)
             if (wrapped && (now - lastDownbeatTriggerMs) > 250L) {
                 lastDownbeatTriggerMs = now
+                barCount += 1
+                barCount += 1
 
                 if (animationsEnabled) {
                     // animate pulse without blocking the ticker
@@ -1250,6 +1267,19 @@ if (showStatusLine && statusText.isNotEmpty()) {
             label = "extBpmAnim"
         )
 
+        val bpmText = when {
+            !hasSignal -> "NO SIGNAL"
+            extBpm != null -> {
+                val bpmInt = extBpmAnimated.roundToInt()
+                when (bpmFormat) {
+                    BpmFormat.BPM_PHASE -> "$bpmInt BPM · ${(extPhase * 100f).roundToInt()}%"
+                    BpmFormat.BPM_BAR -> "$bpmInt BPM · Bar $barCount"
+                    else -> "$bpmInt BPM"
+                }
+            }
+            else -> "–"
+        }
+
         AnimatedVisibility(
             visible = showExternalBpm && (extBpm != null || !hasSignal),
             modifier = Modifier
@@ -1258,8 +1288,8 @@ if (showStatusLine && statusText.isNotEmpty()) {
                 .zIndex(20f)
         ) {
             Text(
-                text = if (!hasSignal) "NO SIGNAL" else extBpmAnimated.roundToInt().toString(),
-                color = GoblinBrown,
+                text = bpmText,
+                color = GoblinBrown.copy(alpha = (if (bpmOpacity.isFinite()) bpmOpacity else 1f).coerceIn(0f, 1f) * goblinBaseAlpha),
                 fontSize = 14.sp,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
@@ -1383,7 +1413,8 @@ if (showStatusLine && showTimeline) {
             ) {
                 drawCircle(
                     color = oscDotColor,
-                    alpha = ((0.18f + (if (oscPulse.value.isFinite()) oscPulse.value else 0f) * 0.82f) * fxMul).coerceIn(0f, 1f)
+                    alpha = (((0.18f + (if (oscPulse.value.isFinite()) oscPulse.value else 0f) * 0.82f) * fxMul)
+                        * (if (oscDotOpacity.isFinite()) oscDotOpacity else 1f)).coerceIn(0f, 1f)
                 )
             }
         }
@@ -1685,13 +1716,38 @@ drawPath(
             val safeRadius = min(size.width, size.height) * 0.82f / 2f
 
             if (!hasSignal) return@Canvas
+            if (!showDownbeatIndicator) return@Canvas
 
-            drawCircle(
-                color = GoblinBrown.copy(alpha = safeAlpha(0.28f * downbeatPulse.value * fxMul)),
-                radius = safeRadius * (1.0f + downbeatPulse.value * 0.06f),
-                center = Offset(cx, cy),
-                style = Stroke(width = 14f)
-            )
+            val dbOp = (if (downbeatOpacity.isFinite()) downbeatOpacity else 1f).coerceIn(0f, 1f)
+            val a = safeAlpha(0.28f * downbeatPulse.value * fxMul * dbOp)
+
+            when (downbeatStyle) {
+                DownbeatStyle.DOT -> {
+                    drawCircle(
+                        color = GoblinBrown.copy(alpha = (a * 1.2f).coerceIn(0f, 1f)),
+                        radius = 10f + downbeatPulse.value * 6f,
+                        center = Offset(cx, cy - safeRadius + 22f)
+                    )
+                }
+                DownbeatStyle.TICK -> {
+                    val y = cy - safeRadius + 18f
+                    drawLine(
+                        color = GoblinBrown.copy(alpha = (a * 1.2f).coerceIn(0f, 1f)),
+                        start = Offset(cx - 22f, y),
+                        end = Offset(cx + 22f, y),
+                        strokeWidth = 6f,
+                        cap = StrokeCap.Round
+                    )
+                }
+                DownbeatStyle.PULSE -> {
+                    drawCircle(
+                        color = GoblinBrown.copy(alpha = a),
+                        radius = safeRadius * (1.0f + downbeatPulse.value * 0.06f),
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 14f)
+                    )
+                }
+            }
         }
 
         if (showBpm) {

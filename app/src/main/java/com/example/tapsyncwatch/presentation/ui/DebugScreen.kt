@@ -81,6 +81,7 @@ fun DebugScreen(
     // Targets
     presets: List<OscTarget>,
     activePreset: Int,
+    showTargets: Boolean = false,
 
     onPageNext: (() -> Unit)? = null,
     onPagePrev: (() -> Unit)? = null,
@@ -417,6 +418,7 @@ fun DebugScreen(
             }
 
             // --- Targets ---
+            if (showTargets) {
             item {
                 DebugSection(
                     title = "Targets",
@@ -445,12 +447,14 @@ fun DebugScreen(
                 }
             }
 
+            }
+
             // --- Empty state ---
-            if (!showOscMonitor && !showTimeline && !(showPreflight || heartbeatEnabled)) {
+            if (!showOscMonitor && !showTimeline && !showTargets && !showPreflight && !heartbeatEnabled) {
                 item {
                     DebugSection(
                         title = "Nothing armed",
-                        subtitle = "Enable OSC monitor or Timeline in Settings",
+                        subtitle = "Enable something in Settings → Debug & Tools",
                         accent = goblinBrown,
                     ) {
                         Text(
@@ -572,26 +576,29 @@ private fun TargetRow(name: String, endpoint: String, active: Boolean, colorActi
             .clip(RoundedCornerShape(14.dp))
             .background(if (active) Color(0xFF143221) else Color(0xFF151515))
             .padding(horizontal = 10.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = name,
-            color = if (active) colorActive else colorIdle,
-            style = MaterialTheme.typography.subtitle2,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            text = softBreakAddress(endpoint),
-            color = colorIdle,
-            style = MaterialTheme.typography.caption,
-            fontFamily = FontFamily.Monospace,
-            maxLines = 2,
-            overflow = TextOverflow.Clip
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = name,
+                color = if (active) colorActive else colorIdle,
+                style = MaterialTheme.typography.subtitle2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = softBreakAddress(endpoint),
+                color = colorIdle,
+                style = MaterialTheme.typography.caption,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 2,
+                overflow = TextOverflow.Clip
+            )
+        }
     }
 }
+
 
 private fun fmtAge(ageMs: Long): String {
     if (ageMs == Long.MAX_VALUE) return "—"

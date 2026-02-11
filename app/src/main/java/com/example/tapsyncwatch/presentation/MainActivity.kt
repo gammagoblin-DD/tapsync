@@ -215,17 +215,19 @@ class MainActivity : ComponentActivity() {
                             externalClockActivity = oscReceiver.externalBpmActivity,
                             externalTransportIn = oscReceiver.transportIn,
                             showOscDot = s.showOscDot,
-                            showStatusLine = false,
+                            oscDotOpacity = s.oscDotOpacity,
+                            oscDotFadeMs = s.oscDotFadeMs,
+                            showStatusLine = s.showStatusLine,
                             statusLineAlpha = s.statusLineAlpha,
                             preflightAlpha = s.preflightAlpha,
                             timelineAlpha = s.timelineAlpha,
 
-                            showPreflight = false,
+                            showPreflight = s.showPreflight,
                             preflightMode = s.preflightMode,
                             statusbarAutoDimWarn = s.statusbarAutoDimWarn,
-                            showTimeline = false,
+                            showTimeline = s.showTimeline,
                             timelineWindowMs = s.timelineWindowMs,
-                            timelineShowLocal = false,
+                            timelineShowLocal = s.timelineShowLocal,
                             timelineShowRemote = s.timelineShowRemote,
                             timelineShowHealth = s.timelineShowHealth,
                             timelineImportantOnly = s.timelineImportantOnly,
@@ -236,10 +238,13 @@ class MainActivity : ComponentActivity() {
                             preflightDownbeatOkMs = s.preflightDownbeatOkMs,
                             preflightOutOkMs = s.preflightOutOkMs,
 
-                            activePresetName = s.presets.getOrNull(s.activePreset)?.name
-                                ?: "Preset",
-                            activeTargetIp = s.presets.getOrNull(s.activePreset)?.ip ?: "-",
-                            activeTargetPort = s.presets.getOrNull(s.activePreset)?.port ?: 0,
+                            activePresetName = s.activeTarget.name,
+                            activeTargetIp = s.activeTarget.ip,
+                            activeTargetPort = s.activeTarget.port,
+
+                            showDownbeatIndicator = s.showDownbeatIndicator,
+                            downbeatStyle = s.downbeatStyle,
+                            downbeatOpacity = s.downbeatOpacity,
                             showBpm = false,
                             bpm = clockState.bpm,
 
@@ -250,6 +255,8 @@ class MainActivity : ComponentActivity() {
                             signalGraceMs = s.signalGraceMs,
 
                             showExternalBpm = s.showExternalBpm,
+                            bpmOpacity = s.bpmOpacity,
+                            bpmFormat = s.bpmFormat,
                             externalBpm = oscReceiver.externalBpm,
                             externalConfidence = oscReceiver.externalConfidence,
                             showOscDebug = false, // legacy fullscreen OSC overlay disabled (use DebugScreen OSC monitor)
@@ -340,7 +347,7 @@ class MainActivity : ComponentActivity() {
                             // Timeline / transport
                             showTimeline = s.showTimeline,
                             timelineWindowMs = s.timelineWindowMs,
-                            timelineShowLocal = false,
+                            timelineShowLocal = s.timelineShowLocal,
                             timelineShowRemote = s.timelineShowRemote,
                             timelineShowHealth = s.timelineShowHealth,
                             timelineImportantOnly = s.timelineImportantOnly,
