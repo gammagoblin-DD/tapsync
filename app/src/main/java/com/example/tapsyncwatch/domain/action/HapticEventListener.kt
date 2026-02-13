@@ -4,27 +4,10 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 
-/**
- * Haptic "language":
- * - Tap: short tick
- * - Multiply: double tick
- * - Divide: long-short
- * - Resync: "thump"
- * - Nudge: tiny tick
- *
- * Notes:
- * - Watches vary wildly in amplitude support. We keep patterns primarily in timing.
- * - We keep the legacy onMultiplyDivide() for compatibility, but prefer onMultiply()/onDivide().
- */
 interface HapticEventListener {
     fun onTap()
-
-    fun onMultiply() = onMultiplyDivide()
-    fun onDivide() = onMultiplyDivide()
-
-    @Deprecated("Use onMultiply() / onDivide() for distinct haptic patterns.")
-    fun onMultiplyDivide()
-
+    fun onMultiply()
+    fun onDivide()
     fun onResync()
     fun onNudge()
 }
@@ -33,54 +16,32 @@ class HapticFeedbackEngine(
     private val vibrator: Vibrator
 ) : HapticEventListener {
 
-    private fun vibeOneShot(ms: Long) {
-        vibrator.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
-    }
-
-    private fun vibePattern(timings: LongArray, amplitudes: IntArray? = null) {
-        // API 26+ (Wear OS is 26+). If amplitudes are not supported, timing still carries the pattern.
-        val effect = if (amplitudes != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            VibrationEffect.createWaveform(timings, amplitudes, -1)
+    private fun oneShot(ms: Long, amp: Int = VibrationEffect.DEFAULT_AMPLITUDE) {
+        if (ms <= 0L) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(ms, amp))
         } else {
-            VibrationEffect.createWaveform(timings, -1)
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(ms)
         }
-        vibrator.vibrate(effect)
     }
 
-    override fun onTap() {
-        // short tick
-        vibeOneShot(28)
+    private fun wave(timings: LongArray, amps: IntArray) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createWaveform(timings, amps, -1))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(timings.sum())
+        }
     }
 
-    override fun onMultiply() {
-        // double tick (tick, pause, tick)
-        vibePattern(
-            longArrayOf(0, 28, 42, 28),
-            intArrayOf(0, 255, 0, 255)
-        )
-    }
+    override fun onTap() = oneShot(28L)
 
-    override fun onDivide() {
-        // long-short (long, pause, short)
-        vibePattern(
-            longArrayOf(0, 78, 50, 26),
-            intArrayOf(0, 255, 0, 220)
-        )
-    }
+    override fun onMultiply() = wave(longArrayOf(0, 26, 42, 26), intArrayOf(0, 255, 0, 255))
 
-    @Deprecated("Use onMultiply() / onDivide().")
-    override fun onMultiplyDivide() {
-        // fallback: medium single pulse
-        vibeOneShot(70)
-    }
+    override fun onDivide() = wave(longArrayOf(0, 70, 45, 24), intArrayOf(0, 255, 0, 220))
 
-    override fun onResync() {
-        // "thump" (heavy-ish single)
-        vibeOneShot(150)
-    }
+    override fun onResync() = oneShot(150L)
 
-    override fun onNudge() {
-        // tiny tick
-        vibeOneShot(18)
-    }
+    override fun onNudge() = oneShot(18L)
 }

@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.platform.LocalConfiguration
@@ -42,13 +44,21 @@ import com.example.tapsyncwatch.presentation.data.DownbeatStyle
 import com.example.tapsyncwatch.presentation.data.PreflightMode
 import com.example.tapsyncwatch.presentation.data.OscTarget
 import com.example.tapsyncwatch.presentation.data.SettingsStore
+import com.example.tapsyncwatch.presentation.data.HeartbeatSendTo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.InetAddress
 import java.net.NetworkInterface
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import kotlin.math.roundToLong
 import androidx.compose.foundation.interaction.MutableInteractionSource
 
@@ -88,8 +98,11 @@ private enum class SettingsPage {
     MOTION_REMOTE,
     MOTION_FX,
     HAPTICS,
-    NETWORK,
+    NETWORK, // Heartbeat
     NETWORK_DEBUG,
+    OSC_INPUT,
+    OSC_OUTPUT,
+    ECHO_GUARD,
     CLOCK,
     TARGETS,
     TARGET_EDIT
@@ -97,9 +110,7 @@ private enum class SettingsPage {
 
 @Composable
 private fun SettingsTitleRow(
-    title: String,
-    showBack: Boolean,
-    onBack: () -> Unit
+    title: String
 ) {
     // Watch-style: centered title only. Back is handled via system back + edge-swipe gesture.
     Box(
@@ -144,6 +155,7 @@ private fun SettingsNavChip(
     title: String,
     subtitle: String,
     modifier: Modifier = Modifier,
+    subtitleMono: Boolean = false,
     onClick: () -> Unit
 ) {
 
@@ -166,7 +178,14 @@ private fun SettingsNavChip(
             Icon(icon, contentDescription = null, tint = GoblinDim, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, color = GoblinText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    title,
+                    color = GoblinText,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
                 Spacer(Modifier.height(2.dp))
                 Text(
                     subtitle,
@@ -174,7 +193,7 @@ private fun SettingsNavChip(
                     fontSize = 12.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
+                    fontFamily = if (subtitleMono) FontFamily.Monospace else FontFamily.Default
                 )
             }
         }
@@ -890,12 +909,20 @@ private suspend fun ping(ip: String, timeoutMs: Int = 350): Boolean {
 fun SettingsScreen(
     settingsStore: SettingsStore,
     lastPongMs: kotlinx.coroutines.flow.StateFlow<Long>,
+    lastPongFrom: kotlinx.coroutines.flow.StateFlow<String?>,
+    lastAnyRxMs: kotlinx.coroutines.flow.StateFlow<Long>,
+    lastAnyFrom: kotlinx.coroutines.flow.StateFlow<String?>,
     onClose: () -> Unit
 ) {
     val settings by settingsStore.settings.collectAsState(initial = DEFAULT_SETTINGS_STATE)
     val s = settings
+
     val lastPong by lastPongMs.collectAsState()
-    var nowMs by remember { mutableStateOf(0L) }
+    val pongFrom by lastPongFrom.collectAsState()
+    val lastAnyRx by lastAnyRxMs.collectAsState()
+    val anyFrom by lastAnyFrom.collectAsState()
+
+    var nowMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
 
     val scope = rememberCoroutineScope()
     val pageStack = rememberSaveable(saver = listSaver(
@@ -906,9 +933,8 @@ val page = pageStack.last()
 fun push(p: SettingsPage) { pageStack.add(p) }
 fun pop() { if (pageStack.size > 1) pageStack.removeAt(pageStack.lastIndex) }
 
-    // Only tick when we actually show time-based network info (pong age).
-    LaunchedEffect(page) {
-        if (page != SettingsPage.NETWORK) return@LaunchedEffect
+    // Tick while settings are open (used for link ages).
+    LaunchedEffect(Unit) {
         while (isActive) {
             nowMs = SystemClock.elapsedRealtime()
             delay(500)
@@ -954,17 +980,35 @@ BackHandler {
     val edgePx = with(density) { 22.dp.toPx() }
     val triggerPx = with(density) { 42.dp.toPx() }
 
-    // Link status
-    val pongAge = remember(page, lastPong, nowMs) {
-        if (page != SettingsPage.NETWORK) null
-        else if (lastPong <= 0L || nowMs <= 0L) null
-        else (nowMs - lastPong).coerceAtLeast(0L)
+
+    // Link status (Ping/Pong + optional Any-RX fallback)
+    val pongAge = remember(lastPong, nowMs) {
+        if (lastPong <= 0L || nowMs <= 0L) null else (nowMs - lastPong).coerceAtLeast(0L)
     }
-    val linkOk = if (!s.heartbeatEnabled) true else (pongAge != null && pongAge < s.signalGraceMs)
+    val anyRxAge = remember(lastAnyRx, nowMs) {
+        if (lastAnyRx <= 0L || nowMs <= 0L) null else (nowMs - lastAnyRx).coerceAtLeast(0L)
+    }
+
+    val pongOk = s.heartbeatEnabled && pongAge != null && pongAge < s.signalGraceMs
+    val anyOk = s.oscInputAnyRxFallbackEnabled && anyRxAge != null && anyRxAge < s.oscInputAnyRxTimeoutMs
+
+    val linkOk = when {
+        pongOk -> true
+        anyOk -> true
+        !s.heartbeatEnabled && !s.oscInputAnyRxFallbackEnabled -> true // neutral: link check off
+        else -> false
+    }
+
     val linkLabel = when {
-        !s.heartbeatEnabled -> "Link Check OFF"
-        pongAge == null -> "waiting…"
-        linkOk -> "OK"
+        pongOk -> "PONG ${pongAge ?: 0L}ms"
+        !s.heartbeatEnabled && s.oscInputAnyRxFallbackEnabled -> when {
+            anyRxAge == null -> "waiting…"
+            anyOk -> "RX ${anyRxAge ?: 0L}ms"
+            else -> "NO RX"
+        }
+        !s.heartbeatEnabled -> "OFF"
+        s.heartbeatEnabled && anyOk -> "RX ${anyRxAge ?: 0L}ms"
+        pongAge == null && (!s.oscInputAnyRxFallbackEnabled || anyRxAge == null) -> "waiting…"
         else -> "NO SIGNAL"
     }
 
@@ -1017,7 +1061,7 @@ BackHandler {
             when (page) {
 
                 SettingsPage.ROOT -> {
-                    item { SettingsTitleRow("Einstellungen", showBack = false) { } }
+                    item { SettingsTitleRow("Einstellungen") }
 
                     item { SettingsNavChip(Icons.Filled.Visibility, "Anzeige (HUD)", "OSC Dot, BPM, Downbeat") { push(SettingsPage.DISPLAY) } }
                     item { SettingsNavChip(Icons.Filled.Palette, "Visuals", "Animationen, Phase, Ripples, Remote") { push(SettingsPage.VISUALS) } }
@@ -1029,7 +1073,7 @@ BackHandler {
 
                 
                 SettingsPage.DISPLAY -> {
-                    item { SettingsTitleRow("Anzeige (HUD)", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Anzeige (HUD)") }
 
                     item {
                         SettingsToggleChip(
@@ -1163,7 +1207,7 @@ BackHandler {
                 }
 
                 SettingsPage.STATUSBAR -> {
-    item { SettingsTitleRow("Statusbar", showBack = true) { pop() } }
+    item { SettingsTitleRow("Statusbar") }
 
     item {
         SettingsToggleChip(
@@ -1195,7 +1239,7 @@ BackHandler {
 
     item {
         SettingsNavChip(
-            icon = Icons.Filled.FactCheck,
+            icon = Icons.AutoMirrored.Filled.FactCheck,
             title = "Preflight",
             subtitle = "P / IN / OUT"
         ) { push(SettingsPage.PREFLIGHT) }
@@ -1211,7 +1255,7 @@ BackHandler {
 }
 
                 SettingsPage.PREFLIGHT -> {
-    item { SettingsTitleRow("Preflight", showBack = true) { pop() } }
+    item { SettingsTitleRow("Preflight") }
 
     item {
         SettingsToggleChip(
@@ -1259,7 +1303,7 @@ BackHandler {
 
 
                 SettingsPage.PREFLIGHT_TUNING -> {
-                    item { SettingsTitleRow("Tuning", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Tuning") }
 
                     item {
                         val phaseOpts = listOf(800L, 1500L, 3000L)
@@ -1300,7 +1344,7 @@ BackHandler {
 
 
                 SettingsPage.TIMELINE -> {
-    item { SettingsTitleRow("Timeline", showBack = true) { pop() } }
+    item { SettingsTitleRow("Timeline") }
 
     item {
         SettingsToggleChip(
@@ -1384,7 +1428,7 @@ BackHandler {
 }
 
                 SettingsPage.VISUALS -> {
-                    item { SettingsTitleRow("Visuals", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Visuals") }
 
                     item {
                         SettingsToggleChip(
@@ -1513,7 +1557,7 @@ BackHandler {
                 
 
                 SettingsPage.VISUALS_VISIBILITY -> {
-                    item { SettingsTitleRow("Visibility", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Visibility") }
 
                     item {
                         SettingsSliderChip(
@@ -1545,7 +1589,7 @@ BackHandler {
 
 
                 SettingsPage.VISUALS_INSTRUMENT -> {
-                    item { SettingsTitleRow("Instrument", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Instrument") }
 
                     item {
                         SettingsNavChip(
@@ -1581,7 +1625,7 @@ BackHandler {
                 }
 
                 SettingsPage.MOODS -> {
-                    item { SettingsTitleRow("Goblin Moods", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Goblin Moods") }
 
                     item {
                         SettingsToggleChip(
@@ -1604,7 +1648,7 @@ BackHandler {
                 }
 
                 SettingsPage.AURA_PARTICLES -> {
-                    item { SettingsTitleRow("Aura + Particles", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Aura + Particles") }
 
                     item {
                         SettingsToggleChip(
@@ -1624,7 +1668,7 @@ BackHandler {
                 }
 
                 SettingsPage.SWING -> {
-                    item { SettingsTitleRow("Swing", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Swing") }
 
                     item {
                         SettingsSliderChip(
@@ -1638,7 +1682,7 @@ BackHandler {
                 }
 
                 SettingsPage.GHOST_ECHO -> {
-                    item { SettingsTitleRow("Ghost Echo", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Ghost Echo") }
 
                     item {
                         SettingsToggleChip(
@@ -1660,7 +1704,7 @@ BackHandler {
                     }
                 }
                 SettingsPage.MOTION -> {
-                    item { SettingsTitleRow("Animation", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Animation") }
 
                     item {
                         SettingsToggleChip(
@@ -1672,7 +1716,7 @@ BackHandler {
 
                     item {
                         SettingsNavChip(
-                            icon = Icons.Filled.Input,
+                            icon = Icons.AutoMirrored.Filled.Input,
                             title = "Remote",
                             subtitle = "Input visuals (Ghost etc.)"
                         ) { push(SettingsPage.MOTION_REMOTE) }
@@ -1690,7 +1734,7 @@ BackHandler {
                 
 
                 SettingsPage.MOTION_REMOTE -> {
-                    item { SettingsTitleRow("Remote", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Remote") }
 
                     item {
                         SettingsToggleChip(
@@ -1712,7 +1756,7 @@ BackHandler {
                 }
 
                 SettingsPage.MOTION_FX -> {
-                    item { SettingsTitleRow("FX", showBack = true) { pop() } }
+                    item { SettingsTitleRow("FX") }
 
                     item {
                         SettingsToggleChip(
@@ -1743,7 +1787,7 @@ BackHandler {
                 }
 
                 SettingsPage.HAPTICS -> {
-                    item { SettingsTitleRow("Haptik", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Haptik") }
 
                     item { SettingsToggleChip("Haptik", "Master switch", s.hapticsEnabled) { v -> scope.launch { settingsStore.setHapticsEnabled(v) } } }
                     item { SettingsToggleChip("Downbeat", "Kick auf 1", s.downbeatHapticsEnabled, enabled = s.hapticsEnabled) { v -> scope.launch { settingsStore.setDownbeatHapticsEnabled(v) } } }
@@ -1751,7 +1795,7 @@ BackHandler {
                 }
 
                 SettingsPage.CONNECTION -> {
-                    item { SettingsTitleRow("Verbindung", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Verbindung") }
 
                     item {
                         val shape = RoundedCornerShape(26.dp)
@@ -1772,12 +1816,13 @@ BackHandler {
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text("Link: $linkLabel", color = if (linkOk) GoblinOk else GoblinBad, fontSize = 11.sp)
+                            Text("Last pong from: " + (pongFrom ?: "-"), color = GoblinDim, fontSize = 11.sp)
                         }
                     }
 
                     item {
                         SettingsNavChip(
-                            icon = Icons.Filled.Send,
+                            icon = Icons.AutoMirrored.Filled.Send,
                             title = "Targets / Presets",
                             subtitle = "IP:Port & Preset selection"
                         ) {
@@ -1803,22 +1848,249 @@ BackHandler {
                     }
 
                     item {
-                        SettingsFoldChip(
-                            title = "Coming soon",
-                            subtitle = "OSC Input / Output / Echo Guard"
+                        SettingsNavChip(
+                            icon = Icons.Filled.Input,
+                            title = "OSC Input",
+                            subtitle = (if (s.oscInputEnabled) "ON" else "OFF") + " • :${s.oscInputPort}"
+                        ) { push(SettingsPage.OSC_INPUT) }
+                    }
+
+                    item {
+                        SettingsNavChip(
+                            icon = Icons.AutoMirrored.Filled.Send,
+                            title = "OSC Output",
+                            subtitle = (if (s.oscOutputEnabled) "ON" else "OFF") + " • throttle ${s.oscOutputThrottleMs}ms"
+                        ) { push(SettingsPage.OSC_OUTPUT) }
+                    }
+
+                    item {
+                        SettingsNavChip(
+                            icon = Icons.Filled.SyncAlt,
+                            title = "Echo Guard",
+                            subtitle = (if (s.echoGuardEnabled) "ON" else "OFF") + " • ${s.echoGuardWindowMs}ms"
+                        ) { push(SettingsPage.ECHO_GUARD) }
+                    }
+                }
+
+                SettingsPage.OSC_INPUT -> {
+                    item { SettingsTitleRow("OSC Input") }
+
+                    item {
+                        SettingsToggleChip(
+                            title = "Input",
+                            subtitle = "UDP listen",
+                            checked = s.oscInputEnabled
+                        ) { v -> scope.launch { settingsStore.setOscInputEnabled(v) } }
+                    }
+
+                    item {
+                        val shape = RoundedCornerShape(26.dp)
+                        var portStr by remember(s.oscInputPort) { mutableStateOf(s.oscInputPort.toString()) }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(shape)
+                                .background(GoblinCard)
+                                .border(1.dp, GoblinBorder, shape)
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(
-                                "Diese Unterpunkte sind im v${BuildConfig.VERSION_NAME} noch nicht umgesetzt.\n" +
-                                    "(Wir hängen sie hier nur schon logisch ein.)",
-                                color = GoblinDim,
-                                fontSize = 12.sp
+                            Text("Listen Port", color = GoblinDim, fontSize = 11.sp)
+
+                            TextFieldItem(
+                                value = portStr,
+                                onValue = { portStr = it.filter { c -> c.isDigit() }.take(5) },
+                                placeholder = "7000",
+                                keyboardType = KeyboardType.Number
                             )
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(
+                                    onClick = {
+                                        val p = portStr.toIntOrNull()?.coerceIn(1, 65535) ?: s.oscInputPort
+                                        scope.launch { settingsStore.setOscInputPort(p) }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        backgroundColor = GoblinBorder,
+                                        contentColor = GoblinText
+                                    ),
+                                    shape = RoundedCornerShape(18.dp),
+                                    enabled = s.oscInputEnabled
+                                ) { Text("Apply") }
+
+                                Button(
+                                    onClick = { portStr = s.oscInputPort.toString() },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        backgroundColor = GoblinCard2,
+                                        contentColor = GoblinText
+                                    ),
+                                    shape = RoundedCornerShape(18.dp)
+                                ) { Text("Reset") }
+                            }
+
+                            Text("Hinweis: Port-Change startet den Listener neu.", color = GoblinDim, fontSize = 11.sp)
+                        }
+                    }
+
+                    item { DividerLine() }
+
+                    item { SettingsSectionHeader("Fallback") }
+
+                    item {
+                        SettingsToggleChip(
+                            title = "Any-RX fallback",
+                            subtitle = "any OSC = signal",
+                            checked = s.oscInputAnyRxFallbackEnabled,
+                            enabled = s.oscInputEnabled
+                        ) { v -> scope.launch { settingsStore.setOscInputAnyRxFallbackEnabled(v) } }
+                    }
+
+                    item {
+                        val opts = listOf(500L, 1000L, 1500L, 2500L, 5000L)
+                        val labels = listOf("500", "1000", "1500", "2500", "5000")
+                        val idx = opts.indexOfFirst { it == s.oscInputAnyRxTimeoutMs }.let { if (it < 0) 2 else it }
+                        SettingsSegmentChip(
+                            title = "Any-RX timeout",
+                            subtitle = "${s.oscInputAnyRxTimeoutMs}ms",
+                            options = labels,
+                            selectedIndex = idx,
+                            enabled = s.oscInputEnabled && s.oscInputAnyRxFallbackEnabled
+                        ) { i -> scope.launch { settingsStore.setOscInputAnyRxTimeoutMs(opts[i]) } }
+                    }
+
+                    item {
+                        val shape = RoundedCornerShape(26.dp)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(shape)
+                                .background(GoblinCard)
+                                .border(1.dp, GoblinBorder, shape)
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Last Any-RX", color = GoblinDim, fontSize = 11.sp)
+                            Text(
+                                anyRxAge?.let { "${it}ms" } ?: "-",
+                                color = if (anyOk) GoblinOk else GoblinDim,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text("From: " + (anyFrom ?: "-"), color = GoblinDim, fontSize = 11.sp)
                         }
                     }
                 }
 
+                SettingsPage.OSC_OUTPUT -> {
+                    item { SettingsTitleRow("OSC Output") }
+
+                    item {
+                        SettingsToggleChip(
+                            title = "Send",
+                            subtitle = "master output",
+                            checked = s.oscOutputEnabled
+                        ) { v -> scope.launch { settingsStore.setOscOutputEnabled(v) } }
+                    }
+
+                    item {
+                        val opts = listOf(0L, 20L, 40L, 80L, 120L, 200L, 400L, 800L)
+                        val labels = opts.map { it.toString() }
+                        val idx = opts.indexOfFirst { it == s.oscOutputThrottleMs }.let { if (it < 0) 0 else it }
+                        SettingsSegmentChip(
+                            title = "Throttle",
+                            subtitle = "${s.oscOutputThrottleMs}ms",
+                            options = labels,
+                            selectedIndex = idx,
+                            enabled = s.oscOutputEnabled
+                        ) { i -> scope.launch { settingsStore.setOscOutputThrottleMs(opts[i]) } }
+                    }
+
+                    item {
+                        Text(
+                            "Throttle betrifft nur non-critical Messages. Transport + /tapsync/ping sind exempt.",
+                            color = GoblinDim,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                    }
+                }
+
+                SettingsPage.ECHO_GUARD -> {
+                    item { SettingsTitleRow("Echo Guard") }
+
+                    item {
+                        SettingsToggleChip(
+                            title = "Enabled",
+                            subtitle = "suppress watch→host→watch",
+                            checked = s.echoGuardEnabled
+                        ) { v -> scope.launch { settingsStore.setEchoGuardEnabled(v) } }
+                    }
+
+                    item {
+                        val opts = listOf(0L, 120L, 250L, 350L, 500L, 750L)
+                        val labels = listOf("0", "120", "250", "350", "500", "750")
+                        val idx = opts.indexOfFirst { it == s.echoGuardWindowMs }.let { if (it < 0) 3 else it }
+                        SettingsSegmentChip(
+                            title = "Window",
+                            subtitle = "${s.echoGuardWindowMs}ms",
+                            options = labels,
+                            selectedIndex = idx,
+                            enabled = s.echoGuardEnabled
+                        ) { i -> scope.launch { settingsStore.setEchoGuardWindowMs(opts[i]) } }
+                    }
+
+                    item { SettingsSectionHeader("Rules") }
+
+                    item {
+                        SettingsToggleChip(
+                            title = "Tap",
+                            subtitle = "suppress echo tap",
+                            checked = s.echoGuardRuleTap,
+                            enabled = s.echoGuardEnabled
+                        ) { v -> scope.launch { settingsStore.setEchoGuardRuleTap(v) } }
+                    }
+
+                    item {
+                        SettingsToggleChip(
+                            title = "Resync",
+                            subtitle = "suppress echo resync",
+                            checked = s.echoGuardRuleResync,
+                            enabled = s.echoGuardEnabled
+                        ) { v -> scope.launch { settingsStore.setEchoGuardRuleResync(v) } }
+                    }
+
+                    item {
+                        SettingsToggleChip(
+                            title = "Multiply/Divide",
+                            subtitle = "suppress echo mult/div",
+                            checked = s.echoGuardRuleMultDiv,
+                            enabled = s.echoGuardEnabled
+                        ) { v -> scope.launch { settingsStore.setEchoGuardRuleMultDiv(v) } }
+                    }
+
+                    item {
+                        SettingsToggleChip(
+                            title = "Nudge",
+                            subtitle = "suppress echo push/pull",
+                            checked = s.echoGuardRuleNudge,
+                            enabled = s.echoGuardEnabled
+                        ) { v -> scope.launch { settingsStore.setEchoGuardRuleNudge(v) } }
+                    }
+
+                    item {
+                        Text(
+                            "Tipp: Window ~250–400ms fühlt sich live meist am besten an.",
+                            color = GoblinDim,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                    }
+                }
+
                 SettingsPage.DEBUG_TOOLS -> {
-                    item { SettingsTitleRow("Debug & Tools", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Debug & Tools") }
 
                     item { SettingsSectionHeader("Debug") }
                     item {
@@ -1915,7 +2187,7 @@ BackHandler {
                 }
 
                 SettingsPage.ABOUT -> {
-                    item { SettingsTitleRow("Über", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Über") }
 
                     item {
                         val shape = RoundedCornerShape(26.dp)
@@ -1946,11 +2218,25 @@ BackHandler {
                 }
 
                 SettingsPage.NETWORK -> {
-                    item { SettingsTitleRow("Netzwerk", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Netzwerk") }
 
                     item { SettingsToggleChip("Link Check", "/tapsync/ping → /tapsync/pong", s.heartbeatEnabled) { v -> scope.launch { settingsStore.setHeartbeatEnabled(v) } } }
                     item { SettingsToggleChip("Nur Vordergrund", "weniger OSC + Akku", s.heartbeatForegroundOnly, enabled = s.heartbeatEnabled) { v -> scope.launch { settingsStore.setHeartbeatForegroundOnly(v) } } }
                     item { SettingsToggleChip("Adaptive recovery", "ping schneller wenn down", s.heartbeatAdaptiveEnabled, enabled = s.heartbeatEnabled) { v -> scope.launch { settingsStore.setHeartbeatAdaptiveEnabled(v) } } }
+
+                    item {
+                        val idx = if (s.heartbeatSendTo == HeartbeatSendTo.ALL) 1 else 0
+                        SettingsSegmentChip(
+                            title = "Send To",
+                            subtitle = if (s.heartbeatSendTo == HeartbeatSendTo.ALL) "All presets" else "Active preset",
+                            options = listOf("Active", "All"),
+                            selectedIndex = idx,
+                            enabled = s.heartbeatEnabled
+                        ) { i ->
+                            val v = if (i == 1) HeartbeatSendTo.ALL else HeartbeatSendTo.ACTIVE
+                            scope.launch { settingsStore.setHeartbeatSendTo(v) }
+                        }
+                    }
 
                     item {
                         val shape = RoundedCornerShape(26.dp)
@@ -1971,14 +2257,19 @@ BackHandler {
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text("Last pong: " + (pongAge?.let { "${it}ms" } ?: "-"), color = GoblinDim, fontSize = 11.sp)
+                            Text("Last pong from: " + (pongFrom ?: "-"), color = GoblinDim, fontSize = 11.sp)
                             Text("Grace: ${s.signalGraceMs}ms", color = GoblinDim, fontSize = 11.sp)
+                            if (s.oscInputAnyRxFallbackEnabled) {
+                                Text("Last any: " + (anyRxAge?.let { "${it}ms" } ?: "-"), color = GoblinDim, fontSize = 11.sp)
+                                Text("Last any from: " + (anyFrom ?: "-"), color = GoblinDim, fontSize = 11.sp)
+                            }
                         }
                     }
                 }
 
 
                 SettingsPage.NETWORK_DEBUG -> {
-                    item { SettingsTitleRow("Debug", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Debug") }
 
                     item { SettingsSectionHeader("OSC") }
                     item { SettingsToggleChip("OSC Dot", "kleiner Aktivitäts-Punkt", s.showOscDot) { v -> scope.launch { settingsStore.setShowOscDot(v) } } }
@@ -2023,7 +2314,7 @@ BackHandler {
                 }
 
                 SettingsPage.CLOCK -> {
-                    item { SettingsTitleRow("Clock / Engine", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Clock / Engine") }
 
                     // FIRST: clock enable/disable
                     item { SettingsToggleChip("Clock Enabled", "Master switch for clock output", s.clockEnabled) { v -> scope.launch { settingsStore.setClockEnabled(v) } } }
@@ -2069,7 +2360,7 @@ BackHandler {
 
                 
                 SettingsPage.TARGETS -> {
-                    item { SettingsTitleRow("OSC Targets", showBack = true) { pop() } }
+                    item { SettingsTitleRow("OSC Targets") }
 
                     item {
                         ActivePresetBar(
@@ -2083,10 +2374,13 @@ BackHandler {
                     s.presets.forEachIndexed { i, p ->
                         val label = when (i) { 0 -> "A"; 1 -> "B"; 2 -> "C"; else -> (i + 1).toString() }
                         item {
+                            val isActive = (i == s.activePreset)
+                            val tick = if (isActive) " ✓" else ""
                             SettingsNavChip(
-                                icon = Icons.Filled.Send,
-                                title = "$label • ${p.name}",
-                                subtitle = "${p.ip}:${p.port}" + if (i == s.activePreset) " • active" else ""
+                                icon = Icons.AutoMirrored.Filled.Send,
+                                title = "$label$tick • ${p.name}",
+                                subtitle = "${p.ip}:${p.port}",
+                                subtitleMono = true
                             ) {
                                 editPresetIndex = i
                                 push(SettingsPage.TARGET_EDIT)
@@ -2095,15 +2389,38 @@ BackHandler {
                     }
                 }
 
+
                 SettingsPage.TARGET_EDIT -> {
                     val i = editPresetIndex.coerceIn(0, s.presets.lastIndex)
                     val preset = s.presets[i]
                     val letter = when (i) { 0 -> "A"; 1 -> "B"; 2 -> "C"; else -> (i + 1).toString() }
 
-                    item { SettingsTitleRow("Preset $letter", showBack = true) { pop() } }
+                    item { SettingsTitleRow("Preset $letter") }
 
                     item {
                         val shape = RoundedCornerShape(30.dp)
+
+                        var name by remember(preset.name) { mutableStateOf(preset.name) }
+                        var ip by remember(preset.ip) { mutableStateOf(preset.ip) }
+                        var portStr by remember(preset.port) { mutableStateOf(preset.port.toString()) }
+
+                        var testBusy by rememberSaveable(i) { mutableStateOf(false) }
+                        var testResultOk by rememberSaveable(i) { mutableStateOf<Boolean?>(null) }
+                        var testLine by rememberSaveable(i) { mutableStateOf("") }
+
+                        LaunchedEffect(testBusy, testLine) {
+                            if (!testBusy && testLine.isNotEmpty() && !testLine.contains("sending")) {
+                                val snap = testLine
+                                delay(2500L)
+                                if (!testBusy && testLine == snap) testLine = ""
+                            }
+                        }
+
+                        val host = ip.trim()
+                        val parsedPort = portStr.toIntOrNull()
+                        val port = (parsedPort ?: preset.port).coerceIn(1, 65535)
+                        val isActive = (i == s.activePreset)
+
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2113,8 +2430,26 @@ BackHandler {
                                 .padding(horizontal = 18.dp, vertical = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            // Preview (fast readability on watch)
+                            Text(
+                                text = name.trim().ifEmpty { preset.name },
+                                color = GoblinText,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "${host.ifEmpty { preset.ip }}:$port",
+                                color = GoblinDim,
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            // Fields (compact)
                             Text("Name", color = GoblinDim, fontSize = 11.sp)
-                            var name by remember(preset.name) { mutableStateOf(preset.name) }
                             TextFieldItem(
                                 value = name,
                                 onValue = { name = it },
@@ -2122,46 +2457,159 @@ BackHandler {
                                 keyboardType = KeyboardType.Text
                             )
 
-                            Text("IP", color = GoblinDim, fontSize = 11.sp)
-                            var ip by remember(preset.ip) { mutableStateOf(preset.ip) }
-                            TextFieldItem(
-                                value = ip,
-                                onValue = { ip = it },
-                                placeholder = "192.168.0.10",
-                                keyboardType = KeyboardType.Text
-                            )
-
-                            Text("Port", color = GoblinDim, fontSize = 11.sp)
-                            var portStr by remember(preset.port) { mutableStateOf(preset.port.toString()) }
-                            TextFieldItem(
-                                value = portStr,
-                                onValue = { portStr = it.filter { c -> c.isDigit() }.take(5) },
-                                placeholder = "7000",
-                                keyboardType = KeyboardType.Number
-                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Column(modifier = Modifier.weight(2f)) {
+                                    Text("IP", color = GoblinDim, fontSize = 11.sp)
+                                    TextFieldItem(
+                                        value = ip,
+                                        onValue = { ip = it },
+                                        placeholder = "192.168.0.10",
+                                        keyboardType = KeyboardType.Text
+                                    )
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Port", color = GoblinDim, fontSize = 11.sp)
+                                    TextFieldItem(
+                                        value = portStr,
+                                        onValue = { portStr = it.filter { c -> c.isDigit() }.take(5) },
+                                        placeholder = "7000",
+                                        keyboardType = KeyboardType.Number
+                                    )
+                                }
+                            }
 
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                val isActive = (i == s.activePreset)
-                                Button(
-                                    onClick = { scope.launch { settingsStore.setActivePreset(i) } },
-                                    modifier = Modifier.weight(1f),
-                                    colors = ButtonDefaults.buttonColors(
-                                        backgroundColor = if (isActive) GoblinAccent.copy(alpha = 0.35f) else GoblinBorder,
-                                        contentColor = GoblinText
-                                    ),
-                                    shape = RoundedCornerShape(18.dp)
-                                ) { Text(if (isActive) "Active" else "Use") }
 
                                 Button(
                                     onClick = {
-                                        val port = portStr.toIntOrNull() ?: preset.port
+                                        if (testBusy) return@Button
+                                        val h = host
+                                        val p = portStr.toIntOrNull()
+                                        if (h.isEmpty()) {
+                                            testResultOk = false
+                                            testLine = "Test: IP missing"
+                                            return@Button
+                                        }
+                                        if (p == null) {
+                                            testResultOk = false
+                                            testLine = "Test: Port invalid"
+                                            return@Button
+                                        }
+                                        scope.launch {
+                                            val clickAt = SystemClock.elapsedRealtime()
+                                            val minBusyMs = 1000L
+
+                                            testBusy = true
+                                            testResultOk = null
+                                            testLine = "Test: sending…"
+
+                                            try {
+                                                val started = SystemClock.elapsedRealtime()
+                                                val nonce = ((started % 1000L) + 1L).toFloat() / 1000f
+
+                                                val sentOk = try {
+                                                    sendOscPingFloat(h, p.coerceIn(1, 65535), nonce)
+                                                    true
+                                                } catch (_: Exception) {
+                                                    false
+                                                }
+
+                                                if (!sentOk) {
+                                                    testResultOk = false
+                                                    testLine = "Test: bad host"
+                                                    return@launch
+                                                }
+
+                                                val pongTs = withTimeoutOrNull(900L) {
+                                                    lastPongMs.filter { it >= started }.first()
+                                                }
+
+                                                val ok = pongTs != null
+                                                testResultOk = ok
+
+                                                testLine = if (ok) {
+                                                    val rtt = (pongTs!! - started).coerceAtLeast(0L)
+                                                    "Test: OK • ${rtt}ms • ${pongFrom ?: "-"}"
+                                                } else {
+                                                    "Test: timeout"
+                                                }
+                                            } finally {
+                                                val remaining = (clickAt + minBusyMs) - SystemClock.elapsedRealtime()
+                                                if (remaining > 0L) delay(remaining)
+                                                testBusy = false
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        backgroundColor = GoblinBorder,
+                                        contentColor = GoblinText
+                                    ),
+                                    shape = RoundedCornerShape(18.dp)
+                                ) { Text(if (testBusy) "…" else "Test") }
+
+                                if (!isActive) {
+                                    Button(
+                                        onClick = { scope.launch { settingsStore.setActivePreset(i) }; pop() },
+                                        modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.buttonColors(
+                                            backgroundColor = GoblinOk.copy(alpha = 0.25f),
+                                            contentColor = GoblinText
+                                        ),
+                                        shape = RoundedCornerShape(18.dp)
+                                    ) { Text("Use") }
+                                } else {
+                                    Spacer(Modifier.weight(1f))
+                                }
+                            }
+
+                            if (testLine.isNotEmpty()) {
+                                Text(
+                                    testLine,
+                                    color = when (testResultOk) {
+                                        true -> GoblinOk
+                                        false -> GoblinBad
+                                        null -> GoblinDim
+                                    },
+                                    fontSize = 12.sp
+                                )
+                            }
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+
+                                Button(
+                                    onClick = { pop() },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        backgroundColor = GoblinBorder,
+                                        contentColor = GoblinText
+                                    ),
+                                    shape = RoundedCornerShape(18.dp)
+                                ) { Text("Cancel") }
+
+                                Button(
+                                    onClick = {
+                                        val h = host
+                                        val p = portStr.toIntOrNull()
+                                        if (h.isEmpty()) {
+                                            testResultOk = false
+                                            testLine = "Save: IP missing"
+                                            return@Button
+                                        }
+                                        if (p == null) {
+                                            testResultOk = false
+                                            testLine = "Save: Port invalid"
+                                            return@Button
+                                        }
+
                                         scope.launch {
                                             settingsStore.updatePreset(
                                                 i,
                                                 name.trim().ifEmpty { preset.name },
-                                                ip.trim().ifEmpty { preset.ip },
-                                                port
+                                                h,
+                                                p.coerceIn(1, 65535)
                                             )
+                                            pop()
                                         }
                                     },
                                     modifier = Modifier.weight(1f),
@@ -2175,6 +2623,7 @@ BackHandler {
                         }
                     }
                 }
+
             }
         }
 
@@ -2208,7 +2657,7 @@ private fun ActivePresetBar(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            presets.forEachIndexed { i, p ->
+            presets.forEachIndexed { i, _ ->
                 val selected = (i == activeIndex)
                 Button(
                     onClick = { onSelect(i) },
@@ -2378,4 +2827,36 @@ private fun PresetCard(
             }
         }
     }
+}
+/* ================= OSC UTIL ================= */
+
+/**
+ * Minimal OSC sender used by the Target/Preset "Test" button.
+ *
+ * Sends /tapsync/ping as a float (0..1). Resolume (or other peer) should answer /tapsync/pong.
+ */
+private suspend fun sendOscPingFloat(host: String, port: Int, value: Float) {
+    withContext(Dispatchers.IO) {
+        val address = InetAddress.getByName(host)
+        val data = buildOscFloatMessage("/tapsync/ping", value)
+        DatagramSocket().use { socket ->
+            val packet = DatagramPacket(data, data.size, address, port)
+            socket.send(packet)
+        }
+    }
+}
+
+private fun buildOscFloatMessage(path: String, value: Float): ByteArray {
+    val bb = ByteBuffer.allocate(128).order(ByteOrder.BIG_ENDIAN)
+    writeOscString(bb, path)
+    writeOscString(bb, ",f")
+    bb.putFloat(value)
+    return bb.array().copyOf(bb.position())
+}
+
+private fun writeOscString(bb: ByteBuffer, s: String) {
+    val bytes = s.toByteArray(Charsets.UTF_8)
+    bb.put(bytes)
+    bb.put(0)
+    while (bb.position() % 4 != 0) bb.put(0)
 }

@@ -10,9 +10,11 @@ import androidx.lifecycle.lifecycleScope
 import com.example.tapsyncwatch.domain.action.ActionEngine
 import com.example.tapsyncwatch.domain.action.HapticFeedbackEngine
 import com.example.tapsyncwatch.domain.clock.Clock
+import com.example.tapsyncwatch.domain.transport.TransportEchoGuard
 import com.example.tapsyncwatch.input.osc.OscInputReceiver
 import com.example.tapsyncwatch.input.osc.OscOutputSender
 import com.example.tapsyncwatch.presentation.data.SettingsStore
+import com.example.tapsyncwatch.presentation.data.HeartbeatSendTo
 import com.example.tapsyncwatch.presentation.ui.TapScreen
 import com.example.tapsyncwatch.presentation.ui.FftGainScreen
 import com.example.tapsyncwatch.presentation.ui.DebugScreen
@@ -94,7 +96,29 @@ class MainActivity : ComponentActivity() {
         }
 
         val oscReceiver = OscInputReceiver(port = 7000)
-        oscReceiver.start()
+
+        // Runtime wiring for Connection settings (Input/Output/Echo Guard)
+        lifecycleScope.launch {
+            settingsStore.settings.collectLatest { s ->
+                // OSC Output
+                oscSender.setSendEnabled(s.oscOutputEnabled)
+                oscSender.setThrottleMs(s.oscOutputThrottleMs)
+
+                // OSC Input
+                oscReceiver.setPort(s.oscInputPort)
+                oscReceiver.setEnabled(s.oscInputEnabled)
+
+                // Transport Echo Guard (suppress watch→host→watch echo spikes)
+                TransportEchoGuard.configure(
+                    enabled = s.echoGuardEnabled,
+                    windowMs = s.echoGuardWindowMs,
+                    ruleTap = s.echoGuardRuleTap,
+                    ruleResync = s.echoGuardRuleResync,
+                    ruleMultiplyDivide = s.echoGuardRuleMultDiv,
+                    ruleNudge = s.echoGuardRuleNudge
+                )
+            }
+        }
 
         // Heartbeat: Watch → /tapsync/ping  (Resolume Wire answers /tapsync/pong)
         var heartbeatJob: Job? = null
@@ -117,7 +141,14 @@ class MainActivity : ComponentActivity() {
 
                         nonce = (nonce + 1) % 999
                         val v = (nonce + 1) / 1000f
-                        oscSender.sendFloat("/tapsync/ping", v)
+                        if (s.heartbeatSendTo == HeartbeatSendTo.ALL) {
+                            // Broadcast ping to all presets (useful for multi-host setups)
+                            s.presets.forEach { t ->
+                                oscSender.sendFloatTo(t.ip, t.port, "/tapsync/ping", v)
+                            }
+                        } else {
+                            oscSender.sendFloat("/tapsync/ping", v)
+                        }
 
                         val nextDelayMs = if (!adaptive) {
                             baseIntervalMs
@@ -203,6 +234,9 @@ class MainActivity : ComponentActivity() {
                     SettingsScreen(
                         settingsStore = settingsStore,
                         lastPongMs = oscReceiver.lastPongMs,
+                        lastPongFrom = oscReceiver.lastPongFrom,
+                        lastAnyRxMs = oscReceiver.lastAnyRxMs,
+                        lastAnyFrom = oscReceiver.lastAnyFrom,
                         onClose = {
                             // In settings root, Back should always bring us back to the TapScreen.
                             showSettings = false
@@ -249,10 +283,15 @@ class MainActivity : ComponentActivity() {
                             bpm = clockState.bpm,
 
                             lastPongMs = oscReceiver.lastPongMs,
+                            lastAnyRxMs = oscReceiver.lastAnyRxMs,
                             lastPhaseRxMs = oscReceiver.lastPhaseRxMs,
                             lastDownbeatRxMs = oscReceiver.lastDownbeatRxMs,
                             heartbeatEnabled = s.heartbeatEnabled,
                             signalGraceMs = s.signalGraceMs,
+
+                            anyRxFallbackEnabled = s.oscInputAnyRxFallbackEnabled,
+
+                            anyRxTimeoutMs = s.oscInputAnyRxTimeoutMs,
 
                             showExternalBpm = s.showExternalBpm,
                             bpmOpacity = s.bpmOpacity,
@@ -332,9 +371,9 @@ class MainActivity : ComponentActivity() {
                         }
                         HomePage.DEBUG -> DebugScreen(
                             lastPongMs = oscReceiver.lastPongMs,
+                            lastAnyRxMs = oscReceiver.lastAnyRxMs,
                             lastPhaseRxMs = oscReceiver.lastPhaseRxMs,
                             lastDownbeatRxMs = oscReceiver.lastDownbeatRxMs,
-                            lastAnyRxMs = oscReceiver.lastAnyRxMs,
                             signalGraceMs = s.signalGraceMs,
                             heartbeatEnabled = s.heartbeatEnabled,
 

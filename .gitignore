@@ -18,3 +18,8 @@ local.properties
 _nul
 _nul
 .idea/
+
+# temp patch/backup files
+*.patch
+*.bak
+README_PATCH.txt

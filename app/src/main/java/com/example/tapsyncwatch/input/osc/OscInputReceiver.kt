@@ -35,6 +35,37 @@ class OscInputReceiver(
     private val port: Int = 7000
 ) {
 
+     private var listenPort: Int = port
+     private var inputEnabled: Boolean = true
+
+    /** Enable/disable OSC input. Disabling closes the socket immediately. */
+    fun setEnabled(enabled: Boolean) {
+        // Settings flows may re-emit the same enabled value after process recreation.
+        // If we're enabled but the socket isn't running yet, we still must start.
+        if (inputEnabled == enabled) {
+            if (enabled && !running) start()
+            return
+        }
+        inputEnabled = enabled
+        if (!enabled) {
+            stop()
+        } else {
+            start()
+        }
+    }
+
+    /** Change listen port. If already running, the socket is restarted. */
+    fun setPort(port: Int) {
+        val p = port.coerceIn(1, 65535)
+        if (listenPort == p) return
+        listenPort = p
+        if (running && inputEnabled) {
+            stop()
+            start()
+        }
+    }
+
+
     /* ================= UI-only pulses ================= */
 
     private val _oscActivity = MutableSharedFlow<Unit>(extraBufferCapacity = 8)
@@ -50,6 +81,12 @@ class OscInputReceiver(
     // Any OSC traffic (for optional fallback)
     private val _lastAnyRxMs = MutableStateFlow(0L)
     val lastAnyRxMs: StateFlow<Long> = _lastAnyRxMs.asStateFlow()
+
+    private val _lastPongFrom = MutableStateFlow<String?>(null)
+    val lastPongFrom: StateFlow<String?> = _lastPongFrom.asStateFlow()
+
+    private val _lastAnyFrom = MutableStateFlow<String?>(null)
+    val lastAnyFrom: StateFlow<String?> = _lastAnyFrom.asStateFlow()
 
 // Phase + downbeat freshness (for Preflight)
 private val _lastPhaseRxMs = MutableStateFlow(0L)
@@ -177,8 +214,15 @@ val lastDownbeatRxMs: StateFlow<Long> = _lastDownbeatRxMs.asStateFlow()
 
     fun start() {
         if (running) return
+        if (!inputEnabled) return
         running = true
-        socket = DatagramSocket(port)
+        try {
+            socket = DatagramSocket(listenPort)
+        } catch (e: Exception) {
+            running = false
+            Log.e("OSC-IN", "failed to bind UDP port $listenPort", e)
+            return
+        }
 
         scope.launch {
             val buffer = ByteArray(2048)
@@ -186,7 +230,9 @@ val lastDownbeatRxMs: StateFlow<Long> = _lastDownbeatRxMs.asStateFlow()
                 try {
                     val packet = DatagramPacket(buffer, buffer.size)
                     socket?.receive(packet)
-                    handlePacket(packet.data.copyOf(packet.length))
+                    val fromIp = packet.address?.hostAddress
+                    val fromPort = packet.port
+                    handlePacket(packet.data.copyOf(packet.length), fromIp, fromPort)
                 } catch (e: Exception) {
                     Log.e("OSC-IN", "socket error", e)
                 }
@@ -202,14 +248,14 @@ val lastDownbeatRxMs: StateFlow<Long> = _lastDownbeatRxMs.asStateFlow()
 
     /* ================= Entry ================= */
 
-    private fun handlePacket(data: ByteArray) {
+    private fun handlePacket(data: ByteArray, fromIp: String?, fromPort: Int) {
         val bb = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN)
-        parseElement(bb)
+        parseElement(bb, fromIp, fromPort)
     }
 
     /* ================= OSC Parser ================= */
 
-    private fun parseElement(bb: ByteBuffer) {
+    private fun parseElement(bb: ByteBuffer, fromIp: String?, fromPort: Int) {
         if (!bb.hasRemaining()) return
 
         val startPos = bb.position()
@@ -224,7 +270,7 @@ val lastDownbeatRxMs: StateFlow<Long> = _lastDownbeatRxMs.asStateFlow()
 
                 val slice = bb.slice()
                 slice.limit(size)
-                parseElement(slice)
+                parseElement(slice, fromIp, fromPort)
                 bb.position(bb.position() + size)
             }
         } else {
@@ -233,6 +279,7 @@ val lastDownbeatRxMs: StateFlow<Long> = _lastDownbeatRxMs.asStateFlow()
             val nowMs = SystemClock.elapsedRealtime()
             _oscActivity.tryEmit(Unit)
             _lastAnyRxMs.value = nowMs
+            formatFrom(fromIp, fromPort)?.let { _lastAnyFrom.value = it }
 
             val argsSummary = summarizeArgs(typeTags, bb.duplicate())
 
@@ -253,13 +300,13 @@ val lastDownbeatRxMs: StateFlow<Long> = _lastDownbeatRxMs.asStateFlow()
                 externalDownbeatMs = remoteLastDownbeatMs
             )
 
-            handleMessage(address, typeTags, bb)
+            handleMessage(address, typeTags, bb, fromIp, fromPort)
         }
 
         bb.position(startPos)
     }
 
-    private fun handleMessage(address: String, typeTags: String, bb: ByteBuffer) {
+    private fun handleMessage(address: String, typeTags: String, bb: ByteBuffer, fromIp: String?, fromPort: Int) {
         when (address) {
 
             /* =================================================
@@ -411,6 +458,8 @@ val lastDownbeatRxMs: StateFlow<Long> = _lastDownbeatRxMs.asStateFlow()
                 _lastPongMs.value = SystemClock.elapsedRealtime()
                 _pongActivity.tryEmit(Unit)
 
+                formatFrom(fromIp, fromPort)?.let { _lastPongFrom.value = it }
+
                 _debugState.value = _debugState.value.copy(lastPongMs = _lastPongMs.value)
             }
 
@@ -560,4 +609,10 @@ val lastDownbeatRxMs: StateFlow<Long> = _lastDownbeatRxMs.asStateFlow()
 
         return out.joinToString(prefix = "[", postfix = "]")
     }
+
+    private fun formatFrom(ip: String?, port: Int): String? {
+        val h = ip?.takeIf { it.isNotBlank() } ?: return null
+        return "$h:$port"
+    }
+
 }

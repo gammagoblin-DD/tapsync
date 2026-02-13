@@ -79,6 +79,27 @@ object SettingsKeys {
     val HEARTBEAT_ADAPTIVE_ENABLED = booleanPreferencesKey("heartbeat_adaptive_enabled")
     val HEARTBEAT_FOREGROUND_ONLY = booleanPreferencesKey("heartbeat_foreground_only")
 
+    // Heartbeat routing
+    val HEARTBEAT_SEND_TO = stringPreferencesKey("heartbeat_send_to") // ACTIVE | ALL
+
+    // OSC Input
+    val OSC_INPUT_ENABLED = booleanPreferencesKey("osc_input_enabled")
+    val OSC_INPUT_PORT = intPreferencesKey("osc_input_port")
+    val OSC_INPUT_ANYRX_FALLBACK_ENABLED = booleanPreferencesKey("osc_input_anyrx_fallback_enabled")
+    val OSC_INPUT_ANYRX_TIMEOUT_MS = longPreferencesKey("osc_input_anyrx_timeout_ms")
+
+    // OSC Output
+    val OSC_OUTPUT_ENABLED = booleanPreferencesKey("osc_output_enabled")
+    val OSC_OUTPUT_THROTTLE_MS = longPreferencesKey("osc_output_throttle_ms")
+
+    // Transport Echo Guard
+    val ECHO_GUARD_ENABLED = booleanPreferencesKey("echo_guard_enabled")
+    val ECHO_GUARD_WINDOW_MS = longPreferencesKey("echo_guard_window_ms")
+    val ECHO_GUARD_RULE_TAP = booleanPreferencesKey("echo_guard_rule_tap")
+    val ECHO_GUARD_RULE_RESYNC = booleanPreferencesKey("echo_guard_rule_resync")
+    val ECHO_GUARD_RULE_MULT_DIV = booleanPreferencesKey("echo_guard_rule_mult_div")
+    val ECHO_GUARD_RULE_NUDGE = booleanPreferencesKey("echo_guard_rule_nudge")
+
     // TapScreen HUD
     val SHOW_STATUS_LINE = booleanPreferencesKey("show_status_line")
 
@@ -130,6 +151,8 @@ data class OscTarget(
     val ip: String,
     val port: Int
 )
+
+enum class HeartbeatSendTo { ACTIVE, ALL }
 
 enum class PreflightMode { FULL, MINIMAL }
 
@@ -211,6 +234,28 @@ val preflightOutOkMs: Long,
     val heartbeatIntervalMs: Long,
     val signalGraceMs: Long,
 
+    // Heartbeat routing
+    val heartbeatSendTo: HeartbeatSendTo,
+
+    // OSC Input
+    val oscInputEnabled: Boolean,
+    val oscInputPort: Int,
+    val oscInputAnyRxFallbackEnabled: Boolean,
+    val oscInputAnyRxTimeoutMs: Long,
+
+    // OSC Output
+    val oscOutputEnabled: Boolean,
+    val oscOutputThrottleMs: Long,
+
+    // Transport Echo Guard
+    val echoGuardEnabled: Boolean,
+    val echoGuardWindowMs: Long,
+    val echoGuardRuleTap: Boolean,
+    val echoGuardRuleResync: Boolean,
+    val echoGuardRuleMultDiv: Boolean,
+    val echoGuardRuleNudge: Boolean,
+
+ 
     val hapticsEnabled: Boolean,
     val downbeatHapticsEnabled: Boolean,
     val transportHapticsEnabled: Boolean,
@@ -293,8 +338,25 @@ preflightOutOkMs = 6000L,
     heartbeatEnabled = true,
     heartbeatForegroundOnly = false,
     heartbeatAdaptiveEnabled = true,
-    heartbeatIntervalMs = 1200L,
+    heartbeatIntervalMs = 1000L,
     signalGraceMs = 5000L,
+
+    heartbeatSendTo = HeartbeatSendTo.ACTIVE,
+
+    oscInputEnabled = true,
+    oscInputPort = 7000,
+    oscInputAnyRxFallbackEnabled = true,
+    oscInputAnyRxTimeoutMs = 2000L,
+
+    oscOutputEnabled = true,
+    oscOutputThrottleMs = 20L,
+
+    echoGuardEnabled = true,
+    echoGuardWindowMs = 220L,
+    echoGuardRuleTap = true,
+    echoGuardRuleResync = true,
+    echoGuardRuleMultDiv = true,
+    echoGuardRuleNudge = true,
 
     hapticsEnabled = true,
     downbeatHapticsEnabled = false,
@@ -414,6 +476,31 @@ preflightOutOkMs = (prefs[SettingsKeys.PREFLIGHT_OUT_OK_MS] ?: DEFAULT_SETTINGS_
                 heartbeatAdaptiveEnabled = prefs[SettingsKeys.HEARTBEAT_ADAPTIVE_ENABLED] ?: DEFAULT_SETTINGS_STATE.heartbeatAdaptiveEnabled,
                 heartbeatIntervalMs = prefs[SettingsKeys.HEARTBEAT_INTERVAL_MS] ?: DEFAULT_SETTINGS_STATE.heartbeatIntervalMs,
                 signalGraceMs = prefs[SettingsKeys.SIGNAL_GRACE_MS] ?: DEFAULT_SETTINGS_STATE.signalGraceMs,
+
+                heartbeatSendTo = runCatching {
+                    HeartbeatSendTo.valueOf(
+                        prefs[SettingsKeys.HEARTBEAT_SEND_TO] ?: DEFAULT_SETTINGS_STATE.heartbeatSendTo.name
+                    )
+                }.getOrElse { DEFAULT_SETTINGS_STATE.heartbeatSendTo },
+
+                oscInputEnabled = prefs[SettingsKeys.OSC_INPUT_ENABLED] ?: DEFAULT_SETTINGS_STATE.oscInputEnabled,
+                oscInputPort = (prefs[SettingsKeys.OSC_INPUT_PORT] ?: DEFAULT_SETTINGS_STATE.oscInputPort).coerceIn(1, 65535),
+                oscInputAnyRxFallbackEnabled = prefs[SettingsKeys.OSC_INPUT_ANYRX_FALLBACK_ENABLED]
+                    ?: DEFAULT_SETTINGS_STATE.oscInputAnyRxFallbackEnabled,
+                oscInputAnyRxTimeoutMs = (prefs[SettingsKeys.OSC_INPUT_ANYRX_TIMEOUT_MS] ?: DEFAULT_SETTINGS_STATE.oscInputAnyRxTimeoutMs)
+                    .coerceIn(100L, 30_000L),
+
+                oscOutputEnabled = prefs[SettingsKeys.OSC_OUTPUT_ENABLED] ?: DEFAULT_SETTINGS_STATE.oscOutputEnabled,
+                oscOutputThrottleMs = (prefs[SettingsKeys.OSC_OUTPUT_THROTTLE_MS] ?: DEFAULT_SETTINGS_STATE.oscOutputThrottleMs)
+                    .coerceIn(0L, 2000L),
+
+                echoGuardEnabled = prefs[SettingsKeys.ECHO_GUARD_ENABLED] ?: DEFAULT_SETTINGS_STATE.echoGuardEnabled,
+                echoGuardWindowMs = (prefs[SettingsKeys.ECHO_GUARD_WINDOW_MS] ?: DEFAULT_SETTINGS_STATE.echoGuardWindowMs)
+                    .coerceIn(0L, 3000L),
+                echoGuardRuleTap = prefs[SettingsKeys.ECHO_GUARD_RULE_TAP] ?: DEFAULT_SETTINGS_STATE.echoGuardRuleTap,
+                echoGuardRuleResync = prefs[SettingsKeys.ECHO_GUARD_RULE_RESYNC] ?: DEFAULT_SETTINGS_STATE.echoGuardRuleResync,
+                echoGuardRuleMultDiv = prefs[SettingsKeys.ECHO_GUARD_RULE_MULT_DIV] ?: DEFAULT_SETTINGS_STATE.echoGuardRuleMultDiv,
+                echoGuardRuleNudge = prefs[SettingsKeys.ECHO_GUARD_RULE_NUDGE] ?: DEFAULT_SETTINGS_STATE.echoGuardRuleNudge,
 
                 hapticsEnabled = prefs[SettingsKeys.HAPTICS_ENABLED] ?: DEFAULT_SETTINGS_STATE.hapticsEnabled,
                 downbeatHapticsEnabled = prefs[SettingsKeys.DOWNBEAT_HAPTICS_ENABLED] ?: DEFAULT_SETTINGS_STATE.downbeatHapticsEnabled,
@@ -697,6 +784,61 @@ suspend fun setPreflightOutOkMs(value: Long) {
         context.dataStore.edit {
             it[SettingsKeys.SIGNAL_GRACE_MS] = value.coerceIn(750L, 30000L)
         }
+    }
+
+    suspend fun setHeartbeatSendTo(mode: HeartbeatSendTo) {
+        context.dataStore.edit { it[SettingsKeys.HEARTBEAT_SEND_TO] = mode.name }
+    }
+
+    // OSC Input
+    suspend fun setOscInputEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.OSC_INPUT_ENABLED] = enabled }
+    }
+
+    suspend fun setOscInputPort(port: Int) {
+        context.dataStore.edit { it[SettingsKeys.OSC_INPUT_PORT] = port.coerceIn(1, 65535) }
+    }
+
+    suspend fun setOscInputAnyRxFallbackEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.OSC_INPUT_ANYRX_FALLBACK_ENABLED] = enabled }
+    }
+
+    suspend fun setOscInputAnyRxTimeoutMs(value: Long) {
+        context.dataStore.edit { it[SettingsKeys.OSC_INPUT_ANYRX_TIMEOUT_MS] = value.coerceIn(100L, 30_000L) }
+    }
+
+    // OSC Output
+    suspend fun setOscOutputEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.OSC_OUTPUT_ENABLED] = enabled }
+    }
+
+    suspend fun setOscOutputThrottleMs(value: Long) {
+        context.dataStore.edit { it[SettingsKeys.OSC_OUTPUT_THROTTLE_MS] = value.coerceIn(0L, 2000L) }
+    }
+
+    // Transport Echo Guard
+    suspend fun setEchoGuardEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.ECHO_GUARD_ENABLED] = enabled }
+    }
+
+    suspend fun setEchoGuardWindowMs(value: Long) {
+        context.dataStore.edit { it[SettingsKeys.ECHO_GUARD_WINDOW_MS] = value.coerceIn(0L, 3000L) }
+    }
+
+    suspend fun setEchoGuardRuleTap(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.ECHO_GUARD_RULE_TAP] = enabled }
+    }
+
+    suspend fun setEchoGuardRuleResync(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.ECHO_GUARD_RULE_RESYNC] = enabled }
+    }
+
+    suspend fun setEchoGuardRuleMultDiv(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.ECHO_GUARD_RULE_MULT_DIV] = enabled }
+    }
+
+    suspend fun setEchoGuardRuleNudge(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.ECHO_GUARD_RULE_NUDGE] = enabled }
     }
 
     // Haptics

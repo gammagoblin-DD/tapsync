@@ -29,6 +29,16 @@ class OscOutputSender(
     @Volatile
     private var port: Int = port
 
+    @Volatile
+    private var sendEnabled: Boolean = true
+
+    /** Global throttle for non-critical messages (ms). 0 disables throttling. */
+    @Volatile
+    private var throttleMs: Long = 0L
+
+    @Volatile
+    private var lastThrottledSendMs: Long = 0L
+
     private var socket: DatagramSocket? = null
 
     private val executor: ExecutorService =
@@ -54,21 +64,34 @@ class OscOutputSender(
         this.port = port
     }
 
+    fun setSendEnabled(enabled: Boolean) {
+        this.sendEnabled = enabled
+    }
+
+    fun setThrottleMs(ms: Long) {
+        this.throttleMs = ms.coerceIn(0L, 2000L)
+    }
+
     /* ================= SEND API ================= */
 
     fun sendInt(path: String, value: Int) {
-        sendAsync(
-            buildOscMessage(path, ",i") { it.putInt(value) }
-        )
+        sendAsync(buildOscMessage(path, ",i") { it.putInt(value) })
     }
 
     fun sendFloat(path: String, value: Float) {
-        sendAsync(
-            buildOscMessage(path, ",f") { it.putFloat(value) }
-        )
+        sendAsync(buildOscMessage(path, ",f") { it.putFloat(value) })
     }
 
-    
+    fun sendIntTo(host: String, port: Int, path: String, value: Int) {
+        val dest = InetAddress.getByName(host)
+        sendAsync(buildOscMessage(path, ",i") { it.putInt(value) }, destAddress = dest, destPort = port)
+    }
+
+    fun sendFloatTo(host: String, port: Int, path: String, value: Float) {
+        val dest = InetAddress.getByName(host)
+        sendAsync(buildOscMessage(path, ",f") { it.putFloat(value) }, destAddress = dest, destPort = port)
+    }
+
     /* ================= FFT INPUT GAIN ================= */
 
     private companion object {
@@ -85,10 +108,21 @@ class OscOutputSender(
         sendFftInputGain01(0.5f)
     }
 
-/* ================= CORE SEND ================= */
+    /* ================= CORE SEND ================= */
 
-    private fun sendAsync(data: ByteArray) {
+    private fun sendAsync(
+        data: ByteArray,
+        destAddress: InetAddress? = null,
+        destPort: Int? = null
+    ) {
         executor.execute {
+            if (!sendEnabled) return@execute
+
+            val path = extractOscPath(data)
+            if (shouldThrottle(path)) {
+                return@execute
+            }
+
             try {
                 if (socket == null || socket?.isClosed == true) {
                     socket = DatagramSocket()
@@ -96,11 +130,14 @@ class OscOutputSender(
 
                 _health.value = OscHealth.Sending(SystemClock.elapsedRealtime())
 
+                val a = destAddress ?: address
+                val p = destPort ?: port
+
                 val packet = DatagramPacket(
                     data,
                     data.size,
-                    address,
-                    port
+                    a,
+                    p
                 )
 
                 socket?.send(packet)
@@ -109,13 +146,31 @@ class OscOutputSender(
 
                 Log.d(
                     "OSC",
-                    "SEND ${data.size} bytes → ${address.hostAddress}:$port"
+                    "SEND ${data.size} bytes → ${a.hostAddress}:$p"
                 )
             } catch (e: Exception) {
                 _health.value = OscHealth.Error(e)
                 Log.e("OSC", "SEND FAILED", e)
             }
         }
+    }
+
+    private fun shouldThrottle(path: String?): Boolean {
+        val t = throttleMs
+        if (t <= 0L) return false
+        if (path == null) return false
+        if (isThrottleExempt(path)) return false
+
+        val now = SystemClock.elapsedRealtime()
+        val last = lastThrottledSendMs
+        if (now - last < t) return true
+        lastThrottledSendMs = now
+        return false
+    }
+
+    private fun isThrottleExempt(path: String): Boolean {
+        return path.startsWith("/tapsync/ping") ||
+            path.startsWith("/composition/tempocontroller/")
     }
 
     /* ================= FEEDBACK ================= */

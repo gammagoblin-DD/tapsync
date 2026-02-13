@@ -18,10 +18,6 @@ class GatedHaptics(
     override fun onTap() = runIfEnabled { delegate.onTap() }
     override fun onMultiply() = runIfEnabled { delegate.onMultiply() }
     override fun onDivide() = runIfEnabled { delegate.onDivide() }
-
-    @Deprecated("Use onMultiply() / onDivide() for distinct haptic patterns.")
-    override fun onMultiplyDivide() = runIfEnabled { delegate.onMultiplyDivide() }
-
     override fun onResync() = runIfEnabled { delegate.onResync() }
     override fun onNudge() = runIfEnabled { delegate.onNudge() }
 }

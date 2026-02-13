@@ -448,10 +448,13 @@ fun TapScreen(
 
     // Link health (Heartbeat Pong)
     lastPongMs: StateFlow<Long>,
+    lastAnyRxMs: StateFlow<Long>,
     lastPhaseRxMs: StateFlow<Long>,
     lastDownbeatRxMs: StateFlow<Long>,
     heartbeatEnabled: Boolean,
     signalGraceMs: Long,
+    anyRxFallbackEnabled: Boolean,
+    anyRxTimeoutMs: Long,
 
     // UI-only monitors
     showExternalBpm: Boolean,
@@ -489,9 +492,9 @@ fun TapScreen(
     oscHealth: StateFlow<OscHealth>,
     externalClockActivity: Flow<Unit>,
     externalTransportIn: Flow<TransportFeedback>,
-    clockVisualState: StateFlow<ClockVisualState>,
+    @Suppress("UNUSED_PARAMETER") clockVisualState: StateFlow<ClockVisualState>,
     externalActivity: Flow<Unit>,
-    clockMode: ClockMode,
+    @Suppress("UNUSED_PARAMETER") clockMode: ClockMode,
     hapticsEnabled: Boolean,
     downbeatHapticsEnabled: Boolean,
     transportHapticsEnabled: Boolean,
@@ -578,7 +581,6 @@ fun applySwingWarp(phase: Float, swing: Float): Float {
 
     val extBpm by externalBpm.collectAsState()
     val extConf by externalConfidence.collectAsState()
-    val dbg by oscDebugState.collectAsState()
     val ghost by remoteGhost.collectAsState()
 
     /* ================= OSC pulse dot ================= */
@@ -851,6 +853,7 @@ LaunchedEffect(health) {
 
 // Heartbeat-based link state (do NOT depend on BPM updates)
 val lastPong by lastPongMs.collectAsState()
+val lastAnyRx by lastAnyRxMs.collectAsState()
 val lastPhaseRx by lastPhaseRxMs.collectAsState()
 val lastDownbeatRx by lastDownbeatRxMs.collectAsState()
 var signalNowMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
@@ -873,9 +876,14 @@ val phaseTickMs: Long = remember(phaseVisualizerEnabled, phaseSpiralEnabled, pha
     }
 }
 
-val hasSignal = remember(heartbeatEnabled, lastPong, signalNowMs, signalGraceMs) {
-    if (!heartbeatEnabled) true
-    else lastPong > 0L && (signalNowMs - lastPong) <= signalGraceMs
+val hasSignal = remember(heartbeatEnabled, lastPong, lastAnyRx, signalNowMs, signalGraceMs, anyRxFallbackEnabled, anyRxTimeoutMs) {
+    if (!heartbeatEnabled) {
+        true
+    } else {
+        val pongOk = lastPong > 0L && (signalNowMs - lastPong) <= signalGraceMs
+        val anyOk = anyRxFallbackEnabled && lastAnyRx > 0L && (signalNowMs - lastAnyRx) <= anyRxTimeoutMs
+        pongOk || anyOk
+    }
 }
 
 
