@@ -114,15 +114,43 @@ private fun StatusPill(
     text: String,
     stateColor: Color,
     warnTint: Color? = null,
+    rxPulseKey: Long = 0L,
     modifier: Modifier = Modifier
 ) {
-    val borderC = (warnTint ?: stateColor).copy(alpha = 0.35f)
+    val borderBase = (warnTint ?: stateColor).copy(alpha = 0.35f)
+
+    // Border blink pulse (no dot)
+    val pulse = remember { Animatable(0f) }
+    LaunchedEffect(rxPulseKey) {
+        if (rxPulseKey <= 0L) return@LaunchedEffect
+        pulse.snapTo(1f)
+        pulse.animateTo(
+            targetValue = 0f,
+            animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)
+        )
+    }
+
+    // Split by CHAR (avoids broken string literals)
+    val parts = remember(text) { text.split('\n', limit = 4) }
+    val line1 = parts.getOrNull(0).orEmpty()
+    val line2 = parts.getOrNull(1).orEmpty()
+    val line3 = parts.getOrNull(2).orEmpty()
+    val line4 = parts.getOrNull(3).orEmpty()
+
+    val p = pulse.value
+    val borderBlink = if (p > 0f) {
+        androidx.compose.ui.graphics.lerp(borderBase, Color.White.copy(alpha = 0.85f), p)
+    } else borderBase
+    val borderW = (1f + 1.2f * p).dp
+
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(999.dp))
             .background(Color(0xB3000000))
-            .border(1.dp, borderC, RoundedCornerShape(999.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .border(borderW, borderBlink, RoundedCornerShape(999.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            // Avoid widthIn() import issues; keep it watch-friendly instead:
+            .fillMaxWidth(0.92f)
     ) {
         if (warnTint != null) {
             Box(
@@ -131,16 +159,49 @@ private fun StatusPill(
                     .background(warnTint.copy(alpha = 0.10f))
             )
         }
-        Text(
-            text = text,
-            color = stateColor,
-            fontSize = 10.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center
-        )
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = line1,
+                color = stateColor,
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            @Composable
+            fun renderDiag(s: String) {
+                if (s.isBlank()) return
+                Spacer(modifier = Modifier.height(1.dp))
+                Text(
+                    text = s,
+                    color = stateColor.copy(alpha = 0.92f),
+                    fontSize = 9.sp,
+                    lineHeight = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            // render 3 extra lines (I/P/O)
+            renderDiag(line2)
+            renderDiag(line3)
+            renderDiag(line4)
+        }
     }
 }
+
+
+
+
 
 
 @Composable
@@ -437,6 +498,9 @@ fun TapScreen(
     activePresetName: String,
     activeTargetIp: String,
     activeTargetPort: Int,
+    oscInputPort: Int,
+    lastPongFrom: StateFlow<String?>,
+
 
     // Downbeat HUD (visual "kick on 1")
     showDownbeatIndicator: Boolean = true,
@@ -853,6 +917,7 @@ LaunchedEffect(health) {
 
 // Heartbeat-based link state (do NOT depend on BPM updates)
 val lastPong by lastPongMs.collectAsState()
+val lastPongFromV by lastPongFrom.collectAsState()
 val lastAnyRx by lastAnyRxMs.collectAsState()
 val lastPhaseRx by lastPhaseRxMs.collectAsState()
 val lastDownbeatRx by lastDownbeatRxMs.collectAsState()
@@ -988,20 +1053,43 @@ LaunchedEffect(lastPong) {
     var nudgePlus by remember { mutableStateOf(true) }
 
 // ===== Status line (live HUD) =====
-val statusText = remember(showStatusLine, activePresetName, activeTargetIp, activeTargetPort, hasSignal, heartbeatEnabled) {
+val statusText = remember(
+    showStatusLine,
+    activePresetName,
+    activeTargetIp,
+    activeTargetPort,
+    oscInputPort,
+    lastPongFromV,
+    hasSignal,
+    heartbeatEnabled
+) {
     if (!showStatusLine) "" else {
         val link = when {
             !heartbeatEnabled -> "HB OFF"
             hasSignal -> "OK"
             else -> "NO SIGNAL"
         }
-        "$activePresetName  $activeTargetIp:$activeTargetPort  $link"
+
+        fun hostPort(host: String, port: Int): String {
+            val h = host.trim()
+            return if (h.contains(":") && !h.startsWith("[")) "[$h]:$port" else "$h:$port"
+        }
+
+        val header = "$activePresetName  $link"
+        val lineI = "I:" + hostPort("0.0.0.0", oscInputPort)
+        val lineP = "P:" + (lastPongFromV ?: "-")
+        val lineO = "O:" + hostPort(activeTargetIp, activeTargetPort)
+
+        buildString {
+            append(header)
+            append('\n'); append(lineI)
+            append('\n'); append(lineP)
+            append('\n'); append(lineO)
+        }
     }
 }
 
-
-
-    Box(
+Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
@@ -1215,14 +1303,22 @@ if (showStatusLine && statusText.isNotEmpty()) {
             .zIndex(30f),
         contentAlignment = Alignment.Center
     ) {
+Column(
+    modifier = Modifier.fillMaxWidth(),
+    horizontalAlignment = Alignment.CenterHorizontally
+) {
+
         StatusPill(
             text = statusText,
             stateColor = c,
             warnTint = warnTint,
+            rxPulseKey = maxOf(lastAnyRx, lastPong),
             modifier = Modifier.alpha(safe01(statusLineAlpha, 1f))
         )
 
-        if (showPreflight) {
+            Spacer(modifier = Modifier.height(10.dp))
+
+            if (showPreflight) {
             val minimal = (preflightMode == PreflightMode.MINIMAL)
             Row(
                 modifier = Modifier
@@ -1245,7 +1341,9 @@ if (showStatusLine && statusText.isNotEmpty()) {
                 StatusLamp(label = if (minimal) null else "OUT", color = outColor)
             }
         }
-    }
+    
+        }
+}
 }
 
         Image(

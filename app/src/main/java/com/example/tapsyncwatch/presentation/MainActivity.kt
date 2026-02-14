@@ -276,6 +276,9 @@ class MainActivity : ComponentActivity() {
                             activeTargetIp = s.activeTarget.ip,
                             activeTargetPort = s.activeTarget.port,
 
+                            oscInputPort = s.oscInputPort,
+                            lastPongFrom = oscReceiver.lastPongFrom,
+
                             showDownbeatIndicator = s.showDownbeatIndicator,
                             downbeatStyle = s.downbeatStyle,
                             downbeatOpacity = s.downbeatOpacity,

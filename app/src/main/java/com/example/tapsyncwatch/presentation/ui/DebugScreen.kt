@@ -390,7 +390,20 @@ fun DebugScreen(
                         DebugKeyValue("types", dbg.lastTypeTags ?: "-", goblinGrey, mono = true)
                         DebugKeyValue("args", dbg.lastArgs ?: "-", goblinGrey, mono = true)
                         DebugKeyValue("last rx", fmtAge(ageMs(dbg.lastSeenMs)), goblinGrey)
-                    }
+
+
+if (dbg.topTalkers.isNotEmpty()) {
+    val talkersText = dbg.topTalkers.joinToString("\n") { t ->
+        "${t.pps}pps • ${fmtAge(ageMs(t.lastSeenMs))} • ${t.from}"
+    }
+    DebugKeyMultiline(
+        key = "top talkers",
+        value = talkersText,
+        valueColor = goblinGrey,
+        mono = true,
+        maxLines = 6
+    )
+}                    }
                 }
             }
 

@@ -124,6 +124,13 @@ val lastDownbeatRxMs: StateFlow<Long> = _lastDownbeatRxMs.asStateFlow()
     val fftInputGain01: StateFlow<Float?> = _fftInputGain01.asStateFlow()
 
     /* ================= Debug ================= */
+data class TalkerSnapshot(
+    val from: String,
+    val pps: Int,
+    val lastSeenMs: Long
+)
+
+
 
     data class OscDebugState(
         val packetsTotal: Long = 0L,
@@ -139,11 +146,54 @@ val lastDownbeatRxMs: StateFlow<Long> = _lastDownbeatRxMs.asStateFlow()
         val externalBpm: Double? = null,
         val externalConfidence: Float? = null,
         val externalPhase: Float? = null,
-        val externalDownbeatMs: Long? = null
+        val externalDownbeatMs: Long? = null,
+        val topTalkers: List<TalkerSnapshot> = emptyList()
     )
 
     private val _debugState = MutableStateFlow(OscDebugState())
     val debugState: StateFlow<OscDebugState> = _debugState.asStateFlow()
+
+private data class TalkerAgg(var windowCount: Int, var pps: Int, var lastSeenMs: Long)
+private val talkers = HashMap<String, TalkerAgg>()
+private var talkersWindowStartMs: Long = 0L
+
+private fun noteTalker(nowMs: Long, fromIp: String?, fromPort: Int) {
+    val key = formatFrom(fromIp, fromPort) ?: return
+    val agg = talkers.getOrPut(key) { TalkerAgg(0, 0, nowMs) }
+    agg.windowCount += 1
+    agg.lastSeenMs = nowMs
+
+    if (talkersWindowStartMs == 0L) talkersWindowStartMs = nowMs
+    val dt = nowMs - talkersWindowStartMs
+    if (dt < 1000L) return
+
+    // Cleanup old senders (keeps map tiny on stage)
+    val cutoff = nowMs - 30_000L
+    val it = talkers.entries.iterator()
+    while (it.hasNext()) {
+        val e = it.next()
+        if (e.value.lastSeenMs < cutoff) it.remove()
+    }
+
+    val seconds = (dt.coerceAtLeast(1L) / 1000.0)
+    talkers.values.forEach { t ->
+        t.pps = (t.windowCount / seconds).toInt()
+        t.windowCount = 0
+    }
+    talkersWindowStartMs = nowMs
+
+    val top = talkers.entries
+        .sortedWith(
+            compareByDescending<Map.Entry<String, TalkerAgg>> { it.value.pps }
+                .thenByDescending { it.value.lastSeenMs }
+        )
+        .take(5)
+        .map { TalkerSnapshot(from = it.key, pps = it.value.pps, lastSeenMs = it.value.lastSeenMs) }
+
+    // Update only this field; the per-packet copy below will keep it.
+    _debugState.value = _debugState.value.copy(topTalkers = top)
+}
+
 
     /* ================= Remote Ghost ================= */
 
