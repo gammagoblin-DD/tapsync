@@ -1,0 +1,53 @@
+INFORMATION: Constructing runner from config.
+INFORMATION: Configuring Android Instrumentation driver: android_instrumentation_runtime {
+  instrumentation_info {
+    app_package: "com.example.tapsyncwatch"
+    test_package: "com.example.tapsyncwatch.baselineprofile"
+    test_runner_class: "androidx.test.runner.AndroidJUnitRunner"
+  }
+  instrumentation_args {
+    args_map {
+      key: "additionalTestOutputDir"
+      value: "/sdcard/Android/media/com.example.tapsyncwatch.baselineprofile/additional_test_output"
+    }
+    args_map {
+      key: "androidx.benchmark.enabledRules"
+      value: "baselineprofile"
+    }
+    args_map {
+      key: "androidx.benchmark.targetPackageName"
+      value: "com.example.tapsyncwatch"
+    }
+  }
+}
+am_instrument_timeout: 31536000
+
+INFORMATION: Configuring AndroidTestApkInstallerPlugin: apks_to_install {
+  apk_paths: "C:\\dev\\TapSync\\app\\build\\outputs\\apk\\nonMinifiedRelease\\app-nonMinifiedRelease.apk"
+  install_options {
+  }
+  uninstall_after_test: true
+}
+apks_to_install {
+  apk_paths: "C:\\dev\\TapSync\\baselineprofile\\build\\outputs\\apk\\nonMinifiedRelease\\baselineprofile-nonMinifiedRelease.apk"
+  install_options {
+  }
+  uninstall_after_test: true
+}
+instrumentation_target_package_id: "com.example.tapsyncwatch.baselineprofile"
+
+INFORMATION: No installables found in test fixture. Nothing to install.
+INFORMATION: Installing [C:\dev\TapSync\app\build\outputs\apk\nonMinifiedRelease\app-nonMinifiedRelease.apk] on device 192.168.178.80:38993.
+INFORMATION: Installing [C:\dev\TapSync\baselineprofile\build\outputs\apk\nonMinifiedRelease\baselineprofile-nonMinifiedRelease.apk] on device 192.168.178.80:38993.
+INFORMATION: Start logcat streaming.
+INFORMATION: Running Android Instrumentation driver.
+INFORMATION: Copying files from device to host: /sdcard/Android/media/com.example.tapsyncwatch.baselineprofile/additional_test_output to C:\dev\TapSync\baselineprofile\build\outputs\connected_android_test_additional_output\nonMinifiedRelease\connected\SM-R920 - 16
+INFORMATION: Copying /sdcard/Android/media/com.example.tapsyncwatch.baselineprofile/additional_test_output/BaselineProfileGenerator_generate-baseline-prof-2026-02-14-15-22-25.txt to C:\dev\TapSync\baselineprofile\build\outputs\connected_android_test_additional_output\nonMinifiedRelease\connected\SM-R920 - 16\BaselineProfileGenerator_generate-baseline-prof-2026-02-14-15-22-25.txt
+INFORMATION: Copying /sdcard/Android/media/com.example.tapsyncwatch.baselineprofile/additional_test_output/BaselineProfileGenerator_generate-baseline-prof.txt to C:\dev\TapSync\baselineprofile\build\outputs\connected_android_test_additional_output\nonMinifiedRelease\connected\SM-R920 - 16\BaselineProfileGenerator_generate-baseline-prof.txt
+INFORMATION: Copying files from device to host: /sdcard/Android/media/com.example.tapsyncwatch.baselineprofile/additional_test_output to C:\dev\TapSync\baselineprofile\build\outputs\connected_android_test_additional_output\nonMinifiedRelease\connected\SM-R920 - 16
+INFORMATION: Copying /sdcard/Android/media/com.example.tapsyncwatch.baselineprofile/additional_test_output/BaselineProfileGenerator_generate-baseline-prof-2026-02-14-15-22-25.txt to C:\dev\TapSync\baselineprofile\build\outputs\connected_android_test_additional_output\nonMinifiedRelease\connected\SM-R920 - 16\BaselineProfileGenerator_generate-baseline-prof-2026-02-14-15-22-25.txt
+INFORMATION: Copying /sdcard/Android/media/com.example.tapsyncwatch.baselineprofile/additional_test_output/BaselineProfileGenerator_generate-baseline-prof.txt to C:\dev\TapSync\baselineprofile\build\outputs\connected_android_test_additional_output\nonMinifiedRelease\connected\SM-R920 - 16\BaselineProfileGenerator_generate-baseline-prof.txt
+INFORMATION: Stop logcat streaming.
+INFORMATION: Uninstalling com.example.tapsyncwatch for device 192.168.178.80:38993.
+INFORMATION: Uninstalling com.example.tapsyncwatch.baselineprofile for device 192.168.178.80:38993.
+INFORMATION: Execute com.example.tapsyncwatch.baselineprofile.BaselineProfileGenerator.generate: PASSED

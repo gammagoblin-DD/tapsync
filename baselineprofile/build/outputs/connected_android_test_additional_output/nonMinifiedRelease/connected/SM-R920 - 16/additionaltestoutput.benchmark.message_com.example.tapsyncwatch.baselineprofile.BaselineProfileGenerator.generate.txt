@@ -1,0 +1,6 @@
+BaselineProfileGenerator_generate
+Total run time Ns: 633980250123.
+Baseline profile [results](file://BaselineProfileGenerator_generate-baseline-prof-2026-02-14-15-22-25.txt)
+
+To copy the profile use:
+adb -s RFAT72QE5AE pull "/sdcard/Android/media/com.example.tapsyncwatch.baselineprofile/additional_test_output/BaselineProfileGenerator_generate-baseline-prof.txt" .
