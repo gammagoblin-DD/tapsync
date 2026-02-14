@@ -109,10 +109,6 @@ private enum class RippleKind {
 }
 
 
-private val RESYNC_OFFSETS = floatArrayOf(0.0f, 0.14f, 0.28f)
-private val RESYNC_INTENS = floatArrayOf(1.0f, 0.72f, 0.52f)
-
-
 
 @Composable
 private fun StatusPill(
@@ -585,6 +581,20 @@ fun TapScreen(
         startupWarmup = false
     }
 
+    // GPU warmup: pre-draw key Canvas paths/rings at near-zero alpha so shaders compile before first live events.
+    var gpuWarmup by remember { mutableStateOf(true) }
+    val gpuWarmupAnim = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        // A handful of quick pulses triggers a few frames and warms stroke/path pipelines.
+        repeat(4) {
+            gpuWarmupAnim.snapTo(0f)
+            gpuWarmupAnim.animateTo(1f, tween(220, easing = FastOutSlowInEasing))
+            gpuWarmupAnim.snapTo(0f)
+            delay(60L)
+        }
+        gpuWarmup = false
+    }
+
     val fxMul = (if (fxAlpha.isFinite()) fxAlpha else 1.0f).coerceIn(0.30f, 2.00f)
     val phaseMul = (if (phaseAlpha.isFinite()) phaseAlpha else 1.0f).coerceIn(0.30f, 2.00f)
     val ghostMul = (if (ghostAlpha.isFinite()) ghostAlpha else 1.0f).coerceIn(0.30f, 2.00f)
@@ -939,49 +949,22 @@ LaunchedEffect(health) {
 }
 
 // Heartbeat-based link state (do NOT depend on BPM updates)
-//
-// NOTE: These flows can update at very high frequency (every OSC packet). Collecting them as State in the
-// TapScreen causes full recompositions + GC churn on WearOS, which makes early-start animations stutter.
-// We sample them at a low rate instead.
-var lastPong by remember { mutableStateOf(0L) }
-var lastPongFromV by remember { mutableStateOf<String?>(null) }
-var lastAnyRx by remember { mutableStateOf(0L) }
-var lastPhaseRx by remember { mutableStateOf(0L) }
-var lastDownbeatRx by remember { mutableStateOf(0L) }
+val lastPong by lastPongMs.collectAsState()
+val lastPongFromV by lastPongFrom.collectAsState()
+val lastAnyRx by lastAnyRxMs.collectAsState()
+val lastPhaseRx by lastPhaseRxMs.collectAsState()
+val lastDownbeatRx by lastDownbeatRxMs.collectAsState()
 var signalNowMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
 
-LaunchedEffect(
-    heartbeatEnabled,
-    anyRxFallbackEnabled,
-    anyRxTimeoutMs,
-    signalGraceMs,
-    showStatusLine,
-    showPreflight,
-    showTimeline,
-    startupWarmup
-) {
+// Keep signal freshness updated at low frequency (avoid 30Hz recomposition in Settings/idle cases)
+LaunchedEffect(heartbeatEnabled) {
+    if (!heartbeatEnabled) return@LaunchedEffect
     while (isActive) {
         signalNowMs = SystemClock.elapsedRealtime()
-
-        val lp = lastPongMs.value
-        if (lp != lastPong) lastPong = lp
-
-        val lpf = lastPongFrom.value
-        if (lpf != lastPongFromV) lastPongFromV = lpf
-
-        val la = lastAnyRxMs.value
-        if (la != lastAnyRx) lastAnyRx = la
-
-        val lpr = lastPhaseRxMs.value
-        if (lpr != lastPhaseRx) lastPhaseRx = lpr
-
-        val ldr = lastDownbeatRxMs.value
-        if (ldr != lastDownbeatRx) lastDownbeatRx = ldr
-
-        // Keep UI responsive during warmup; still low-frequency enough to avoid jank.
-        delay(if (startupWarmup) 400L else 250L)
+        delay(500L)
     }
 }
+
 // Phase ticker cadence (watch-friendly). Only fast when phase visuals are on.
 val phaseTickMs: Long = remember(startupWarmup, phaseVisualizerEnabled, phaseSpiralEnabled, phaseAuraEnabled, microParticlesEnabled, visualSwing, downbeatHapticsEnabled) {
     when {
@@ -1305,6 +1288,11 @@ if (!swipeHandled && zone == TouchZone.RIGHT_EDGE) {
             },
         contentAlignment = Alignment.Center
     ) {
+
+        // GPU warmup layer (invisible): primes shaders for rings/ripples so first live events don't stutter.
+        if (gpuWarmup) {
+            GpuWarmupLayer(progress = gpuWarmupAnim.value)
+        }
 
         // Mood overlay: super subtle background tint (online grin / offline grumble)
         if (moodsEnabled && moodT > 0f) {
@@ -1685,26 +1673,21 @@ if (showStatusLine && showTimeline) {
                 if (kind == RippleKind.RESYNC) {
 
                     // LOCAL = 3 rings. REMOTE ghost = 1 ring (calmer, reads as "external")
+                    val offsets = if (voice == Voice.REMOTE && remoteGhostModeEnabled)
+                        listOf(0.0f)
+                    else
+                        listOf(0.0f, 0.14f, 0.28f)
 
-                    if (voice == Voice.REMOTE && remoteGhostModeEnabled) {
-                        val pi = p.coerceIn(0f, 1f)
-                        if (pi > 0f) {
-                            val r = if (grow) maxRadius * pi else overscan * (1f - pi)
-                            drawCircle(
-                                color = GoblinBrown.copy(alpha = alpha),
-                                radius = r,
-                                center = Offset(cx, cy),
-                                style = Stroke(width = strokeW)
-                            )
-                        }
-                        return
-                    }
+                    val intens = if (voice == Voice.REMOTE && remoteGhostModeEnabled)
+                        listOf(1.0f)
+                    else
+                        listOf(1.0f, 0.72f, 0.52f)
 
-                    for (i in 0..2) {
-                        val pi = (p - RESYNC_OFFSETS[i]).coerceIn(0f, 1f)
+                    for (i in offsets.indices) {
+                        val pi = (p - offsets[i]).coerceIn(0f, 1f)
                         if (pi <= 0f) continue
 
-                        val a = alpha * RESYNC_INTENS[i]
+                        val a = alpha * intens[i]
                         val r = if (grow) maxRadius * pi else overscan * (1f - pi)
 
                         drawCircle(
@@ -1933,5 +1916,81 @@ drawPath(
                 modifier = Modifier.zIndex(11f)
             )
         }
+    }
+}
+
+@Composable
+private fun GpuWarmupLayer(progress: Float) {
+    Canvas(
+        modifier = Modifier
+            .fillMaxSize()
+            .alpha(0.0012f) // must be > 0 so it actually draws (shader warmup)
+            .zIndex(-1f)
+    ) {
+        val w = size.width
+        val h = size.height
+        if (w <= 1f || h <= 1f) return@Canvas
+
+        val cx = w / 2f
+        val cy = h / 2f
+        val r = min(w, h) * 0.82f / 2f
+
+        val strokeThin = 2.5.dp.toPx()
+        val strokeMid = 6.dp.toPx()
+        val strokeThick = 14.dp.toPx()
+
+        val p = progress.coerceIn(0f, 1f)
+
+        // Touch both fill + stroke pipelines (rect + circles + line + path).
+        drawRect(color = GoblinDim.copy(alpha = 0.02f))
+
+        // Ring-ish stroke (matches Downbeat PULSE thickness).
+        drawCircle(
+            color = GoblinBrown.copy(alpha = 0.03f),
+            radius = r * (0.88f + 0.04f * p),
+            center = Offset(cx, cy),
+            style = Stroke(width = strokeThick, cap = StrokeCap.Round)
+        )
+
+        // Ripple-ish strokes (thin + mid).
+        drawCircle(
+            color = GoblinOrange.copy(alpha = 0.028f),
+            radius = r * (0.55f + 0.30f * p),
+            center = Offset(cx, cy),
+            style = Stroke(width = strokeMid, cap = StrokeCap.Round)
+        )
+        drawCircle(
+            color = GoblinOrange.copy(alpha = 0.018f),
+            radius = r * (0.30f + 0.35f * (1f - p)),
+            center = Offset(cx, cy),
+            style = Stroke(width = strokeThin, cap = StrokeCap.Round)
+        )
+
+        // A line to warm cap rendering (DownbeatStyle.TICK).
+        val y = cy - r * 0.78f
+        drawLine(
+            color = GoblinBrown.copy(alpha = 0.02f),
+            start = Offset(cx - r * 0.18f, y),
+            end = Offset(cx + r * 0.18f, y),
+            strokeWidth = strokeMid,
+            cap = StrokeCap.Round
+        )
+
+        // A small path to warm path rendering (spiral/highlights later).
+        val path = Path().apply {
+            val px0 = cx - r * 0.35f
+            val py0 = cy + r * 0.05f
+            moveTo(px0, py0)
+            cubicTo(
+                cx - r * 0.10f, cy - r * 0.25f,
+                cx + r * 0.20f, cy + r * 0.25f,
+                cx + r * 0.35f, cy - r * 0.05f
+            )
+        }
+        drawPath(
+            path = path,
+            color = GoblinBrown.copy(alpha = 0.02f),
+            style = Stroke(width = strokeThin, cap = StrokeCap.Round)
+        )
     }
 }

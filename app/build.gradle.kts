@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("androidx.baselineprofile") // add
 }
 
 android {
@@ -44,6 +45,14 @@ android {
     }
 }
 
+// Baseline Profile Gradle plugin configuration.
+// - mergeIntoMain: keep a single profile (no flavors here, simpler workflow)
+// - saveInSrc: write into src/ so you can commit it
+baselineProfile {
+    mergeIntoMain = true
+    saveInSrc = true
+}
+
 dependencies {
 
     implementation("androidx.core:core-ktx:1.13.1")
@@ -62,6 +71,14 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    // Enables local/side-loaded Baseline Profile installation on devices where
+    // Cloud Profiles aren't available (and is recommended generally).
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
+
+    // Pull generated Baseline Profiles from the generator module.
+    baselineProfile(project(":baselineprofile"))
+
 
     testImplementation("junit:junit:4.13.2")
     testImplementation(kotlin("test"))
