@@ -60,9 +60,6 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlin.math.roundToLong
 import androidx.compose.foundation.interaction.MutableInteractionSource
 
@@ -90,13 +87,6 @@ private data class PresetPingResult(
     val rttMs: Long? = null,
     val pongFrom: String? = null
 )
-
-private const val PING_TEST_CACHE_TTL_MS: Long = 10 * 60 * 1000L
-
-private object PingTestCache {
-    var lastRunWallMs: Long? = null
-    val results: MutableMap<Int, PresetPingResult> = mutableMapOf()
-}
 
 private enum class SettingsPage {
     ROOT,
@@ -974,11 +964,8 @@ fun SettingsScreen(
     val settings by settingsStore.settings.collectAsState(initial = DEFAULT_SETTINGS_STATE)
     val s = settings
 
-    val lastPong by lastPongMs.collectAsState()
-    val pongFrom by lastPongFrom.collectAsState()
-    val lastAnyRx by lastAnyRxMs.collectAsState()
-    val anyFrom by lastAnyFrom.collectAsState()
-
+    // Performance: avoid collectAsState() on high-frequency OSC flows while scrolling.
+    // We sample StateFlow.value on our low-frequency ticker (nowMs) so the whole screen doesn't recompose on every packet.
     var nowMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
 
     val scope = rememberCoroutineScope()
@@ -991,13 +978,15 @@ fun push(p: SettingsPage) { pageStack.add(p) }
 fun pop() { if (pageStack.size > 1) pageStack.removeAt(pageStack.lastIndex) }
 
     // Tick while settings are open (used for link ages).
-    LaunchedEffect(Unit) {
+    // Disable while editing text fields to keep typing silky.
+    val tickerEnabled = page != SettingsPage.TARGET_EDIT
+    LaunchedEffect(tickerEnabled) {
+        if (!tickerEnabled) return@LaunchedEffect
         while (isActive) {
             nowMs = SystemClock.elapsedRealtime()
-            delay(500)
-                            }
-                        }
-
+            delay(500L)
+        }
+    }
 var presetsSession by remember { mutableStateOf(0) }
     var editPresetIndex by rememberSaveable { mutableStateOf(0) }
 
@@ -1007,22 +996,6 @@ var presetsSession by remember { mutableStateOf(0) }
 val targetsTestResults = remember { mutableStateMapOf<Int, PresetPingResult>() }
 var targetsTestBusy by remember { mutableStateOf(false) }
 var targetsTestJob by remember { mutableStateOf<Job?>(null) }
-
-
-var targetsLastRunWallMs by remember { mutableStateOf(PingTestCache.lastRunWallMs) }
-
-LaunchedEffect(Unit) {
-    val nowWall = System.currentTimeMillis()
-    val last = PingTestCache.lastRunWallMs
-    if (last != null && nowWall - last > PING_TEST_CACHE_TTL_MS) {
-        PingTestCache.results.clear()
-        PingTestCache.lastRunWallMs = null
-    }
-    if (targetsTestResults.isEmpty() && PingTestCache.results.isNotEmpty()) {
-        targetsTestResults.putAll(PingTestCache.results)
-    }
-    targetsLastRunWallMs = PingTestCache.lastRunWallMs
-}
 
 LaunchedEffect(page) {
     if (page != SettingsPage.PING_TEST) {
@@ -1103,12 +1076,14 @@ BackHandler {
 
 
     // Link status (Ping/Pong + optional Any-RX fallback)
-    val pongAge = remember(lastPong, nowMs) {
-        if (lastPong <= 0L || nowMs <= 0L) null else (nowMs - lastPong).coerceAtLeast(0L)
-                        }
-    val anyRxAge = remember(lastAnyRx, nowMs) {
-        if (lastAnyRx <= 0L || nowMs <= 0L) null else (nowMs - lastAnyRx).coerceAtLeast(0L)
-                        }
+    val lastPongSnapshot = lastPongMs.value
+    val lastAnyRxSnapshot = lastAnyRxMs.value
+    val pongAge = remember(lastPongSnapshot, nowMs) {
+        if (lastPongSnapshot <= 0L || nowMs <= 0L) null else (nowMs - lastPongSnapshot).coerceAtLeast(0L)
+    }
+    val anyRxAge = remember(lastAnyRxSnapshot, nowMs) {
+        if (lastAnyRxSnapshot <= 0L || nowMs <= 0L) null else (nowMs - lastAnyRxSnapshot).coerceAtLeast(0L)
+    }
 
     val pongOk = s.heartbeatEnabled && pongAge != null && pongAge < s.signalGraceMs
     val anyOk = s.oscInputAnyRxFallbackEnabled && anyRxAge != null && anyRxAge < s.oscInputAnyRxTimeoutMs
@@ -2227,7 +2202,8 @@ item { DividerLine() }
                 overflow = TextOverflow.Ellipsis
             )
             Text("Link: $linkLabel", color = if (linkOk) GoblinOk else GoblinBad, fontSize = 11.sp)
-            Text("Last pong from: " + (pongFrom ?: "-"), color = GoblinDim, fontSize = 11.sp)
+            val pongFromSnapshot = lastPongFrom.value
+            Text("Last pong from: " + (pongFromSnapshot ?: "-"), color = GoblinDim, fontSize = 11.sp)
         }
     }
 
@@ -2346,7 +2322,8 @@ item { DividerLine() }
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
-                            Text("From: " + (anyFrom ?: "-"), color = GoblinDim, fontSize = 11.sp)
+                            val anyFromSnapshot = lastAnyFrom.value
+                            Text("From: " + (anyFromSnapshot ?: "-"), color = GoblinDim, fontSize = 11.sp)
                         }
                     }
                 }
@@ -2572,11 +2549,12 @@ item { DividerLine() }
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text("Last pong: " + (pongAge?.let { "${it}ms" } ?: "-"), color = GoblinDim, fontSize = 11.sp)
-                            Text("Last pong from: " + (pongFrom ?: "-"), color = GoblinDim, fontSize = 11.sp)
+                            val pongFromSnapshot = lastPongFrom.value
+            Text("Last pong from: " + (pongFromSnapshot ?: "-"), color = GoblinDim, fontSize = 11.sp)
                             Text("Grace: ${s.signalGraceMs}ms", color = GoblinDim, fontSize = 11.sp)
                             if (s.oscInputAnyRxFallbackEnabled) {
                                 Text("Last any: " + (anyRxAge?.let { "${it}ms" } ?: "-"), color = GoblinDim, fontSize = 11.sp)
-                                Text("Last any from: " + (anyFrom ?: "-"), color = GoblinDim, fontSize = 11.sp)
+                                Text("Last any from: " + (lastAnyFrom.value ?: "-"), color = GoblinDim, fontSize = 11.sp)
                             }
                         }
                     }
@@ -2735,7 +2713,6 @@ item { DividerLine() }
                     onClick = {
                         if (targetsTestBusy) return@Button
                         targetsTestResults.clear()
-                        PingTestCache.results.clear()
                         val snapshot = s.presets.toList()
                         targetsTestBusy = true
                         targetsTestJob?.cancel()
@@ -2744,17 +2721,11 @@ item { DividerLine() }
                                 snapshot.forEachIndexed { idx, t ->
                                     val res = pingPresetOnce(t)
                                     targetsTestResults[idx] = res
-                                    PingTestCache.results[idx] = res
                                     if (idx != snapshot.lastIndex) delay(120L)
                                 }
                             } finally {
                                 targetsTestBusy = false
                                 targetsTestJob = null
-                                if (targetsTestResults.isNotEmpty()) {
-                                    val wall = System.currentTimeMillis()
-                                    targetsLastRunWallMs = wall
-                                    PingTestCache.lastRunWallMs = wall
-                                }
                             }
                         }
                     },
@@ -2767,9 +2738,6 @@ item { DividerLine() }
                         targetsTestJob = null
                         targetsTestBusy = false
                         targetsTestResults.clear()
-                        PingTestCache.results.clear()
-                        targetsLastRunWallMs = null
-                        PingTestCache.lastRunWallMs = null
                     }
                 ) { Text("Clear") }
             }
@@ -2779,13 +2747,6 @@ item { DividerLine() }
                 color = GoblinDim,
                 fontSize = 11.sp
             )
-
-            targetsLastRunWallMs?.let { wall ->
-                val t = remember(wall) {
-                    SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(wall))
-                }
-                Text("last run $t", color = GoblinDim, fontSize = 11.sp)
-            }
         }
     }
 
@@ -3013,7 +2974,12 @@ val shape = RoundedCornerShape(26.dp)
 
                                                 testLine = if (ok) {
                                                     val rtt = (pongTs!! - started).coerceAtLeast(0L)
-                                                    "Test: OK • ${rtt}ms • ${pongFrom ?: "-"}"
+                                                    var from = lastPongFrom.value
+                                                    if (from == null) {
+                                                        delay(10L)
+                                                        from = lastPongFrom.value
+                                                    }
+                                                    "Test: OK • ${rtt}ms • ${from ?: "-"}"
                                                 } else {
                                                     "Test: timeout"
                                                 }

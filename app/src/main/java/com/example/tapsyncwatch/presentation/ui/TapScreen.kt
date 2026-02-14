@@ -27,6 +27,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -106,6 +107,10 @@ private enum class RippleKind {
     NUDGE_PLUS,
     NUDGE_MINUS
 }
+
+
+private val RESYNC_OFFSETS = floatArrayOf(0.0f, 0.14f, 0.28f)
+private val RESYNC_INTENS = floatArrayOf(1.0f, 0.72f, 0.52f)
 
 
 
@@ -572,6 +577,14 @@ fun TapScreen(
     val metrics = context.resources.displayMetrics
     val scope = rememberCoroutineScope()
     val oscPulseLimiter = remember { PulseLimiter(minIntervalMs = 120) }
+
+    // Startup warmup: keep the first seconds light-weight so the watch can settle.
+    var startupWarmup by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        delay(12_000L)
+        startupWarmup = false
+    }
+
     val fxMul = (if (fxAlpha.isFinite()) fxAlpha else 1.0f).coerceIn(0.30f, 2.00f)
     val phaseMul = (if (phaseAlpha.isFinite()) phaseAlpha else 1.0f).coerceIn(0.30f, 2.00f)
     val ghostMul = (if (ghostAlpha.isFinite()) ghostAlpha else 1.0f).coerceIn(0.30f, 2.00f)
@@ -581,7 +594,7 @@ fun TapScreen(
     val moodT = (moodIntensitySafe / 0.20f).coerceIn(0f, 1f)
     val swingAmount = (if (visualSwing.isFinite()) visualSwing else 0f).coerceIn(0f, 0.25f)
     val ghostEchoStrengthSafe = (if (ghostEchoStrength.isFinite()) ghostEchoStrength else 0f).coerceIn(0f, 1f)
-    val ghostEchoOn = ghostEchoEnabled && ghostEchoStrengthSafe > 0f
+    val ghostEchoOn = ghostEchoEnabled && !startupWarmup && ghostEchoStrengthSafe > 0f
 
 
 // Safety helpers: avoid NaN/Infinity bricking Canvas (coerceIn does NOT fix NaN)
@@ -643,11 +656,21 @@ fun applySwingWarp(phase: Float, swing: Float): Float {
 
     /* ================= External BPM + Debug ================= */
 
-    val extBpm by externalBpm.collectAsState()
-    val extConf by externalConfidence.collectAsState()
-    val ghost by remoteGhost.collectAsState()
+    // Avoid recomposition storms: sample high-frequency OSC flows at a low rate for UI.
+    var extBpmUi by remember { mutableStateOf<Double?>(null) }
+    var extConfUi by remember { mutableStateOf<Float?>(null) }
+    var ghostUi by remember { mutableStateOf<OscInputReceiver.RemoteGhostSnapshot?>(null) }
 
-    /* ================= OSC pulse dot ================= */
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            extBpmUi = externalBpm.value
+            extConfUi = externalConfidence.value
+            ghostUi = remoteGhost.value
+            delay(if (startupWarmup) 500L else 250L)
+        }
+    }
+
+/* ================= OSC pulse dot ================= */
 
     val oscPulse = remember { Animatable(0f) }
 
@@ -823,6 +846,7 @@ var timelineNowMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
 val timelineEvents = remember { androidx.compose.runtime.mutableStateListOf<TimelineEvent>() }
 
 fun pushTimeline(kind: TimelineKind) {
+    if (!showStatusLine || !showTimeline) return
     val t = SystemClock.elapsedRealtime()
     timelineEvents.add(TimelineEvent(atMs = t, kind = kind))
     // hard cap to avoid unbounded growth even if prune loop stalls
@@ -838,12 +862,11 @@ var lastRemoteTimelineMs by remember { mutableStateOf(0L) }
 fun pushTimelineRemote(kind: TimelineKind) {
     val now = SystemClock.elapsedRealtime()
     // Debounce only the noisy kinds (keep TAP/RESYNC crisp)
-    val debouncedKinds = setOf(
-        TimelineKind.REMOTE_MULTIPLY,
-        TimelineKind.REMOTE_DIVIDE,
-        TimelineKind.REMOTE_NUDGE
-    )
-    if (remoteDebounceMs > 0L && kind in debouncedKinds) {
+    val shouldDebounce = kind == TimelineKind.REMOTE_MULTIPLY ||
+        kind == TimelineKind.REMOTE_DIVIDE ||
+        kind == TimelineKind.REMOTE_NUDGE
+    if (remoteDebounceMs > 0L && shouldDebounce) {
+
         if (now - lastRemoteTimelineMs < remoteDebounceMs) return
         lastRemoteTimelineMs = now
     }
@@ -916,25 +939,53 @@ LaunchedEffect(health) {
 }
 
 // Heartbeat-based link state (do NOT depend on BPM updates)
-val lastPong by lastPongMs.collectAsState()
-val lastPongFromV by lastPongFrom.collectAsState()
-val lastAnyRx by lastAnyRxMs.collectAsState()
-val lastPhaseRx by lastPhaseRxMs.collectAsState()
-val lastDownbeatRx by lastDownbeatRxMs.collectAsState()
+//
+// NOTE: These flows can update at very high frequency (every OSC packet). Collecting them as State in the
+// TapScreen causes full recompositions + GC churn on WearOS, which makes early-start animations stutter.
+// We sample them at a low rate instead.
+var lastPong by remember { mutableStateOf(0L) }
+var lastPongFromV by remember { mutableStateOf<String?>(null) }
+var lastAnyRx by remember { mutableStateOf(0L) }
+var lastPhaseRx by remember { mutableStateOf(0L) }
+var lastDownbeatRx by remember { mutableStateOf(0L) }
 var signalNowMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
 
-// Keep signal freshness updated at low frequency (avoid 30Hz recomposition in Settings/idle cases)
-LaunchedEffect(heartbeatEnabled) {
-    if (!heartbeatEnabled) return@LaunchedEffect
+LaunchedEffect(
+    heartbeatEnabled,
+    anyRxFallbackEnabled,
+    anyRxTimeoutMs,
+    signalGraceMs,
+    showStatusLine,
+    showPreflight,
+    showTimeline,
+    startupWarmup
+) {
     while (isActive) {
         signalNowMs = SystemClock.elapsedRealtime()
-        delay(500L)
+
+        val lp = lastPongMs.value
+        if (lp != lastPong) lastPong = lp
+
+        val lpf = lastPongFrom.value
+        if (lpf != lastPongFromV) lastPongFromV = lpf
+
+        val la = lastAnyRxMs.value
+        if (la != lastAnyRx) lastAnyRx = la
+
+        val lpr = lastPhaseRxMs.value
+        if (lpr != lastPhaseRx) lastPhaseRx = lpr
+
+        val ldr = lastDownbeatRxMs.value
+        if (ldr != lastDownbeatRx) lastDownbeatRx = ldr
+
+        // Keep UI responsive during warmup; still low-frequency enough to avoid jank.
+        delay(if (startupWarmup) 400L else 250L)
     }
 }
-
 // Phase ticker cadence (watch-friendly). Only fast when phase visuals are on.
-val phaseTickMs: Long = remember(phaseVisualizerEnabled, phaseSpiralEnabled, phaseAuraEnabled, microParticlesEnabled, visualSwing, downbeatHapticsEnabled) {
+val phaseTickMs: Long = remember(startupWarmup, phaseVisualizerEnabled, phaseSpiralEnabled, phaseAuraEnabled, microParticlesEnabled, visualSwing, downbeatHapticsEnabled) {
     when {
+        startupWarmup -> if (downbeatHapticsEnabled) 60L else 120L
         phaseVisualizerEnabled || phaseSpiralEnabled || phaseAuraEnabled || microParticlesEnabled || (visualSwing.isFinite() && visualSwing > 0f) -> 33L   // ~30Hz
         downbeatHapticsEnabled -> 60L                         // keep wrap detection reliable
         else -> 120L
@@ -976,9 +1027,12 @@ LaunchedEffect(lastPong) {
     var prevPhase by remember { mutableStateOf(0f) }
     var barCount by remember { mutableStateOf(0) }
     var lastDownbeatTriggerMs by remember { mutableStateOf(0L) }
+    // Avoid effect restart storms: keep phase ticker stable and read latest values inside the loop.
+    val animationsEnabledV by rememberUpdatedState(animationsEnabled)
+    val hapticsEnabledV by rememberUpdatedState(hapticsEnabled)
+    val downbeatHapticsEnabledV by rememberUpdatedState(downbeatHapticsEnabled)
 
-
-    LaunchedEffect(hasSignal, extBpm, ghost, extConf) {
+    LaunchedEffect(hasSignal, phaseTickMs) {
         if (!hasSignal) {
             extPhase = 0f
             stability = 1f
@@ -987,19 +1041,29 @@ LaunchedEffect(lastPong) {
             return@LaunchedEffect
         }
 
-        val bpmForPhase = (ghost?.bpm ?: extBpm) ?: return@LaunchedEffect
-        val bpmF = bpmForPhase.toFloat().coerceIn(1f, 999f)
-
         while (isActive) {
+            val g = remoteGhost.value
+            val bpmForPhase = (g?.bpm ?: externalBpm.value)
+
+            if (bpmForPhase == null) {
+                // No tempo yet: keep idle but yield.
+                extPhase = 0f
+                stability = 1f
+                prevPhase = 0f
+                delay(phaseTickMs)
+                continue
+            }
+
+            val bpmF = bpmForPhase.toFloat().coerceIn(1f, 999f)
+
             val now = SystemClock.elapsedRealtime()
-            val anchorMs = (ghost?.lastSeenMs ?: now).coerceAtMost(now)
-            val anchorPhase = safePhase(ghost?.phase ?: extPhase, default = 0f)
+            val anchorMs = (g?.lastSeenMs ?: now).coerceAtMost(now)
+            val anchorPhase = safePhase(g?.phase ?: extPhase, default = 0f)
 
             val dtSec = (now - anchorMs).coerceAtLeast(0).toFloat() / 1000f
             val beats = dtSec * (bpmF / 60f)
             val p = ((anchorPhase + beats) % 1f)
             val pSafe = safePhase(p, default = 0f)
-
 
             // Downbeat: detect phase wrap
             val wrapped = (prevPhase > 0.80f && pSafe < 0.20f)
@@ -1008,7 +1072,7 @@ LaunchedEffect(lastPong) {
                 barCount += 1
                 barCount += 1
 
-                if (animationsEnabled) {
+                if (animationsEnabledV) {
                     // animate pulse without blocking the ticker
                     scope.launch {
                         downbeatPulse.snapTo(1f)
@@ -1016,7 +1080,7 @@ LaunchedEffect(lastPong) {
                     }
                 }
 
-                if (hapticsEnabled && downbeatHapticsEnabled) {
+                if (hapticsEnabledV && downbeatHapticsEnabledV) {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
             }
@@ -1024,12 +1088,13 @@ LaunchedEffect(lastPong) {
             prevPhase = pSafe
             extPhase = pSafe
 
-            val conf = safe01((ghost?.confidence ?: extConf ?: 1f), default = 1f)
+            val conf = safe01((g?.confidence ?: externalConfidence.value ?: 1f), default = 1f)
             stability = conf
 
             delay(phaseTickMs)
         }
     }
+
 
 
 /* ================= Swipe helpers ================= */
@@ -1366,7 +1431,7 @@ Column(
 
                 // External BPM monitor (Resolume -> Watch):
         // Show ONLY the integer BPM, centered under the goblin "chin", with a smooth value animation.
-        val extBpmTarget = (extBpm ?: 0.0).toFloat()
+        val extBpmTarget = (extBpmUi ?: 0.0).toFloat()
         val extBpmAnimated by animateFloatAsState(
             targetValue = extBpmTarget,
             animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
@@ -1375,7 +1440,7 @@ Column(
 
         val bpmText = when {
             !hasSignal -> "NO SIGNAL"
-            extBpm != null -> {
+            extBpmUi != null -> {
                 val bpmInt = extBpmAnimated.roundToInt()
                 when (bpmFormat) {
                     BpmFormat.BPM_PHASE -> "$bpmInt BPM · ${(extPhase * 100f).roundToInt()}%"
@@ -1387,7 +1452,7 @@ Column(
         }
 
         AnimatedVisibility(
-            visible = showExternalBpm && (extBpm != null || !hasSignal),
+            visible = showExternalBpm && (extBpmUi != null || !hasSignal),
             modifier = Modifier
                 .align(Alignment.Center)
                 .offset(y = 101.dp)
@@ -1534,7 +1599,7 @@ if (showStatusLine && showTimeline) {
         ) {
             if (!remoteGhostModeEnabled) return@Canvas
             if (!hasSignal) return@Canvas
-            val g = ghost ?: return@Canvas
+            val g = ghostUi ?: return@Canvas
 
             val cx = size.width / 2f
             val cy = size.height / 2f
@@ -1620,21 +1685,26 @@ if (showStatusLine && showTimeline) {
                 if (kind == RippleKind.RESYNC) {
 
                     // LOCAL = 3 rings. REMOTE ghost = 1 ring (calmer, reads as "external")
-                    val offsets = if (voice == Voice.REMOTE && remoteGhostModeEnabled)
-                        listOf(0.0f)
-                    else
-                        listOf(0.0f, 0.14f, 0.28f)
 
-                    val intens = if (voice == Voice.REMOTE && remoteGhostModeEnabled)
-                        listOf(1.0f)
-                    else
-                        listOf(1.0f, 0.72f, 0.52f)
+                    if (voice == Voice.REMOTE && remoteGhostModeEnabled) {
+                        val pi = p.coerceIn(0f, 1f)
+                        if (pi > 0f) {
+                            val r = if (grow) maxRadius * pi else overscan * (1f - pi)
+                            drawCircle(
+                                color = GoblinBrown.copy(alpha = alpha),
+                                radius = r,
+                                center = Offset(cx, cy),
+                                style = Stroke(width = strokeW)
+                            )
+                        }
+                        return
+                    }
 
-                    for (i in offsets.indices) {
-                        val pi = (p - offsets[i]).coerceIn(0f, 1f)
+                    for (i in 0..2) {
+                        val pi = (p - RESYNC_OFFSETS[i]).coerceIn(0f, 1f)
                         if (pi <= 0f) continue
 
-                        val a = alpha * intens[i]
+                        val a = alpha * RESYNC_INTENS[i]
                         val r = if (grow) maxRadius * pi else overscan * (1f - pi)
 
                         drawCircle(
@@ -1708,7 +1778,7 @@ if (showStatusLine && showTimeline) {
             }
 
             // Aura: only when stable
-            if (phaseAuraEnabled && stableT > 0f) {
+            if (phaseAuraEnabled && !startupWarmup && stableT > 0f) {
                 val a = safeAlpha(0.055f * stableT * phaseMul * (1f + 0.30f * moodT))
                 val w = baseRadius * 0.14f
                 drawCircle(
@@ -1720,7 +1790,7 @@ if (showStatusLine && showTimeline) {
             }
 
             // Micro particles: subtle sparkle on the ring (stable only)
-            if (microParticlesEnabled && stableT > 0f) {
+            if (microParticlesEnabled && !startupWarmup && stableT > 0f) {
                 val n = (6 + (6 * stableT)).toInt().coerceIn(6, 12)
                 val baseA = safeAlpha(0.14f * stableT * phaseMul)
                 val baseR = baseRadius * 0.96f
@@ -1771,7 +1841,7 @@ if (showStatusLine && showTimeline) {
                 )
             }
 
-if (phaseSpiralEnabled) {
+if (phaseSpiralEnabled && !startupWarmup) {
     // A real spiral (Archimedean). It "breathes" with stability and rotates with phase.
     val turns = 2.35f + (1f - stability) * 0.55f
     val r0 = baseRadius * 0.22f

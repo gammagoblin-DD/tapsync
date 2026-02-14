@@ -152,6 +152,13 @@ data class TalkerSnapshot(
 
     private val _debugState = MutableStateFlow(OscDebugState())
     val debugState: StateFlow<OscDebugState> = _debugState.asStateFlow()
+    @Volatile private var debugEnabled: Boolean = false
+
+    /** Enable/disable expensive debug bookkeeping (args parsing, top talkers, debugState copies). */
+    fun setDebugEnabled(enabled: Boolean) {
+        debugEnabled = enabled
+    }
+
 
 private data class TalkerAgg(var windowCount: Int, var pps: Int, var lastSeenMs: Long)
 private val talkers = HashMap<String, TalkerAgg>()
@@ -191,7 +198,7 @@ private fun noteTalker(nowMs: Long, fromIp: String?, fromPort: Int) {
         .map { TalkerSnapshot(from = it.key, pps = it.value.pps, lastSeenMs = it.value.lastSeenMs) }
 
     // Update only this field; the per-packet copy below will keep it.
-    _debugState.value = _debugState.value.copy(topTalkers = top)
+    if (debugEnabled) _debugState.value = _debugState.value.copy(topTalkers = top)
 }
 
 
@@ -331,9 +338,10 @@ private fun noteTalker(nowMs: Long, fromIp: String?, fromPort: Int) {
             _lastAnyRxMs.value = nowMs
             formatFrom(fromIp, fromPort)?.let { _lastAnyFrom.value = it }
 
-            val argsSummary = summarizeArgs(typeTags, bb.duplicate())
+            if (debugEnabled) {
+                val argsSummary = summarizeArgs(typeTags, bb.duplicate())
 
-            _debugState.value = _debugState.value.copy(
+                _debugState.value = _debugState.value.copy(
                 packetsTotal = _debugState.value.packetsTotal + 1L,
                 lastAddress = address,
                 lastTypeTags = typeTags,
@@ -349,6 +357,8 @@ private fun noteTalker(nowMs: Long, fromIp: String?, fromPort: Int) {
                 externalPhase = _externalPhase.value,
                 externalDownbeatMs = remoteLastDownbeatMs
             )
+                noteTalker(nowMs, fromIp, fromPort)
+            }
 
             handleMessage(address, typeTags, bb, fromIp, fromPort)
         }
@@ -445,7 +455,7 @@ private fun noteTalker(nowMs: Long, fromIp: String?, fromPort: Int) {
                 // raw==0 means 20 BPM, not "no bpm"
                 val bpm = if (raw == 0.0) 20.0 else decodeExternalBpm(raw)
 
-                _debugState.value = _debugState.value.copy(externalTempoRaw = raw)
+                if (debugEnabled) _debugState.value = _debugState.value.copy(externalTempoRaw = raw)
                 onExternalBpm(bpm) // ✅ don't gate with >0 here
             }
 
@@ -453,7 +463,7 @@ private fun noteTalker(nowMs: Long, fromIp: String?, fromPort: Int) {
             "/external/bpm", "/tapsync/external/bpm", "/tapsync/bpm" -> {
                 val raw = readFirstNumber(typeTags, bb) ?: return
                 val bpm = decodeExternalBpm(raw)
-                _debugState.value = _debugState.value.copy(externalTempoRaw = raw)
+                if (debugEnabled) _debugState.value = _debugState.value.copy(externalTempoRaw = raw)
                 if (bpm > 0.0) onExternalBpm(bpm)
             }
 
@@ -467,7 +477,7 @@ private fun noteTalker(nowMs: Long, fromIp: String?, fromPort: Int) {
             "/composition/tempocontroller/tempo/confidence" -> {
                 val c = readFirstNumber(typeTags, bb)?.toFloat() ?: return
                 _externalConfidence.value = c.coerceIn(0f, 1f)
-                _debugState.value = _debugState.value.copy(externalConfidence = _externalConfidence.value)
+                if (debugEnabled) _debugState.value = _debugState.value.copy(externalConfidence = _externalConfidence.value)
             }
 
             /* =================================================
@@ -510,7 +520,7 @@ private fun noteTalker(nowMs: Long, fromIp: String?, fromPort: Int) {
 
                 formatFrom(fromIp, fromPort)?.let { _lastPongFrom.value = it }
 
-                _debugState.value = _debugState.value.copy(lastPongMs = _lastPongMs.value)
+                if (debugEnabled) _debugState.value = _debugState.value.copy(lastPongMs = _lastPongMs.value)
             }
 
 
@@ -568,7 +578,7 @@ private fun noteTalker(nowMs: Long, fromIp: String?, fromPort: Int) {
         val bpm = _externalBpm.value
         if (bpm != null && bpm > 0.0) publishGhostSnapshot(bpm)
 
-        _debugState.value = _debugState.value.copy(externalPhase = p)
+        if (debugEnabled) _debugState.value = _debugState.value.copy(externalPhase = p)
     }
 
     private fun onExternalDownbeat() {
@@ -588,7 +598,7 @@ private fun noteTalker(nowMs: Long, fromIp: String?, fromPort: Int) {
         val bpm = _externalBpm.value
         if (bpm != null && bpm > 0.0) publishGhostSnapshot(bpm)
 
-        _debugState.value = _debugState.value.copy(externalPhase = 0f, externalDownbeatMs = nowMs)
+        if (debugEnabled) _debugState.value = _debugState.value.copy(externalPhase = 0f, externalDownbeatMs = nowMs)
     }
 
     private fun publishGhostSnapshot(bpm: Double) {
@@ -599,13 +609,15 @@ private fun noteTalker(nowMs: Long, fromIp: String?, fromPort: Int) {
             confidence = _externalConfidence.value
         )
 
-        _debugState.value = _debugState.value.copy(
+        if (debugEnabled) {
+            _debugState.value = _debugState.value.copy(
             externalTempoRaw = _debugState.value.externalTempoRaw,
             externalBpm = _externalBpm.value,
             externalConfidence = _externalConfidence.value,
             externalPhase = _externalPhase.value,
             externalDownbeatMs = remoteLastDownbeatMs
-        )
+                    )
+        }
     }
 
     /* ================= Helpers ================= */

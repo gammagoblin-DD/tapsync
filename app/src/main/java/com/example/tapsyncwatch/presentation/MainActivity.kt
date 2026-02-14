@@ -19,6 +19,8 @@ import com.example.tapsyncwatch.presentation.ui.TapScreen
 import com.example.tapsyncwatch.presentation.ui.FftGainScreen
 import com.example.tapsyncwatch.presentation.ui.DebugScreen
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -79,6 +81,12 @@ class MainActivity : ComponentActivity() {
 
         val settingsStore = SettingsStore(this)
 
+        // Apply one-time settings migrations early (keep startup smooth + deterministic).
+        lifecycleScope.launch(Dispatchers.IO) {
+            settingsStore.ensureMigrations()
+        }
+
+
         val oscSender = OscOutputSender(
             host = "127.0.0.1",
             port = 7002
@@ -89,8 +97,9 @@ class MainActivity : ComponentActivity() {
         clock.setEnabled(false)
         clock.setMode(com.example.tapsyncwatch.domain.clock.ClockMode.EXTERNAL)
 
-        lifecycleScope.launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             settingsStore.activeTarget.collect { target ->
+                // DNS / InetAddress.getByName can block on some devices; keep it off the UI thread.
                 oscSender.setTarget(target.ip, target.port)
             }
         }
@@ -98,15 +107,21 @@ class MainActivity : ComponentActivity() {
         val oscReceiver = OscInputReceiver(port = 7000)
 
         // Runtime wiring for Connection settings (Input/Output/Echo Guard)
-        lifecycleScope.launch {
+        lifecycleScope.launch(Dispatchers.Default) {
             settingsStore.settings.collectLatest { s ->
                 // OSC Output
                 oscSender.setSendEnabled(s.oscOutputEnabled)
                 oscSender.setThrottleMs(s.oscOutputThrottleMs)
 
                 // OSC Input
-                oscReceiver.setPort(s.oscInputPort)
-                oscReceiver.setEnabled(s.oscInputEnabled)
+                // Socket bind/close can block; keep it off the UI thread.
+                withContext(Dispatchers.IO) {
+                    oscReceiver.setPort(s.oscInputPort)
+                    oscReceiver.setEnabled(s.oscInputEnabled)
+                }
+
+                // Debug bookkeeping (avoid per-packet allocations unless enabled)
+                oscReceiver.setDebugEnabled(s.showOscDebug)
 
                 // Transport Echo Guard (suppress watch→host→watch echo spikes)
                 TransportEchoGuard.configure(
@@ -122,7 +137,7 @@ class MainActivity : ComponentActivity() {
 
         // Heartbeat: Watch → /tapsync/ping  (Resolume Wire answers /tapsync/pong)
         var heartbeatJob: Job? = null
-        lifecycleScope.launch {
+        lifecycleScope.launch(Dispatchers.Default) {
             settingsStore.settings.collectLatest { s ->
                 heartbeatJob?.cancel()
                 if (!s.heartbeatEnabled) return@collectLatest
@@ -131,7 +146,7 @@ class MainActivity : ComponentActivity() {
                 val graceMs = s.signalGraceMs.coerceIn(1000L, 30000L)
                 val adaptive = s.heartbeatAdaptiveEnabled
 
-                heartbeatJob = launch {
+                heartbeatJob = launch(Dispatchers.Default) {
                     var nonce = 0
                     while (isActive) {
                         if (s.heartbeatForegroundOnly && !isForeground.value) {

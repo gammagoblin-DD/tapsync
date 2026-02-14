@@ -4,8 +4,11 @@ import android.content.Context
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.tapsyncwatch.domain.clock.ClockMode
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOn
 
 private val Context.dataStore by preferencesDataStore(
     name = "tapsync_settings"
@@ -139,6 +142,10 @@ val PREFLIGHT_OUT_OK_MS = longPreferencesKey("preflight_out_ok_ms")
     val VISUAL_SWING = floatPreferencesKey("visual_swing")
     val GHOST_ECHO_ENABLED = booleanPreferencesKey("ghost_echo_enabled")
     val GHOST_ECHO_STRENGTH = floatPreferencesKey("ghost_echo_strength")
+
+    // Internal: schema/migration version
+    val SETTINGS_VERSION = intPreferencesKey("settings_version")
+
 
 }
 
@@ -279,17 +286,17 @@ val DEFAULT_SETTINGS_STATE = SettingsState(
     activePreset = 0,
 
     showOscDot = true,
-    showStatusLine = true,
+    showStatusLine = false,
 
     statusLineAlpha = 1.0f,
     preflightAlpha = 1.0f,
     timelineAlpha = 1.0f,
 
-    showPreflight = true,
+    showPreflight = false,
     preflightMode = PreflightMode.FULL,
     statusbarAutoDimWarn = false,
 
-    showTimeline = true,
+    showTimeline = false,
     timelineWindowMs = 5000L,
 
     timelineShowLocal = true,
@@ -372,6 +379,26 @@ preflightOutOkMs = 6000L,
 class SettingsStore(
     private val context: Context
 ) {
+
+    companion object {
+        // Bump when defaults/migrations change.
+        private const val CURRENT_SETTINGS_VERSION = 1
+    }
+
+    suspend fun ensureMigrations() {
+        // Called once at app startup.
+        val prefs = context.dataStore.data.first()
+        val v = prefs[SettingsKeys.SETTINGS_VERSION] ?: 0
+        if (v >= CURRENT_SETTINGS_VERSION) return
+
+        context.dataStore.edit { p ->
+            // New default: TapScreen HUD is OFF on startup (optional in Settings).
+            p[SettingsKeys.SHOW_STATUS_LINE] = false
+            p[SettingsKeys.SHOW_PREFLIGHT] = false
+            p[SettingsKeys.SHOW_TIMELINE] = false
+            p[SettingsKeys.SETTINGS_VERSION] = CURRENT_SETTINGS_VERSION
+        }
+    }
 
     val settings: Flow<SettingsState> =
         context.dataStore.data.map { prefs ->
@@ -511,7 +538,7 @@ preflightOutOkMs = (prefs[SettingsKeys.PREFLIGHT_OUT_OK_MS] ?: DEFAULT_SETTINGS_
                 ),
                 clockEnabled = prefs[SettingsKeys.CLOCK_ENABLED] ?: DEFAULT_SETTINGS_STATE.clockEnabled
             )
-        }
+        }.flowOn(Dispatchers.Default)
 
     val activeTarget: Flow<OscTarget> =
         settings.map { it.activeTarget }
