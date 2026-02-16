@@ -6,6 +6,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.*
+import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.lifecycleScope
 import com.example.tapsyncwatch.domain.action.ActionEngine
 import com.example.tapsyncwatch.domain.action.HapticFeedbackEngine
@@ -35,6 +36,17 @@ import kotlin.math.round
 import android.view.KeyEvent
 import android.view.KeyEvent.KEYCODE_STEM_2
 import androidx.activity.compose.BackHandler
+import com.example.tapsyncwatch.presentation.data.OscTarget
+import com.example.tapsyncwatch.presentation.ui.QuickPingRow
+import com.example.tapsyncwatch.presentation.ui.QuickPingKind
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 
 private enum class HomePage { TAP, FFT_GAIN, DEBUG }
@@ -42,6 +54,7 @@ private enum class HomePage { TAP, FFT_GAIN, DEBUG }
 class MainActivity : ComponentActivity() {
 
     private val isForeground = MutableStateFlow(false)
+    private val heartbeatSuppressed = MutableStateFlow(false)
 
     // Debounce hardware back/stem so it doesn't skip pages (Debug → FFT → Tap)
     private var lastBackKeyMs: Long = 0L
@@ -81,9 +94,13 @@ class MainActivity : ComponentActivity() {
 
         val settingsStore = SettingsStore(this)
 
+        // Festival-stabil: Heartbeat must always be ON at app start
+        val forceHeartbeatOn = true
+
         // Apply one-time settings migrations early (keep startup smooth + deterministic).
         lifecycleScope.launch(Dispatchers.IO) {
             settingsStore.ensureMigrations()
+            if (forceHeartbeatOn) settingsStore.setHeartbeatEnabled(true)
         }
 
 
@@ -140,7 +157,8 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch(Dispatchers.Default) {
             settingsStore.settings.collectLatest { s ->
                 heartbeatJob?.cancel()
-                if (!s.heartbeatEnabled) return@collectLatest
+                val heartbeatEnabledEffective = s.heartbeatEnabled || forceHeartbeatOn
+                if (!heartbeatEnabledEffective) return@collectLatest
 
                 val baseIntervalMs = s.heartbeatIntervalMs.coerceIn(500L, 5000L)
                 val graceMs = s.signalGraceMs.coerceIn(1000L, 30000L)
@@ -148,10 +166,30 @@ class MainActivity : ComponentActivity() {
 
                 heartbeatJob = launch(Dispatchers.Default) {
                     var nonce = 0
+                    var downSinceMs: Long? = null
+                    var hardDownSinceMs: Long? = null
+                    var wasSuppressed = false
+                    var recoveryBurstLeft = 0
                     while (isActive) {
                         if (s.heartbeatForegroundOnly && !isForeground.value) {
                             delay(750L)
                             continue
+                        }
+
+                        if (heartbeatSuppressed.value) {
+                            if (!wasSuppressed) {
+                                downSinceMs = null
+                                hardDownSinceMs = null
+                                recoveryBurstLeft = 0
+                            }
+                            wasSuppressed = true
+                            delay(250L)
+                            continue
+                        } else if (wasSuppressed) {
+                            wasSuppressed = false
+                            downSinceMs = null
+                            hardDownSinceMs = null
+                            recoveryBurstLeft = 0
                         }
 
                         nonce = (nonce + 1) % 999
@@ -165,22 +203,61 @@ class MainActivity : ComponentActivity() {
                             oscSender.sendFloat("/tapsync/ping", v)
                         }
 
+                        // Heartbeat state machine:
+                        // - UP:      ping at baseInterval
+                        // - DOWN:    short burst of faster pings (quick recovery)
+                        // - HARD-DOWN: backoff (avoid spamming/battery drain when the link is truly dead)
+
+                        val now = SystemClock.elapsedRealtime()
+                        val lastPong = oscReceiver.lastPongMs.value
+                        val pongAge = if (lastPong <= 0L) Long.MAX_VALUE else (now - lastPong).coerceAtLeast(0L)
+                        val linkUp = pongAge < graceMs
+
+                        // Enter hard-down after a longer outage (scaled by graceMs, but bounded).
+                        val hardDownAfterMs = maxOf(2L * graceMs, 10_000L).coerceIn(6_000L, 60_000L)
+
+                        fun hardDownBackoffDelayMs(baseMs: Long, hardElapsedMs: Long): Long {
+                            // Step ladder (watch-friendly). Capped, but never below base interval.
+                            val steps = longArrayOf(1_200L, 2_000L, 3_500L, 6_000L, 10_000L, 16_000L, 25_000L, 30_000L)
+                            val step = (hardElapsedMs / 6_500L).toInt().coerceIn(0, steps.lastIndex)
+                            return maxOf(baseMs, steps[step]).coerceIn(1_200L, 30_000L)
+                        }
+
                         val nextDelayMs = if (!adaptive) {
+                            // Adaptive off → steady ping.
+                            downSinceMs = null
+                            hardDownSinceMs = null
+                            recoveryBurstLeft = 0
                             baseIntervalMs
-                        } else {
-                            val lastPong = oscReceiver.lastPongMs.value
-                            val now = SystemClock.elapsedRealtime()
-                            val age =
-                                if (lastPong <= 0L) Long.MAX_VALUE else (now - lastPong).coerceAtLeast(
-                                    0L
-                                )
-                            val linkOk = age < graceMs
-                            if (linkOk) {
-                                baseIntervalMs
+                        } else if (linkUp) {
+                            val wasDown = (downSinceMs != null) || (hardDownSinceMs != null)
+                            downSinceMs = null
+                            hardDownSinceMs = null
+
+                            // Recovery burst: a few faster pings right after link comes back.
+                            if (wasDown) recoveryBurstLeft = 3
+                            if (recoveryBurstLeft > 0) {
+                                recoveryBurstLeft -= 1
+                                minOf(350L, baseIntervalMs)
                             } else {
-                                if (age > 15_000L) baseIntervalMs else minOf(500L, baseIntervalMs)
+                                baseIntervalMs
+                            }
+                        } else {
+                            if (downSinceMs == null) downSinceMs = now
+                            val downElapsedMs = (now - (downSinceMs ?: now)).coerceAtLeast(0L)
+
+                            if (downElapsedMs < hardDownAfterMs) {
+                                // Soft-down: try fast recovery for a short window.
+                                hardDownSinceMs = null
+                                minOf(450L, baseIntervalMs)
+                            } else {
+                                // Hard-down: backoff.
+                                if (hardDownSinceMs == null) hardDownSinceMs = now
+                                val hardElapsedMs = (now - (hardDownSinceMs ?: now)).coerceAtLeast(0L)
+                                hardDownBackoffDelayMs(baseIntervalMs, hardElapsedMs)
                             }
                         }
+
                         delay(nextDelayMs)
                     }
                 }
@@ -230,6 +307,14 @@ class MainActivity : ComponentActivity() {
 
             val uiScope = rememberCoroutineScope()
 
+            // TapScreen Quick Actions: Test ALL results
+            var quickTestBusy by remember { mutableStateOf(false) }
+            var quickTestRunningIndex by remember { mutableStateOf(-1) }
+            var quickTestRunningLabel by remember { mutableStateOf<String?>(null) }
+            var quickTestJob by remember { mutableStateOf<Job?>(null) }
+            val quickTestRows = remember { mutableStateListOf<QuickPingRow>() }
+
+
             val vibrator = getSystemService(Vibrator::class.java)
 
             val actionEngine = remember {
@@ -242,9 +327,45 @@ class MainActivity : ComponentActivity() {
 
             val settings by settingsStore.settings.collectAsState(initial = null)
             val clockState by clock.state.collectAsState()
+            val heartbeatSuppressedUi by heartbeatSuppressed.collectAsState()
+
+            suspend fun pingPresetOnce(index: Int, target: OscTarget): QuickPingRow {
+                val host = target.ip.trim()
+                val port = target.port.coerceIn(1, 65535)
+                if (host.isEmpty()) return QuickPingRow(index, target.name, QuickPingKind.SEND_FAIL)
+
+                val started = SystemClock.elapsedRealtime()
+                val nonce = (((started % 1000L) + 1L).toFloat() / 1000f)
+
+                val sentOk = try {
+                    sendOscPingFloat(host, port, nonce)
+                    true
+                } catch (_: Exception) {
+                    false
+                }
+
+                if (!sentOk) return QuickPingRow(index, target.name, QuickPingKind.SEND_FAIL)
+
+                val pongTs = withTimeoutOrNull(900L) {
+                    oscReceiver.lastPongMs.filter { it >= started }.first()
+                }
+
+                if (pongTs == null) return QuickPingRow(index, target.name, QuickPingKind.TIMEOUT)
+
+                val rtt = (pongTs - started).coerceAtLeast(0L)
+                var from = oscReceiver.lastPongFrom.value
+                if (from == null) {
+                    delay(10L)
+                    from = oscReceiver.lastPongFrom.value
+                }
+
+                return QuickPingRow(index, target.name, QuickPingKind.OK, rttMs = rtt, pongFrom = from)
+            }
+
 
             settings?.let { s ->
 
+            val heartbeatEnabledEffectiveUi = s.heartbeatEnabled || forceHeartbeatOn
                 if (showSettings) {
                     SettingsScreen(
                         settingsStore = settingsStore,
@@ -256,7 +377,8 @@ class MainActivity : ComponentActivity() {
                             // In settings root, Back should always bring us back to the TapScreen.
                             showSettings = false
                             homePage = HomePage.TAP
-                        }
+                        },
+                        setHeartbeatSuppressed = { heartbeatSuppressed.value = it }
                     )
                 } else {
                     when (homePage) {
@@ -304,7 +426,8 @@ class MainActivity : ComponentActivity() {
                             lastAnyRxMs = oscReceiver.lastAnyRxMs,
                             lastPhaseRxMs = oscReceiver.lastPhaseRxMs,
                             lastDownbeatRxMs = oscReceiver.lastDownbeatRxMs,
-                            heartbeatEnabled = s.heartbeatEnabled,
+                            heartbeatEnabled = heartbeatEnabledEffectiveUi,
+                            heartbeatSuppressed = heartbeatSuppressedUi,
                             signalGraceMs = s.signalGraceMs,
 
                             anyRxFallbackEnabled = s.oscInputAnyRxFallbackEnabled,
@@ -321,6 +444,13 @@ class MainActivity : ComponentActivity() {
                             remoteGhost = oscReceiver.remoteGhost,
                             phaseVisualizerEnabled = s.phaseVisualizerEnabled,
                             phaseSpiralEnabled = s.phaseSpiralEnabled,
+                            phaseRingOpacity = s.phaseRingOpacity,
+                            phaseRingThicknessDp = s.phaseRingThicknessDp,
+                            phaseSpiralOpacity = s.phaseSpiralOpacity,
+                            phaseSpiralThicknessDp = s.phaseSpiralThicknessDp,
+                            phaseAuraOpacity = s.phaseAuraOpacity,
+                            phaseAuraThicknessDp = s.phaseAuraThicknessDp,
+                            microParticlesOpacity = s.microParticlesOpacity,
                              fxAlpha = s.fxAlpha,
                              phaseAlpha = s.phaseAlpha,
                              ghostAlpha = s.ghostAlpha,
@@ -331,12 +461,32 @@ class MainActivity : ComponentActivity() {
                             visualSwing = s.visualSwing,
                             ghostEchoEnabled = s.ghostEchoEnabled,
                             ghostEchoStrength = s.ghostEchoStrength,
+                            ghostEchoOpacity = s.ghostEchoOpacity,
+                            ghostEchoThicknessDp = s.ghostEchoThicknessDp,
                             animationsEnabled = s.animationsEnabled,
+                            localVisualsEnabled = s.localVisualsEnabled,
                             remoteAnimationsEnabled = s.remoteAnimationsEnabled,
                             remoteGhostModeEnabled = s.remoteGhostModeEnabled,
+                            remoteGhostOpacity = s.remoteGhostOpacity,
                             goblinFlashEnabled = s.goblinFlashEnabled,
+                            goblinFlashOpacity = s.goblinFlashOpacity,
+                            goblinFlashFadeMs = s.goblinFlashFadeMs,
                             rippleEnabled = s.rippleEnabled,
+                            rippleTapEnabled = s.rippleTapEnabled,
+                            rippleTapOpacity = s.rippleTapOpacity,
+                            rippleTapThicknessDp = s.rippleTapThicknessDp,
+                            rippleMultDivEnabled = s.rippleMultDivEnabled,
+                            rippleMultDivOpacity = s.rippleMultDivOpacity,
+                            rippleMultDivThicknessDp = s.rippleMultDivThicknessDp,
+                            rippleResyncEnabled = s.rippleResyncEnabled,
+                            rippleResyncOpacity = s.rippleResyncOpacity,
+                            rippleResyncThicknessDp = s.rippleResyncThicknessDp,
+                            rippleNudgeEnabled = s.rippleNudgeEnabled,
+                            rippleNudgeOpacity = s.rippleNudgeOpacity,
+                            rippleNudgeThicknessDp = s.rippleNudgeThicknessDp,
                             oscPulseEnabled = s.oscPulseEnabled,
+                            oscPulseOpacity = s.oscPulseOpacity,
+                            oscPulseThicknessDp = s.oscPulseThicknessDp,
 
                             action = actionEngine,
                             oscHealth = oscSender.health,
@@ -393,7 +543,10 @@ class MainActivity : ComponentActivity() {
                             lastPhaseRxMs = oscReceiver.lastPhaseRxMs,
                             lastDownbeatRxMs = oscReceiver.lastDownbeatRxMs,
                             signalGraceMs = s.signalGraceMs,
-                            heartbeatEnabled = s.heartbeatEnabled,
+                            heartbeatEnabled = heartbeatEnabledEffectiveUi,
+                            heartbeatSuppressed = heartbeatSuppressedUi,
+                            anyRxFallbackEnabled = s.oscInputAnyRxFallbackEnabled,
+                            anyRxTimeoutMs = s.oscInputAnyRxTimeoutMs,
 
                             oscHealth = oscSender.health,
 
@@ -423,6 +576,67 @@ class MainActivity : ComponentActivity() {
                             // Targets (presets)
                             presets = s.presets,
                             activePreset = s.activePreset,
+
+
+                            // Quick Actions (moved from TapScreen -> DebugScreen)
+                            echoGuardEnabled = s.echoGuardEnabled,
+                            quickTestBusy = quickTestBusy,
+                            quickTestRunningIndex = quickTestRunningIndex,
+                            quickTestRunningLabel = quickTestRunningLabel,
+                            quickTestRows = quickTestRows,
+                            onQuickTestAll = {
+                                if (quickTestBusy) return@DebugScreen
+                                quickTestJob?.cancel()
+                                quickTestJob = uiScope.launch {
+                                    quickTestBusy = true
+                                    quickTestRunningIndex = -1
+                                    quickTestRunningLabel = null
+                                    quickTestRows.clear()
+                                    heartbeatSuppressed.value = true
+                                    try {
+                                        val presetsSnapshot = s.presets.toList()
+                                        presetsSnapshot.forEachIndexed { idx, t ->
+                                            if (!isActive) return@forEachIndexed
+                                            quickTestRunningIndex = idx
+                                            quickTestRunningLabel = t.name.ifBlank { "Preset ${idx + 1}" }
+                                            quickTestRows.add(pingPresetOnce(idx, t))
+                                            delay(120L)
+                                        }
+                                    } finally {
+                                        heartbeatSuppressed.value = false
+                                        quickTestBusy = false
+                                        quickTestRunningIndex = -1
+                                        quickTestRunningLabel = null
+                                        quickTestJob = null
+                                    }
+                                }
+                            },
+                            onQuickTestCancel = {
+                                quickTestJob?.cancel()
+                            },
+                            onQuickTestClear = {
+                                quickTestRows.clear()
+                            },
+                            onPresetPrev = {
+                                uiScope.launch {
+                                    val n = s.presets.size.coerceAtLeast(1)
+                                    val next = ((s.activePreset - 1 + n) % n)
+                                    settingsStore.setActivePreset(next)
+                                }
+                            },
+                            onPresetNext = {
+                                uiScope.launch {
+                                    val n = s.presets.size.coerceAtLeast(1)
+                                    val next = ((s.activePreset + 1) % n)
+                                    settingsStore.setActivePreset(next)
+                                }
+                            },
+                            onToggleEchoGuard = {
+                                uiScope.launch { settingsStore.setEchoGuardEnabled(!s.echoGuardEnabled) }
+                            },
+                            onToggleOscMonitor = {
+                                uiScope.launch { settingsStore.setShowOscDebug(!s.showOscDebug) }
+                            },
 
                             onPageNext = ::goNextPage,
                             onPagePrev = ::goPrevPage,
@@ -475,4 +689,33 @@ class MainActivity : ComponentActivity() {
 
         return uiValueState to setTarget
     }
+
+    /* ================= OSC UTIL (Quick Actions: Test ALL) ================= */
+
+    private suspend fun sendOscPingFloat(host: String, port: Int, value: Float) {
+        withContext(Dispatchers.IO) {
+            val address = InetAddress.getByName(host)
+            val data = buildOscFloatMessage("/tapsync/ping", value)
+            DatagramSocket().use { socket ->
+                val packet = DatagramPacket(data, data.size, address, port)
+                socket.send(packet)
+            }
+        }
+    }
+
+    private fun buildOscFloatMessage(path: String, value: Float): ByteArray {
+        val bb = ByteBuffer.allocate(128).order(ByteOrder.BIG_ENDIAN)
+        writeOscString(bb, path)
+        writeOscString(bb, ",f")
+        bb.putFloat(value)
+        return bb.array().copyOf(bb.position())
+    }
+
+    private fun writeOscString(bb: ByteBuffer, s: String) {
+        val bytes = s.toByteArray(Charsets.UTF_8)
+        bb.put(bytes)
+        bb.put(0)
+        while (bb.position() % 4 != 0) bb.put(0)
+    }
+
 }

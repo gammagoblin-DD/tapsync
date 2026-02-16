@@ -4,9 +4,32 @@ import android.os.SystemClock
 import android.view.MotionEvent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.Button
+import androidx.compose.material.ButtonDefaults
+import androidx.compose.material.CircularProgressIndicator
+import androidx.compose.material.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
@@ -19,6 +42,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
@@ -36,6 +61,15 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlin.math.abs
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
+
+
+private val GoblinOrange = Color(0xFFFF9A3D)
 
 /**
  * Debug Hub Screen (single scrollable page).
@@ -51,6 +85,11 @@ fun DebugScreen(
     lastAnyRxMs: StateFlow<Long>,
     signalGraceMs: Long,
     heartbeatEnabled: Boolean,
+
+    // Link/health options (UI + semantics)
+    heartbeatSuppressed: Boolean = false,
+    anyRxFallbackEnabled: Boolean = false,
+    anyRxTimeoutMs: Long = 1200L,
 
     // OSC health (sending/error)
     oscHealth: StateFlow<OscHealth>,
@@ -83,6 +122,20 @@ fun DebugScreen(
     activePreset: Int,
     showTargets: Boolean = false,
 
+    // Quick Actions (moved from TapScreen)
+    echoGuardEnabled: Boolean,
+    quickTestBusy: Boolean,
+    quickTestRunningIndex: Int,
+    quickTestRunningLabel: String?,
+    quickTestRows: List<QuickPingRow>,
+    onQuickTestAll: () -> Unit,
+    onQuickTestCancel: () -> Unit,
+    onQuickTestClear: () -> Unit,
+    onPresetPrev: () -> Unit,
+    onPresetNext: () -> Unit,
+    onToggleEchoGuard: () -> Unit,
+    onToggleOscMonitor: () -> Unit,
+
     onPageNext: (() -> Unit)? = null,
     onPagePrev: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -104,7 +157,7 @@ fun DebugScreen(
     // Goblin palette
     val goblinBg = Color(0xFF0B0B0B)
     val goblinBrown = Color(0xFF8C5A2B)
-    val goblinOrange = Color(0xFFFF9A3D)
+    val goblinOrange = GoblinOrange
     val goblinGreen = Color(0xFF41D17E)
     val goblinRed = Color(0xFFFF5A5F)
     val goblinGrey = Color(0xFFB9B0A6)
@@ -264,6 +317,17 @@ fun DebugScreen(
         val isRound = LocalConfiguration.current.isScreenRound
         val pad = if (isRound) 16.dp else 12.dp
 
+        // Quick Actions state (DebugScreen)
+        val qaText = Color(0xFFECECEC)
+        val qaDim = Color(0xFF9A9A9A)
+        var showQuickActions by remember { mutableStateOf(false) }
+        BackHandler(enabled = showQuickActions) {
+            showQuickActions = false
+        }
+
+
+        Box(modifier = Modifier.fillMaxSize()) {
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -281,19 +345,43 @@ fun DebugScreen(
                 )
             }
 
+
+            // --- Quick Actions launcher ---
+            item {
+                DebugSection(
+                    title = "Quick Actions",
+                    subtitle = "Preset switch + Test ALL",
+                    accent = goblinOrange,
+                ) {
+                    Button(
+                        onClick = { showQuickActions = true },
+                        colors = ButtonDefaults.buttonColors(backgroundColor = goblinOrange),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 38.dp)
+                    ) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Open Quick Actions", tint = Color.Black)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Open", color = Color.Black, fontWeight = FontWeight.Bold, maxLines = 1)
+                    }
+                }
+            }
+
             // --- Preflight / Link health ---
             if (showPreflight || heartbeatEnabled) {
                 item {
                     val health by oscHealth.collectAsState(initial = OscHealth.Idle)
 
                     // Mirror TapScreen semantics, but fall back to 'any RX' when phase/downbeat are not available.
-                    val hasSignal = heartbeatEnabled && pongAge < signalGraceMs
+                    val anyOk = anyAge < anyRxTimeoutMs
+
+                    val hasSignal = (pongAge < signalGraceMs) || (anyRxFallbackEnabled && anyOk)
 
                     val phaseOk = phaseAge < preflightPhaseOkMs
                     val downbeatOk = downbeatAge < preflightDownbeatOkMs
 
                     val useAnyFallback = (phaseRx <= 0L && downbeatRx <= 0L)
-                    val anyOk = anyAge < signalGraceMs
+                    // anyOk defined above (anyRxTimeoutMs)
                     val inOk = if (useAnyFallback) anyOk else (phaseOk || downbeatOk)
 
                     val outAge = when (val h = health) {
@@ -364,6 +452,8 @@ fun DebugScreen(
                         DebugKeyValue("Any RX age", fmtAge(anyAge), goblinGrey, alpha = preflightAlpha)
 
                         DebugKeyValue("grace", "${signalGraceMs}ms", goblinGrey, alpha = preflightAlpha)
+                        DebugKeyValue("HB", if (!heartbeatEnabled) "OFF" else if (heartbeatSuppressed) "SUPP" else "ON", goblinGrey, alpha = preflightAlpha)
+                        DebugKeyValue("AnyRX", if (anyRxFallbackEnabled) "ON (${anyRxTimeoutMs}ms)" else "OFF", goblinGrey, alpha = preflightAlpha)
                     }
                 }
             }
@@ -466,12 +556,12 @@ if (dbg.topTalkers.isNotEmpty()) {
             if (!showOscMonitor && !showTimeline && !showTargets && !showPreflight && !heartbeatEnabled) {
                 item {
                     DebugSection(
-                        title = "Nothing armed",
-                        subtitle = "Enable something in Settings → Debug & Tools",
+                        title = "Debug ist aus",
+                        subtitle = "Aktiviere etwas in Settings → Debug",
                         accent = goblinBrown,
                     ) {
                         Text(
-                            text = "Tip: Settings → Network/Debug or HUD toggles.",
+                            text = "Tip: Settings → Debug (Preflight/Timeline/Heartbeat/OSC Monitor).",
                             color = goblinGrey,
                             style = MaterialTheme.typography.body2
                         )
@@ -481,7 +571,268 @@ if (dbg.topTalkers.isNotEmpty()) {
 
             item { Spacer(Modifier.height(6.dp)) }
         }
+            if (showQuickActions) {
+                // Scrim: blocks taps + vertical swipes from leaking to the underlying DebugScreen
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(120f)
+                        .background(Color.Black.copy(alpha = 0.58f))
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    awaitPointerEvent(PointerEventPass.Initial)
+                                }
+                            }
+                        }
+                )
+
+                // Panel (full-screen, watch-like scroll)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(121f)
+                        .background(Color.Black),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val qaText = Color(0xFFF3EEE7)
+                    val qaDim = Color(0xFFB9B0A6)
+
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxSize(),
+                        color = Color.Black
+                    ) {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(top = 14.dp, bottom = 44.dp)
+                        ) {
+                            item {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "Quick Actions",
+                                        color = qaText,
+                                        style = MaterialTheme.typography.h6,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        text = "fast checks & toggles",
+                                        color = qaDim,
+                                        style = MaterialTheme.typography.caption,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+
+                            item {
+                                // Preset picker
+                                val p = presets.getOrNull(activePreset)
+                                val presetName = p?.name ?: "Preset"
+                                val endpointLine = if (p != null) "${p.ip}:${p.port}" else ""
+
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(Color.Black.copy(alpha = 0.18f))
+                                        .padding(12.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        SmallActionPill(
+                                            label = "",
+                                            icon = Icons.Filled.ChevronLeft,
+                                            enabled = !quickTestBusy,
+                                            onClick = onPresetPrev
+                                        )
+
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text(
+                                                text = "${(activePreset + 1)} / ${presets.size}",
+                                                color = qaDim,
+                                                style = MaterialTheme.typography.caption
+                                            )
+                                            Text(
+                                                text = presetName,
+                                                color = qaText,
+                                                style = MaterialTheme.typography.body1,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+
+                                        SmallActionPill(
+                                            label = "",
+                                            icon = Icons.Filled.ChevronRight,
+                                            enabled = !quickTestBusy,
+                                            onClick = onPresetNext
+                                        )
+                                    }
+
+                                    if (endpointLine.isNotBlank()) {
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(
+                                            text = endpointLine,
+                                            color = qaDim,
+                                            style = MaterialTheme.typography.caption,
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 3,
+                                            overflow = TextOverflow.Clip
+                                        )
+                                    }
+                                }
+                            }
+
+                            item {
+                                // Toggles
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    TogglePill(
+                                        label = "EchoGuard",
+                                        checked = echoGuardEnabled,
+                                        onCheckedChange = { _ -> onToggleEchoGuard() },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    TogglePill(
+                                        label = "OSC Mon",
+                                        checked = showOscMonitor,
+                                        onCheckedChange = { _ -> onToggleOscMonitor() },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+
+                            item {
+                                // Test ALL + results
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(Color.Black.copy(alpha = 0.18f))
+                                        .padding(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "Test ALL",
+                                                color = qaText,
+                                                style = MaterialTheme.typography.body1
+                                            )
+
+                                            val sub = when {
+                                                quickTestBusy -> {
+                                                    val idx = (quickTestRunningIndex ?: 0) + 1
+                                                    val total = maxOf(1, presets.size)
+                                                    val lbl = quickTestRunningLabel ?: "running"
+                                                    "Testing $idx/$total • $lbl"
+                                                }
+                                                quickTestRows.isNotEmpty() -> "${quickTestRows.size} results"
+                                                else -> "Ping every preset (900ms timeout, 120ms spacing)"
+                                            }
+
+                                            Text(
+                                                text = sub,
+                                                color = qaDim,
+                                                style = MaterialTheme.typography.caption,
+                                                maxLines = 3,
+                                                overflow = TextOverflow.Clip
+                                            )
+                                        }
+
+                                        if (quickTestBusy) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(18.dp),
+                                                strokeWidth = 2.dp,
+                                                color = GoblinOrange
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Filled.Refresh,
+                                                contentDescription = null,
+                                                tint = qaText,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(Modifier.height(10.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        SmallActionPill(
+                                            label = if (quickTestBusy) "STOP" else "RUN",
+                                            icon = if (quickTestBusy) Icons.Filled.Stop else Icons.Filled.PlayArrow,
+                                            enabled = true,
+                                            onClick = if (quickTestBusy) onQuickTestCancel else onQuickTestAll,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        SmallActionPill(
+                                            label = "Clear",
+                                            icon = Icons.Filled.Delete,
+                                            enabled = quickTestRows.isNotEmpty() && !quickTestBusy,
+                                            onClick = onQuickTestClear,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+
+                                    if (quickTestRows.isNotEmpty()) {
+                                        Spacer(Modifier.height(10.dp))
+                                        QuickResultsList(rows = quickTestRows, presets = presets)
+                                    }
+                                }
+                            }
+
+                        }
+                    }
+
+                    // Floating close button (small, bottom-center)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(bottom = 6.dp)
+                            .zIndex(200f),
+                        contentAlignment = Alignment.BottomCenter
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.35f))
+                                .border(1.dp, GoblinOrange.copy(alpha = 0.55f), CircleShape)
+                                .clickable { showQuickActions = false },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "Close",
+                                tint = qaText,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
     }
+}
+
 }
 
 // ===== UI building blocks =====
@@ -812,4 +1163,207 @@ private fun DebugTimelineLane(
     }
 }
 
+
+
+@Composable
+private fun TogglePill(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val text = Color(0xFFF3EEE7)
+    val dim = Color(0xFFB9B0A6)
+    val bg = if (checked) GoblinOrange.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.16f)
+    val border = if (checked) GoblinOrange.copy(alpha = 0.65f) else Color.White.copy(alpha = 0.10f)
+
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(bg)
+            .border(1.dp, border, RoundedCornerShape(999.dp))
+            .clickable { onCheckedChange(!checked) }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, color = text, style = MaterialTheme.typography.body2)
+        Spacer(Modifier.weight(1f))
+        Text(if (checked) "ON" else "OFF", color = dim, style = MaterialTheme.typography.caption)
+    }
+}
+
+@Composable
+private fun SmallActionPill(
+    label: String,
+    icon: ImageVector,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    bg: Color = Color.Black.copy(alpha = 0.16f),
+    textColor: Color = Color(0xFFF3EEE7),
+    dim: Color = Color(0xFFB9B0A6)
+) {
+    val shape = RoundedCornerShape(999.dp)
+    val border = if (enabled) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.06f)
+    val hasLabel = label.isNotBlank()
+
+    Row(
+        modifier = modifier
+            .clip(shape)
+            .background(bg)
+            .border(1.dp, border, shape)
+            .clickable(enabled = enabled) { onClick() }
+            .padding(
+                horizontal = if (hasLabel) 12.dp else 10.dp,
+                vertical = 8.dp
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (enabled) textColor else dim,
+            modifier = Modifier.size(16.dp)
+        )
+        if (hasLabel) {
+            Text(
+                text = label,
+                color = if (enabled) textColor else dim,
+                style = MaterialTheme.typography.caption.copy(fontWeight = FontWeight.SemiBold),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuickResultsList(
+    rows: List<QuickPingRow>,
+    presets: List<OscTarget>
+) {
+    if (rows.isEmpty()) {
+        Text("—", color = Color(0xFFB9B0A6), style = MaterialTheme.typography.caption)
+        return
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Black.copy(alpha = 0.18f))
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        val safe = rows.takeLast(40)
+        safe.forEachIndexed { idx, r ->
+            val endpoint = presets.getOrNull(r.index)?.let { "${it.ip}:${it.port}" }.orEmpty()
+
+            val badgeText = when (r.kind) {
+                QuickPingKind.OK -> "OK"
+                QuickPingKind.TIMEOUT -> "TIMEOUT"
+                QuickPingKind.SEND_FAIL -> "SEND FAIL"
+            }
+            val badgeColor = when (r.kind) {
+                QuickPingKind.OK -> Color(0xFF2ECC71)
+                QuickPingKind.TIMEOUT -> Color(0xFFFF6B6B)
+                QuickPingKind.SEND_FAIL -> Color(0xFF8E8E93)
+            }
+
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = r.name.ifBlank { "Preset ${r.index + 1}" },
+                        color = Color(0xFFF3EEE7),
+                        style = MaterialTheme.typography.body2.copy(fontWeight = FontWeight.SemiBold),
+                        modifier = Modifier.weight(1f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Clip
+                    )
+
+                    Spacer(Modifier.width(8.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(badgeColor.copy(alpha = 0.16f))
+                            .border(1.dp, badgeColor.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = badgeText,
+                            color = badgeColor,
+                            style = MaterialTheme.typography.caption.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+                }
+
+                if (endpoint.isNotBlank()) {
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        text = endpoint,
+                        color = Color(0xFFB9B0A6),
+                        style = MaterialTheme.typography.caption,
+                        maxLines = 3,
+                        overflow = TextOverflow.Clip
+                    )
+                }
+
+                val detail = when (r.kind) {
+                    QuickPingKind.OK -> {
+                        val rtt = r.rttMs?.let { "${it}ms" } ?: "?"
+                        val from = r.pongFrom ?: "-"
+                        "RTT $rtt • $from"
+                    }
+                    QuickPingKind.TIMEOUT -> "No /tapsync/pong received"
+                    QuickPingKind.SEND_FAIL -> "Send failed"
+                }
+
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = detail,
+                    color = Color(0xFFB9B0A6),
+                    style = MaterialTheme.typography.caption,
+                    maxLines = 4,
+                    overflow = TextOverflow.Clip
+                )
+            }
+
+            if (idx != safe.lastIndex) {
+                Spacer(Modifier.height(2.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(Color.White.copy(alpha = 0.06f))
+                )
+                Spacer(Modifier.height(2.dp))
+            }
+        }
+    }
+}
+
+private fun extractHostPortLine(preset: Any?): String? {
+    if (preset == null) return null
+    val s = preset.toString()
+
+    // Versucht typische data-class toString() Felder zu finden:
+    val host =
+        Regex("""\b(host|ip|address)=([^,)\s]+)""").find(s)?.groupValues?.getOrNull(2)
+            ?: Regex("""\b([^=\s,]+)\b""").find(s)?.value  // fallback: irgendwas statt nix
+
+    val port =
+        Regex("""\bport=([0-9]{2,5})""").find(s)?.groupValues?.getOrNull(1)
+
+    return when {
+        host != null && port != null -> "$host:$port"
+        host != null -> host
+        else -> null
+    }
+}
 private fun safe01(v: Float, default: Float = 0f): Float = if (v.isFinite()) v.coerceIn(0f, 1f) else default

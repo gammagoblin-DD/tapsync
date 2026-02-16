@@ -69,11 +69,54 @@ object SettingsKeys {
 
     // Animations
     val ANIMATIONS_ENABLED = booleanPreferencesKey("animations_enabled")
+    val LOCAL_VISUALS_ENABLED = booleanPreferencesKey("local_visuals_enabled")
     val REMOTE_ANIMATIONS_ENABLED = booleanPreferencesKey("remote_animations_enabled")
     val REMOTE_GHOST_MODE_ENABLED = booleanPreferencesKey("remote_ghost_mode_enabled")
     val GOBLIN_FLASH_ENABLED = booleanPreferencesKey("goblin_flash_enabled")
     val RIPPLE_ENABLED = booleanPreferencesKey("ripple_enabled")
     val OSC_PULSE_ENABLED = booleanPreferencesKey("osc_pulse_enabled")
+
+
+    // Event FX details
+    val GOBLIN_FLASH_OPACITY = floatPreferencesKey("goblin_flash_opacity")
+    val GOBLIN_FLASH_FADE_MS = longPreferencesKey("goblin_flash_fade_ms")
+
+    // Ripples: per-event details
+    val RIPPLE_TAP_ENABLED = booleanPreferencesKey("ripple_tap_enabled")
+    val RIPPLE_TAP_OPACITY = floatPreferencesKey("ripple_tap_opacity")
+    val RIPPLE_TAP_THICKNESS_DP = floatPreferencesKey("ripple_tap_thickness_dp")
+
+    val RIPPLE_MULTDIV_ENABLED = booleanPreferencesKey("ripple_multdiv_enabled")
+    val RIPPLE_MULTDIV_OPACITY = floatPreferencesKey("ripple_multdiv_opacity")
+    val RIPPLE_MULTDIV_THICKNESS_DP = floatPreferencesKey("ripple_multdiv_thickness_dp")
+
+    val RIPPLE_RESYNC_ENABLED = booleanPreferencesKey("ripple_resync_enabled")
+    val RIPPLE_RESYNC_OPACITY = floatPreferencesKey("ripple_resync_opacity")
+    val RIPPLE_RESYNC_THICKNESS_DP = floatPreferencesKey("ripple_resync_thickness_dp")
+
+    val RIPPLE_NUDGE_ENABLED = booleanPreferencesKey("ripple_nudge_enabled")
+    val RIPPLE_NUDGE_OPACITY = floatPreferencesKey("ripple_nudge_opacity")
+    val RIPPLE_NUDGE_THICKNESS_DP = floatPreferencesKey("ripple_nudge_thickness_dp")
+
+    // Ghost echo details
+    val GHOST_ECHO_OPACITY = floatPreferencesKey("ghost_echo_opacity")
+    val GHOST_ECHO_THICKNESS_DP = floatPreferencesKey("ghost_echo_thickness_dp")
+
+    // Phase details (opacity/thickness)
+    val PHASE_RING_OPACITY = floatPreferencesKey("phase_ring_opacity")
+    val PHASE_RING_THICKNESS_DP = floatPreferencesKey("phase_ring_thickness_dp")
+    val PHASE_SPIRAL_OPACITY = floatPreferencesKey("phase_spiral_opacity")
+    val PHASE_SPIRAL_THICKNESS_DP = floatPreferencesKey("phase_spiral_thickness_dp")
+    val PHASE_AURA_OPACITY = floatPreferencesKey("phase_aura_opacity")
+    val PHASE_AURA_THICKNESS_DP = floatPreferencesKey("phase_aura_thickness_dp")
+    val MICRO_PARTICLES_OPACITY = floatPreferencesKey("micro_particles_opacity")
+
+    // OSC pulse details
+    val OSC_PULSE_OPACITY = floatPreferencesKey("osc_pulse_opacity")
+    val OSC_PULSE_THICKNESS_DP = floatPreferencesKey("osc_pulse_thickness_dp")
+
+    // Remote ghost details
+    val REMOTE_GHOST_OPACITY = floatPreferencesKey("remote_ghost_opacity")
 
     // Connection heartbeat (Ping/Pong via Resolume Wire)
     val HEARTBEAT_ENABLED = booleanPreferencesKey("heartbeat_enabled")
@@ -212,6 +255,15 @@ val preflightOutOkMs: Long,
     val phaseVisualizerEnabled: Boolean,
     val phaseSpiralEnabled: Boolean,
 
+    // Phase visual styling
+    val phaseRingOpacity: Float,
+    val phaseRingThicknessDp: Float,
+    val phaseSpiralOpacity: Float,
+    val phaseSpiralThicknessDp: Float,
+    val phaseAuraOpacity: Float,
+    val phaseAuraThicknessDp: Float,
+    val microParticlesOpacity: Float,
+
     // Visual alpha multipliers (0.30 .. 2.00)
     val fxAlpha: Float,
     val phaseAlpha: Float,
@@ -226,13 +278,40 @@ val preflightOutOkMs: Long,
     val ghostEchoEnabled: Boolean,
     val ghostEchoStrength: Float,
 
+    // Ghost echo styling
+    val ghostEchoOpacity: Float,
+    val ghostEchoThicknessDp: Float,
+
     // UI motion
     val animationsEnabled: Boolean,
+    val localVisualsEnabled: Boolean,
     val remoteAnimationsEnabled: Boolean,
     val remoteGhostModeEnabled: Boolean,
+    val remoteGhostOpacity: Float,
     val goblinFlashEnabled: Boolean,
+    val goblinFlashOpacity: Float,
+    val goblinFlashFadeMs: Long,
     val rippleEnabled: Boolean,
+
+    // Ripples: per-event
+    val rippleTapEnabled: Boolean,
+    val rippleTapOpacity: Float,
+    val rippleTapThicknessDp: Float,
+
+    val rippleMultDivEnabled: Boolean,
+    val rippleMultDivOpacity: Float,
+    val rippleMultDivThicknessDp: Float,
+
+    val rippleResyncEnabled: Boolean,
+    val rippleResyncOpacity: Float,
+    val rippleResyncThicknessDp: Float,
+
+    val rippleNudgeEnabled: Boolean,
+    val rippleNudgeOpacity: Float,
+    val rippleNudgeThicknessDp: Float,
     val oscPulseEnabled: Boolean,
+    val oscPulseOpacity: Float,
+    val oscPulseThicknessDp: Float,
 
     // Connection (Ping/Pong)
     val heartbeatEnabled: Boolean,
@@ -317,30 +396,63 @@ preflightOutOkMs = 6000L,
     oscDotFadeMs = 180L,
     bpmOpacity = 1.0f,
     bpmFormat = BpmFormat.BPM,
-    showDownbeatIndicator = true,
+    showDownbeatIndicator = false,
     downbeatStyle = DownbeatStyle.PULSE,
     downbeatOpacity = 1.0f,
-    phaseVisualizerEnabled = true,
+    phaseVisualizerEnabled = false,
     phaseSpiralEnabled = false,
+
+    phaseRingOpacity = 1.0f,
+    phaseRingThicknessDp = 4.0f,
+    phaseSpiralOpacity = 1.0f,
+    phaseSpiralThicknessDp = 3.0f,
+    phaseAuraOpacity = 1.0f,
+    phaseAuraThicknessDp = 4.0f,
+    microParticlesOpacity = 1.0f,
 
     fxAlpha = 1.0f,
     phaseAlpha = 1.0f,
     ghostAlpha = 1.0f,
 
-    moodsEnabled = true,
+    moodsEnabled = false,
     moodIntensity = 0.08f,
-    phaseAuraEnabled = true,
-    microParticlesEnabled = true,
+    phaseAuraEnabled = false,
+    microParticlesEnabled = false,
     visualSwing = 0.0f,
     ghostEchoEnabled = true,
     ghostEchoStrength = 0.35f,
 
+    ghostEchoOpacity = 1.0f,
+    ghostEchoThicknessDp = 3.0f,
+
     animationsEnabled = true,
+    localVisualsEnabled = true,
     remoteAnimationsEnabled = true,
     remoteGhostModeEnabled = true,
+    remoteGhostOpacity = 1.0f,
     goblinFlashEnabled = true,
+    goblinFlashOpacity = 1.0f,
+    goblinFlashFadeMs = 560L,
     rippleEnabled = true,
-    oscPulseEnabled = true,
+
+    rippleTapEnabled = true,
+    rippleTapOpacity = 1.0f,
+    rippleTapThicknessDp = 5.0f,
+
+    rippleMultDivEnabled = true,
+    rippleMultDivOpacity = 1.0f,
+    rippleMultDivThicknessDp = 5.0f,
+
+    rippleResyncEnabled = true,
+    rippleResyncOpacity = 1.0f,
+    rippleResyncThicknessDp = 5.0f,
+
+    rippleNudgeEnabled = true,
+    rippleNudgeOpacity = 1.0f,
+    rippleNudgeThicknessDp = 5.0f,
+    oscPulseEnabled = false,
+    oscPulseOpacity = 1.0f,
+    oscPulseThicknessDp = 5.0f,
 
     heartbeatEnabled = true,
     heartbeatForegroundOnly = false,
@@ -365,7 +477,7 @@ preflightOutOkMs = 6000L,
     echoGuardRuleMultDiv = true,
     echoGuardRuleNudge = true,
 
-    hapticsEnabled = true,
+    hapticsEnabled = false,
     downbeatHapticsEnabled = false,
     transportHapticsEnabled = false,
     clockMode = ClockMode.EXTERNAL,
@@ -382,7 +494,7 @@ class SettingsStore(
 
     companion object {
         // Bump when defaults/migrations change.
-        private const val CURRENT_SETTINGS_VERSION = 1
+        private const val CURRENT_SETTINGS_VERSION = 2
     }
 
     suspend fun ensureMigrations() {
@@ -392,10 +504,30 @@ class SettingsStore(
         if (v >= CURRENT_SETTINGS_VERSION) return
 
         context.dataStore.edit { p ->
-            // New default: TapScreen HUD is OFF on startup (optional in Settings).
+            // v2: Blueprint defaults – keep the instrument clean by default.
+            // TapScreen HUD / Debug overlays default OFF (Debug-screen only).
             p[SettingsKeys.SHOW_STATUS_LINE] = false
             p[SettingsKeys.SHOW_PREFLIGHT] = false
             p[SettingsKeys.SHOW_TIMELINE] = false
+
+            // Anzeige (Visuals) default OFF where requested.
+            p[SettingsKeys.SHOW_DOWNBEAT_INDICATOR] = false
+            p[SettingsKeys.PHASE_VISUALIZER_ENABLED] = false
+            p[SettingsKeys.PHASE_SPIRAL_ENABLED] = false
+            p[SettingsKeys.PHASE_AURA_ENABLED] = false
+            p[SettingsKeys.MICRO_PARTICLES_ENABLED] = false
+            p[SettingsKeys.OSC_PULSE_ENABLED] = false
+            p[SettingsKeys.MOODS_ENABLED] = false
+
+            // Haptics default OFF
+            p[SettingsKeys.HAPTICS_ENABLED] = false
+            p[SettingsKeys.DOWNBEAT_HAPTICS_ENABLED] = false
+            p[SettingsKeys.TRANSPORT_HAPTICS_ENABLED] = false
+
+            // Debug modules default OFF
+            p[SettingsKeys.SHOW_OSC_DEBUG] = false
+            p[SettingsKeys.HEARTBEAT_ENABLED] = false
+
             p[SettingsKeys.SETTINGS_VERSION] = CURRENT_SETTINGS_VERSION
         }
     }
@@ -477,6 +609,14 @@ preflightOutOkMs = (prefs[SettingsKeys.PREFLIGHT_OUT_OK_MS] ?: DEFAULT_SETTINGS_
                 phaseVisualizerEnabled = prefs[SettingsKeys.PHASE_VISUALIZER_ENABLED] ?: DEFAULT_SETTINGS_STATE.phaseVisualizerEnabled,
                 phaseSpiralEnabled = prefs[SettingsKeys.PHASE_SPIRAL_ENABLED] ?: DEFAULT_SETTINGS_STATE.phaseSpiralEnabled,
 
+                phaseRingOpacity = ((prefs[SettingsKeys.PHASE_RING_OPACITY] ?: DEFAULT_SETTINGS_STATE.phaseRingOpacity).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.phaseRingOpacity }).coerceIn(0f, 1f),
+                phaseRingThicknessDp = ((prefs[SettingsKeys.PHASE_RING_THICKNESS_DP] ?: DEFAULT_SETTINGS_STATE.phaseRingThicknessDp).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.phaseRingThicknessDp }).coerceIn(0.5f, 6.0f),
+                phaseSpiralOpacity = ((prefs[SettingsKeys.PHASE_SPIRAL_OPACITY] ?: DEFAULT_SETTINGS_STATE.phaseSpiralOpacity).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.phaseSpiralOpacity }).coerceIn(0f, 1f),
+                phaseSpiralThicknessDp = ((prefs[SettingsKeys.PHASE_SPIRAL_THICKNESS_DP] ?: DEFAULT_SETTINGS_STATE.phaseSpiralThicknessDp).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.phaseSpiralThicknessDp }).coerceIn(0.5f, 6.0f),
+                phaseAuraOpacity = ((prefs[SettingsKeys.PHASE_AURA_OPACITY] ?: DEFAULT_SETTINGS_STATE.phaseAuraOpacity).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.phaseAuraOpacity }).coerceIn(0f, 1f),
+                phaseAuraThicknessDp = ((prefs[SettingsKeys.PHASE_AURA_THICKNESS_DP] ?: DEFAULT_SETTINGS_STATE.phaseAuraThicknessDp).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.phaseAuraThicknessDp }).coerceIn(0.5f, 6.0f),
+                microParticlesOpacity = ((prefs[SettingsKeys.MICRO_PARTICLES_OPACITY] ?: DEFAULT_SETTINGS_STATE.microParticlesOpacity).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.microParticlesOpacity }).coerceIn(0f, 1f),
+
                 fxAlpha = ((prefs[SettingsKeys.FX_ALPHA] ?: DEFAULT_SETTINGS_STATE.fxAlpha).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.fxAlpha }).coerceIn(0.30f, 2.00f),
                 phaseAlpha = ((prefs[SettingsKeys.PHASE_ALPHA] ?: DEFAULT_SETTINGS_STATE.phaseAlpha).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.phaseAlpha }).coerceIn(0.30f, 2.00f),
                 ghostAlpha = ((prefs[SettingsKeys.GHOST_ALPHA] ?: DEFAULT_SETTINGS_STATE.ghostAlpha).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.ghostAlpha }).coerceIn(0.30f, 2.00f),
@@ -491,12 +631,38 @@ preflightOutOkMs = (prefs[SettingsKeys.PREFLIGHT_OUT_OK_MS] ?: DEFAULT_SETTINGS_
                 ghostEchoEnabled = prefs[SettingsKeys.GHOST_ECHO_ENABLED] ?: DEFAULT_SETTINGS_STATE.ghostEchoEnabled,
                 ghostEchoStrength = ((prefs[SettingsKeys.GHOST_ECHO_STRENGTH] ?: DEFAULT_SETTINGS_STATE.ghostEchoStrength).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.ghostEchoStrength }).coerceIn(0f, 1f),
 
+                ghostEchoOpacity = ((prefs[SettingsKeys.GHOST_ECHO_OPACITY] ?: DEFAULT_SETTINGS_STATE.ghostEchoOpacity).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.ghostEchoOpacity }).coerceIn(0f, 1f),
+                ghostEchoThicknessDp = ((prefs[SettingsKeys.GHOST_ECHO_THICKNESS_DP] ?: DEFAULT_SETTINGS_STATE.ghostEchoThicknessDp).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.ghostEchoThicknessDp }).coerceIn(0.5f, 6.0f),
+
                 animationsEnabled = prefs[SettingsKeys.ANIMATIONS_ENABLED] ?: DEFAULT_SETTINGS_STATE.animationsEnabled,
+                localVisualsEnabled = prefs[SettingsKeys.LOCAL_VISUALS_ENABLED] ?: DEFAULT_SETTINGS_STATE.localVisualsEnabled,
                 remoteAnimationsEnabled = prefs[SettingsKeys.REMOTE_ANIMATIONS_ENABLED] ?: DEFAULT_SETTINGS_STATE.remoteAnimationsEnabled,
                 remoteGhostModeEnabled = prefs[SettingsKeys.REMOTE_GHOST_MODE_ENABLED] ?: DEFAULT_SETTINGS_STATE.remoteGhostModeEnabled,
+                remoteGhostOpacity = ((prefs[SettingsKeys.REMOTE_GHOST_OPACITY] ?: DEFAULT_SETTINGS_STATE.remoteGhostOpacity).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.remoteGhostOpacity }).coerceIn(0f, 1f),
                 goblinFlashEnabled = prefs[SettingsKeys.GOBLIN_FLASH_ENABLED] ?: DEFAULT_SETTINGS_STATE.goblinFlashEnabled,
+                goblinFlashOpacity = ((prefs[SettingsKeys.GOBLIN_FLASH_OPACITY] ?: DEFAULT_SETTINGS_STATE.goblinFlashOpacity).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.goblinFlashOpacity }).coerceIn(0f, 1f),
+                goblinFlashFadeMs = (prefs[SettingsKeys.GOBLIN_FLASH_FADE_MS] ?: DEFAULT_SETTINGS_STATE.goblinFlashFadeMs).coerceIn(80L, 2500L),
                 rippleEnabled = prefs[SettingsKeys.RIPPLE_ENABLED] ?: DEFAULT_SETTINGS_STATE.rippleEnabled,
+
+                rippleTapEnabled = prefs[SettingsKeys.RIPPLE_TAP_ENABLED] ?: DEFAULT_SETTINGS_STATE.rippleTapEnabled,
+                rippleTapOpacity = ((prefs[SettingsKeys.RIPPLE_TAP_OPACITY] ?: DEFAULT_SETTINGS_STATE.rippleTapOpacity).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.rippleTapOpacity }).coerceIn(0f, 1f),
+                rippleTapThicknessDp = ((prefs[SettingsKeys.RIPPLE_TAP_THICKNESS_DP] ?: DEFAULT_SETTINGS_STATE.rippleTapThicknessDp).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.rippleTapThicknessDp }).coerceIn(0.5f, 6.0f),
+
+                rippleMultDivEnabled = prefs[SettingsKeys.RIPPLE_MULTDIV_ENABLED] ?: DEFAULT_SETTINGS_STATE.rippleMultDivEnabled,
+                rippleMultDivOpacity = ((prefs[SettingsKeys.RIPPLE_MULTDIV_OPACITY] ?: DEFAULT_SETTINGS_STATE.rippleMultDivOpacity).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.rippleMultDivOpacity }).coerceIn(0f, 1f),
+                rippleMultDivThicknessDp = ((prefs[SettingsKeys.RIPPLE_MULTDIV_THICKNESS_DP] ?: DEFAULT_SETTINGS_STATE.rippleMultDivThicknessDp).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.rippleMultDivThicknessDp }).coerceIn(0.5f, 6.0f),
+
+                rippleResyncEnabled = prefs[SettingsKeys.RIPPLE_RESYNC_ENABLED] ?: DEFAULT_SETTINGS_STATE.rippleResyncEnabled,
+                rippleResyncOpacity = ((prefs[SettingsKeys.RIPPLE_RESYNC_OPACITY] ?: DEFAULT_SETTINGS_STATE.rippleResyncOpacity).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.rippleResyncOpacity }).coerceIn(0f, 1f),
+                rippleResyncThicknessDp = ((prefs[SettingsKeys.RIPPLE_RESYNC_THICKNESS_DP] ?: DEFAULT_SETTINGS_STATE.rippleResyncThicknessDp).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.rippleResyncThicknessDp }).coerceIn(0.5f, 6.0f),
+
+                rippleNudgeEnabled = prefs[SettingsKeys.RIPPLE_NUDGE_ENABLED] ?: DEFAULT_SETTINGS_STATE.rippleNudgeEnabled,
+                rippleNudgeOpacity = ((prefs[SettingsKeys.RIPPLE_NUDGE_OPACITY] ?: DEFAULT_SETTINGS_STATE.rippleNudgeOpacity).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.rippleNudgeOpacity }).coerceIn(0f, 1f),
+                rippleNudgeThicknessDp = ((prefs[SettingsKeys.RIPPLE_NUDGE_THICKNESS_DP] ?: DEFAULT_SETTINGS_STATE.rippleNudgeThicknessDp).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.rippleNudgeThicknessDp }).coerceIn(0.5f, 6.0f),
                 oscPulseEnabled = prefs[SettingsKeys.OSC_PULSE_ENABLED] ?: DEFAULT_SETTINGS_STATE.oscPulseEnabled,
+
+                oscPulseOpacity = ((prefs[SettingsKeys.OSC_PULSE_OPACITY] ?: DEFAULT_SETTINGS_STATE.oscPulseOpacity).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.oscPulseOpacity }).coerceIn(0f, 1f),
+                oscPulseThicknessDp = ((prefs[SettingsKeys.OSC_PULSE_THICKNESS_DP] ?: DEFAULT_SETTINGS_STATE.oscPulseThicknessDp).let { if (it.isFinite()) it else DEFAULT_SETTINGS_STATE.oscPulseThicknessDp }).coerceIn(0.5f, 6.0f),
 
                 heartbeatEnabled = prefs[SettingsKeys.HEARTBEAT_ENABLED] ?: DEFAULT_SETTINGS_STATE.heartbeatEnabled,
                 heartbeatForegroundOnly = prefs[SettingsKeys.HEARTBEAT_FOREGROUND_ONLY] ?: DEFAULT_SETTINGS_STATE.heartbeatForegroundOnly,
@@ -702,6 +868,52 @@ suspend fun setPreflightOutOkMs(value: Long) {
         context.dataStore.edit { it[SettingsKeys.PHASE_SPIRAL_ENABLED] = enabled }
     }
 
+    suspend fun setPhaseRingOpacity(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.phaseRingOpacity
+            prefs[SettingsKeys.PHASE_RING_OPACITY] = v.coerceIn(0f, 1f)
+        }
+    }
+    suspend fun setPhaseRingThicknessDp(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.phaseRingThicknessDp
+            prefs[SettingsKeys.PHASE_RING_THICKNESS_DP] = v.coerceIn(0.5f, 6.0f)
+        }
+    }
+
+    suspend fun setPhaseSpiralOpacity(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.phaseSpiralOpacity
+            prefs[SettingsKeys.PHASE_SPIRAL_OPACITY] = v.coerceIn(0f, 1f)
+        }
+    }
+    suspend fun setPhaseSpiralThicknessDp(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.phaseSpiralThicknessDp
+            prefs[SettingsKeys.PHASE_SPIRAL_THICKNESS_DP] = v.coerceIn(0.5f, 6.0f)
+        }
+    }
+
+    suspend fun setPhaseAuraOpacity(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.phaseAuraOpacity
+            prefs[SettingsKeys.PHASE_AURA_OPACITY] = v.coerceIn(0f, 1f)
+        }
+    }
+    suspend fun setPhaseAuraThicknessDp(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.phaseAuraThicknessDp
+            prefs[SettingsKeys.PHASE_AURA_THICKNESS_DP] = v.coerceIn(0.5f, 6.0f)
+        }
+    }
+
+    suspend fun setMicroParticlesOpacity(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.microParticlesOpacity
+            prefs[SettingsKeys.MICRO_PARTICLES_OPACITY] = v.coerceIn(0f, 1f)
+        }
+    }
+
 
     suspend fun setFxAlpha(value: Float) {
         context.dataStore.edit { prefs ->
@@ -763,9 +975,28 @@ suspend fun setPreflightOutOkMs(value: Long) {
         }
     }
 
+    suspend fun setGhostEchoOpacity(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.ghostEchoOpacity
+            prefs[SettingsKeys.GHOST_ECHO_OPACITY] = v.coerceIn(0f, 1f)
+        }
+    }
+
+    suspend fun setGhostEchoThicknessDp(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.ghostEchoThicknessDp
+            prefs[SettingsKeys.GHOST_ECHO_THICKNESS_DP] = v.coerceIn(0.5f, 6.0f)
+        }
+    }
+
     // Animations
     suspend fun setAnimationsEnabled(enabled: Boolean) {
         context.dataStore.edit { it[SettingsKeys.ANIMATIONS_ENABLED] = enabled }
+    }
+
+    
+    suspend fun setLocalVisualsEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.LOCAL_VISUALS_ENABLED] = enabled }
     }
 
     suspend fun setRemoteAnimationsEnabled(enabled: Boolean) {
@@ -776,16 +1007,114 @@ suspend fun setPreflightOutOkMs(value: Long) {
         context.dataStore.edit { it[SettingsKeys.REMOTE_GHOST_MODE_ENABLED] = enabled }
     }
 
+    suspend fun setRemoteGhostOpacity(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.remoteGhostOpacity
+            prefs[SettingsKeys.REMOTE_GHOST_OPACITY] = v.coerceIn(0f, 1f)
+        }
+    }
+
     suspend fun setGoblinFlashEnabled(enabled: Boolean) {
         context.dataStore.edit { it[SettingsKeys.GOBLIN_FLASH_ENABLED] = enabled }
+    }
+
+    suspend fun setGoblinFlashOpacity(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.goblinFlashOpacity
+            prefs[SettingsKeys.GOBLIN_FLASH_OPACITY] = v.coerceIn(0f, 1f)
+        }
+    }
+
+    suspend fun setGoblinFlashFadeMs(value: Long) {
+        context.dataStore.edit { prefs ->
+            prefs[SettingsKeys.GOBLIN_FLASH_FADE_MS] = value.coerceIn(80L, 2500L)
+        }
     }
 
     suspend fun setRippleEnabled(enabled: Boolean) {
         context.dataStore.edit { it[SettingsKeys.RIPPLE_ENABLED] = enabled }
     }
 
+    suspend fun setRippleTapEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.RIPPLE_TAP_ENABLED] = enabled }
+    }
+    suspend fun setRippleTapOpacity(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.rippleTapOpacity
+            prefs[SettingsKeys.RIPPLE_TAP_OPACITY] = v.coerceIn(0f, 1f)
+        }
+    }
+    suspend fun setRippleTapThicknessDp(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.rippleTapThicknessDp
+            prefs[SettingsKeys.RIPPLE_TAP_THICKNESS_DP] = v.coerceIn(0.5f, 6.0f)
+        }
+    }
+
+    suspend fun setRippleMultDivEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.RIPPLE_MULTDIV_ENABLED] = enabled }
+    }
+    suspend fun setRippleMultDivOpacity(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.rippleMultDivOpacity
+            prefs[SettingsKeys.RIPPLE_MULTDIV_OPACITY] = v.coerceIn(0f, 1f)
+        }
+    }
+    suspend fun setRippleMultDivThicknessDp(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.rippleMultDivThicknessDp
+            prefs[SettingsKeys.RIPPLE_MULTDIV_THICKNESS_DP] = v.coerceIn(0.5f, 6.0f)
+        }
+    }
+
+    suspend fun setRippleResyncEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.RIPPLE_RESYNC_ENABLED] = enabled }
+    }
+    suspend fun setRippleResyncOpacity(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.rippleResyncOpacity
+            prefs[SettingsKeys.RIPPLE_RESYNC_OPACITY] = v.coerceIn(0f, 1f)
+        }
+    }
+    suspend fun setRippleResyncThicknessDp(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.rippleResyncThicknessDp
+            prefs[SettingsKeys.RIPPLE_RESYNC_THICKNESS_DP] = v.coerceIn(0.5f, 6.0f)
+        }
+    }
+
+    suspend fun setRippleNudgeEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.RIPPLE_NUDGE_ENABLED] = enabled }
+    }
+    suspend fun setRippleNudgeOpacity(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.rippleNudgeOpacity
+            prefs[SettingsKeys.RIPPLE_NUDGE_OPACITY] = v.coerceIn(0f, 1f)
+        }
+    }
+    suspend fun setRippleNudgeThicknessDp(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.rippleNudgeThicknessDp
+            prefs[SettingsKeys.RIPPLE_NUDGE_THICKNESS_DP] = v.coerceIn(0.5f, 6.0f)
+        }
+    }
+
     suspend fun setOscPulseEnabled(enabled: Boolean) {
         context.dataStore.edit { it[SettingsKeys.OSC_PULSE_ENABLED] = enabled }
+    }
+
+    suspend fun setOscPulseOpacity(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.oscPulseOpacity
+            prefs[SettingsKeys.OSC_PULSE_OPACITY] = v.coerceIn(0f, 1f)
+        }
+    }
+
+    suspend fun setOscPulseThicknessDp(value: Float) {
+        context.dataStore.edit { prefs ->
+            val v = if (value.isFinite()) value else DEFAULT_SETTINGS_STATE.oscPulseThicknessDp
+            prefs[SettingsKeys.OSC_PULSE_THICKNESS_DP] = v.coerceIn(0.5f, 6.0f)
+        }
     }
 
     // Heartbeat

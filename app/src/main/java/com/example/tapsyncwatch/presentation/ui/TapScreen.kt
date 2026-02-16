@@ -39,9 +39,11 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -83,9 +85,33 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.shape.RoundedCornerShape
 import kotlin.math.roundToInt
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.Button
+import androidx.compose.material.ButtonDefaults
+import androidx.compose.material.Icon
+import androidx.compose.material.CircularProgressIndicator
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.foundation.interaction.MutableInteractionSource
 
 
 private fun safe01(v: Float, default: Float = 0f): Float = if (v.isFinite()) v.coerceIn(0f, 1f) else default
+
+private const val STATUS_LAMP_RADIUS_DP = 4f
+
+private fun clampDp(v: Float, default: Float, min: Float = 0.5f, max: Float = 6.0f): Float =
+    if (v.isFinite()) v.coerceIn(min, max) else default
+
+@Composable
+private fun dpToPx(dp: Float): Float = with(LocalDensity.current) { dp.dp.toPx() }
+
 
 /* ================= GOBLIN STYLE ================= */
 
@@ -107,8 +133,6 @@ private enum class RippleKind {
     NUDGE_PLUS,
     NUDGE_MINUS
 }
-
-
 
 @Composable
 private fun StatusPill(
@@ -241,7 +265,7 @@ private fun StatusLamp(
     ) {
         Box(
             modifier = Modifier
-                .size(10.dp)
+                .size((STATUS_LAMP_RADIUS_DP * 2f).dp)
                 .clip(CircleShape)
                 .background(color.copy(alpha = 0.92f))
                 .border(1.dp, Color.Black.copy(alpha = 0.45f), CircleShape)
@@ -499,6 +523,7 @@ fun TapScreen(
     activePresetName: String,
     activeTargetIp: String,
     activeTargetPort: Int,
+
     oscInputPort: Int,
     lastPongFrom: StateFlow<String?>,
 
@@ -517,6 +542,7 @@ fun TapScreen(
     lastPhaseRxMs: StateFlow<Long>,
     lastDownbeatRxMs: StateFlow<Long>,
     heartbeatEnabled: Boolean,
+    heartbeatSuppressed: Boolean,
     signalGraceMs: Long,
     anyRxFallbackEnabled: Boolean,
     anyRxTimeoutMs: Long,
@@ -532,6 +558,13 @@ fun TapScreen(
     remoteGhost: StateFlow<OscInputReceiver.RemoteGhostSnapshot?>,
     phaseVisualizerEnabled: Boolean,
     phaseSpiralEnabled: Boolean,
+    phaseRingOpacity: Float,
+    phaseRingThicknessDp: Float,
+    phaseSpiralOpacity: Float,
+    phaseSpiralThicknessDp: Float,
+    phaseAuraOpacity: Float,
+    phaseAuraThicknessDp: Float,
+    microParticlesOpacity: Float,
     fxAlpha: Float = 1.0f,
     phaseAlpha: Float = 1.0f,
     ghostAlpha: Float = 1.0f,
@@ -544,14 +577,34 @@ fun TapScreen(
     visualSwing: Float,
     ghostEchoEnabled: Boolean,
     ghostEchoStrength: Float,
+    ghostEchoOpacity: Float,
+    ghostEchoThicknessDp: Float,
 
     // UI motion
     animationsEnabled: Boolean,
+    localVisualsEnabled: Boolean,
     remoteAnimationsEnabled: Boolean,
     remoteGhostModeEnabled: Boolean,
+    remoteGhostOpacity: Float,
     goblinFlashEnabled: Boolean,
+    goblinFlashOpacity: Float,
+    goblinFlashFadeMs: Long,
     rippleEnabled: Boolean,
+    rippleTapEnabled: Boolean,
+    rippleTapOpacity: Float,
+    rippleTapThicknessDp: Float,
+    rippleMultDivEnabled: Boolean,
+    rippleMultDivOpacity: Float,
+    rippleMultDivThicknessDp: Float,
+    rippleResyncEnabled: Boolean,
+    rippleResyncOpacity: Float,
+    rippleResyncThicknessDp: Float,
+    rippleNudgeEnabled: Boolean,
+    rippleNudgeOpacity: Float,
+    rippleNudgeThicknessDp: Float,
     oscPulseEnabled: Boolean,
+    oscPulseOpacity: Float,
+    oscPulseThicknessDp: Float,
 
     action: ActionEngine,
     oscHealth: StateFlow<OscHealth>,
@@ -574,6 +627,13 @@ fun TapScreen(
     val scope = rememberCoroutineScope()
     val oscPulseLimiter = remember { PulseLimiter(minIntervalMs = 120) }
 
+    // TapScreen is an instrument: no Debug HUD overlays here (Status/Preflight/Timeline live only in DebugScreen).
+    val tapHudEnabled = false
+    val showStatusLineTap = tapHudEnabled && showStatusLine
+    val showPreflightTap = tapHudEnabled && showPreflight
+    val showTimelineTap = tapHudEnabled && showTimeline
+
+
     // Startup warmup: keep the first seconds light-weight so the watch can settle.
     var startupWarmup by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
@@ -594,22 +654,51 @@ fun TapScreen(
         }
         gpuWarmup = false
     }
-
-    val fxMul = (if (fxAlpha.isFinite()) fxAlpha else 1.0f).coerceIn(0.30f, 2.00f)
-    val phaseMul = (if (phaseAlpha.isFinite()) phaseAlpha else 1.0f).coerceIn(0.30f, 2.00f)
-    val ghostMul = (if (ghostAlpha.isFinite()) ghostAlpha else 1.0f).coerceIn(0.30f, 2.00f)
+    // Legacy visual multipliers are kept for compatibility but intentionally ignored.
+    val fxMul = 1.0f
+    val phaseMul = 1.0f
+    val ghostMul = 1.0f
 
     // Phase 5: Goblin Instrument (visual-only)
     val moodIntensitySafe = (if (moodIntensity.isFinite()) moodIntensity else 0f).coerceIn(0f, 0.20f)
     val moodT = (moodIntensitySafe / 0.20f).coerceIn(0f, 1f)
     val swingAmount = (if (visualSwing.isFinite()) visualSwing else 0f).coerceIn(0f, 0.25f)
     val ghostEchoStrengthSafe = (if (ghostEchoStrength.isFinite()) ghostEchoStrength else 0f).coerceIn(0f, 1f)
-    val ghostEchoOn = ghostEchoEnabled && !startupWarmup && ghostEchoStrengthSafe > 0f
+    val ghostEchoOn = animationsEnabled && rippleEnabled && ghostEchoEnabled && !startupWarmup && ghostEchoStrengthSafe > 0f
+
+    val remoteGhostOpacitySafe = safe01(remoteGhostOpacity, 1f)
+
+    val goblinFlashOpacitySafe = safe01(goblinFlashOpacity, 1f)
+
+    val rippleTapOpacitySafe = safe01(rippleTapOpacity, 1f)
+    val rippleTapThicknessDpSafe = clampDp(rippleTapThicknessDp, 5.0f)
+    val rippleMultDivOpacitySafe = safe01(rippleMultDivOpacity, 1f)
+    val rippleMultDivThicknessDpSafe = clampDp(rippleMultDivThicknessDp, 5.0f)
+    val rippleResyncOpacitySafe = safe01(rippleResyncOpacity, 1f)
+    val rippleResyncThicknessDpSafe = clampDp(rippleResyncThicknessDp, 5.0f)
+    val rippleNudgeOpacitySafe = safe01(rippleNudgeOpacity, 1f)
+    val rippleNudgeThicknessDpSafe = clampDp(rippleNudgeThicknessDp, 5.0f)
+
+    val ghostEchoOpacitySafe = safe01(ghostEchoOpacity, 1f)
+    val ghostEchoThicknessDpSafe = clampDp(ghostEchoThicknessDp, 3.0f)
+
+    val phaseRingOpacitySafe = safe01(phaseRingOpacity, 1f)
+    val phaseRingThicknessPx = dpToPx(clampDp(phaseRingThicknessDp, 4.0f))
+    val phaseSpiralOpacitySafe = safe01(phaseSpiralOpacity, 1f)
+    val phaseSpiralThicknessPx = dpToPx(clampDp(phaseSpiralThicknessDp, 3.0f))
+    val phaseAuraOpacitySafe = safe01(phaseAuraOpacity, 1f)
+    val phaseAuraThicknessPx = dpToPx(clampDp(phaseAuraThicknessDp, 4.0f))
+    val microParticlesOpacitySafe = safe01(microParticlesOpacity, 1f)
+
+    val oscPulseOpacitySafe = safe01(oscPulseOpacity, 1f)
+    val oscPulseRadiusDpSafe = clampDp(oscPulseThicknessDp, 5.0f)
 
 
 // Safety helpers: avoid NaN/Infinity bricking Canvas (coerceIn does NOT fix NaN)
 fun safeAlpha(a: Float): Float = if (a.isFinite()) a.coerceIn(0f, 1f) else 0f
 fun safe01(v: Float, default: Float = 0f): Float = if (v.isFinite()) v.coerceIn(0f, 1f) else default
+fun clampDp(v: Float, default: Float): Float = if (v.isFinite()) v.coerceIn(0.5f, 6.0f) else default
+fun dpToPx(dp: Float): Float = dp * metrics.density
 fun safePhase(v: Float, default: Float = 0f): Float {
     if (!v.isFinite()) return default
     // wrap to [0..1)
@@ -730,8 +819,9 @@ fun applySwingWarp(phase: Float, swing: Float): Float {
     LaunchedEffect(goblinFlashTrigger) {
         if (goblinFlashTrigger == 0) return@LaunchedEffect
         goblinFlashAlpha.snapTo(0f)
+        val fade = goblinFlashFadeMs.coerceIn(80L, 2500L).toInt()
         goblinFlashAlpha.animateTo(1f, tween(110, easing = FastOutSlowInEasing))
-        goblinFlashAlpha.animateTo(0f, tween(560, easing = FastOutSlowInEasing))
+        goblinFlashAlpha.animateTo(0f, tween(fade, easing = FastOutSlowInEasing))
     }
 
     /* ================= Ripple controller (LOCAL + REMOTE) ================= */
@@ -756,7 +846,16 @@ fun applySwingWarp(phase: Float, swing: Float): Float {
     ) {
         if (!animationsEnabled) return
         if (!rippleEnabled) return
+        if (voice == Voice.LOCAL && !localVisualsEnabled) return
         if (voice == Voice.REMOTE && !remoteAnimationsEnabled) return
+
+        val kindAllowed = when (kind) {
+            RippleKind.TAP -> rippleTapEnabled
+            RippleKind.MULTIPLY, RippleKind.DIVIDE -> rippleMultDivEnabled
+            RippleKind.RESYNC -> rippleResyncEnabled
+            RippleKind.NUDGE_PLUS, RippleKind.NUDGE_MINUS -> rippleNudgeEnabled
+        }
+        if (!kindAllowed) return
 
         val anim = if (voice == Voice.LOCAL) localRipple else remoteRipple
 
@@ -856,7 +955,7 @@ var timelineNowMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
 val timelineEvents = remember { androidx.compose.runtime.mutableStateListOf<TimelineEvent>() }
 
 fun pushTimeline(kind: TimelineKind) {
-    if (!showStatusLine || !showTimeline) return
+    if (!showStatusLineTap || !showTimelineTap) return
     val t = SystemClock.elapsedRealtime()
     timelineEvents.add(TimelineEvent(atMs = t, kind = kind))
     // hard cap to avoid unbounded growth even if prune loop stalls
@@ -884,8 +983,8 @@ fun pushTimelineRemote(kind: TimelineKind) {
 }
 
 // Drive "now" + prune old events. Only when status HUD is shown.
-LaunchedEffect(showStatusLine, showTimeline, timelineWindowMsSafe) {
-    if (!showStatusLine || !showTimeline) return@LaunchedEffect
+LaunchedEffect(showStatusLineTap, showTimelineTap, timelineWindowMsSafe) {
+    if (!showStatusLineTap || !showTimelineTap) return@LaunchedEffect
     while (isActive) {
         val now = SystemClock.elapsedRealtime()
         timelineNowMs = now
@@ -940,9 +1039,15 @@ LaunchedEffect(showStatusLine, showTimeline, timelineWindowMsSafe) {
 
 
 
+// Track last outbound OSC send moment (used for "TX-only" state).
+var lastTxMs by remember { mutableStateOf(0L) }
+
 LaunchedEffect(health) {
-    when (health) {
-        is OscHealth.Sending -> pushTimeline(TimelineKind.OSC_OUT)
+    when (val h = health) {
+        is OscHealth.Sending -> {
+            lastTxMs = h.atMs
+            pushTimeline(TimelineKind.OSC_OUT)
+        }
         is OscHealth.Error -> pushTimeline(TimelineKind.OSC_ERR)
         else -> Unit
     }
@@ -956,9 +1061,8 @@ val lastPhaseRx by lastPhaseRxMs.collectAsState()
 val lastDownbeatRx by lastDownbeatRxMs.collectAsState()
 var signalNowMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
 
-// Keep signal freshness updated at low frequency (avoid 30Hz recomposition in Settings/idle cases)
-LaunchedEffect(heartbeatEnabled) {
-    if (!heartbeatEnabled) return@LaunchedEffect
+// Keep freshness updated at low frequency (avoid 30Hz recomposition).
+LaunchedEffect(Unit) {
     while (isActive) {
         signalNowMs = SystemClock.elapsedRealtime()
         delay(500L)
@@ -975,24 +1079,70 @@ val phaseTickMs: Long = remember(startupWarmup, phaseVisualizerEnabled, phaseSpi
     }
 }
 
-val hasSignal = remember(heartbeatEnabled, lastPong, lastAnyRx, signalNowMs, signalGraceMs, anyRxFallbackEnabled, anyRxTimeoutMs) {
-    if (!heartbeatEnabled) {
-        true
-    } else {
-        val pongOk = lastPong > 0L && (signalNowMs - lastPong) <= signalGraceMs
-        val anyOk = anyRxFallbackEnabled && lastAnyRx > 0L && (signalNowMs - lastAnyRx) <= anyRxTimeoutMs
-        pongOk || anyOk
-    }
+val pongOk = remember(heartbeatEnabled, heartbeatSuppressed, lastPong, signalNowMs, signalGraceMs) {
+    heartbeatEnabled && !heartbeatSuppressed &&
+        lastPong > 0L && (signalNowMs - lastPong) <= signalGraceMs
 }
 
+// Any inbound OSC traffic (always tracked). Used as "activity" even when fallback is disabled.
+val rxOk = remember(lastAnyRx, signalNowMs, anyRxTimeoutMs) {
+    lastAnyRx > 0L && (signalNowMs - lastAnyRx) <= anyRxTimeoutMs.coerceIn(400L, 30_000L)
+}
 
+// Optional: allow "any RX" to count as remoteOk (gating remote visuals) if enabled.
+val anyOk = remember(anyRxFallbackEnabled, rxOk) { anyRxFallbackEnabled && rxOk }
+
+// Heartbeat-based "remote ok" for driving remote visuals / ghost.
+val remoteOk = pongOk || anyOk
+
+// Track last outbound OSC send moment (used for "TX-only" activity state).
+val txAge = remember(lastTxMs, signalNowMs) {
+    if (lastTxMs <= 0L) null else (signalNowMs - lastTxMs).coerceAtLeast(0L)
+}
+val txSignalMs = remember(anyRxTimeoutMs) {
+    // TX activity is naturally bursty (taps, nudges). Keep it alive longer than the RX timeout.
+    maxOf(anyRxTimeoutMs, 2_500L).coerceIn(800L, 15_000L)
+}
+val txOk = remember(txAge, txSignalMs) {
+    txAge != null && txAge <= txSignalMs
+}
+
+// "Signal" = any recent activity (pong / any-rx / tx). This is independent of fallback.
+val hasSignal = pongOk || rxOk || txOk
+
+// If heartbeat is enabled but there is outbound activity and no pong, show a softer warning.
+// If we are receiving OSC already (rxOk), do NOT warn about missing pong.
+val noPong = remember(heartbeatEnabled, heartbeatSuppressed, pongOk, rxOk, txOk) {
+    heartbeatEnabled && !heartbeatSuppressed && !pongOk && txOk && !rxOk
+}
+
+// Hard-down is a stronger offline state (longer outage). Base it on last *activity*, not just last pong.
+val lastActivityMs = remember(lastTxMs, lastAnyRx, lastPong) {
+    maxOf(lastTxMs, lastAnyRx, lastPong)
+}
+
+val hardDown = remember(heartbeatEnabled, heartbeatSuppressed, hasSignal, lastActivityMs, signalNowMs, signalGraceMs) {
+    if (!heartbeatEnabled || heartbeatSuppressed) {
+        false
+    } else if (hasSignal) {
+        false
+    } else if (lastActivityMs <= 0L) {
+        // Never saw any activity yet → treat as normal "down".
+        false
+    } else {
+        val age = (signalNowMs - lastActivityMs).coerceAtLeast(0L)
+        val hardDownAfterMs = maxOf(2L * signalGraceMs, 10_000L).coerceIn(6_000L, 60_000L)
+        age >= hardDownAfterMs
+    }
+}
 
 // Timeline: record each pong as a blip
 LaunchedEffect(lastPong) {
     if (lastPong > 0L) pushTimeline(TimelineKind.PONG)
 }
 
-    val goblinBaseAlphaTarget = if (hasSignal) 1f else 0.35f
+    // TapScreen stays bright even when there's no link; we only show a subtle hint.
+    val goblinBaseAlphaTarget = 1f
     val goblinBaseAlpha by animateFloatAsState(
         targetValue = goblinBaseAlphaTarget,
         animationSpec = tween(
@@ -1002,7 +1152,7 @@ LaunchedEffect(lastPong) {
         label = "signalAlpha"
     )
 
-    val downbeatPulse = remember { Animatable(0f) }
+val downbeatPulse = remember { Animatable(0f) }
 
     // Extrapolated external phase (smooth) + stability (confidence)
     var extPhase by remember { mutableStateOf(0f) }
@@ -1015,8 +1165,8 @@ LaunchedEffect(lastPong) {
     val hapticsEnabledV by rememberUpdatedState(hapticsEnabled)
     val downbeatHapticsEnabledV by rememberUpdatedState(downbeatHapticsEnabled)
 
-    LaunchedEffect(hasSignal, phaseTickMs) {
-        if (!hasSignal) {
+    LaunchedEffect(remoteOk, phaseTickMs) {
+        if (!remoteOk) {
             extPhase = 0f
             stability = 1f
             prevPhase = 0f
@@ -1102,19 +1252,32 @@ LaunchedEffect(lastPong) {
 
 // ===== Status line (live HUD) =====
 val statusText = remember(
-    showStatusLine,
+    showStatusLineTap,
     activePresetName,
     activeTargetIp,
     activeTargetPort,
     oscInputPort,
     lastPongFromV,
-    hasSignal,
-    heartbeatEnabled
+    pongOk,
+    rxOk,
+    txOk,
+    noPong,
+    hardDown,
+    heartbeatEnabled,
+    heartbeatSuppressed
 ) {
-    if (!showStatusLine) "" else {
+    if (!showStatusLineTap) "" else {
         val link = when {
-            !heartbeatEnabled -> "HB OFF"
-            hasSignal -> "OK"
+            !heartbeatEnabled -> when {
+                rxOk -> "RX"
+                txOk -> "TX"
+                else -> "IDLE"
+            }
+            heartbeatSuppressed -> "HB PAUSED"
+            pongOk -> "OK"
+            rxOk -> "RX"
+            noPong -> "NO PONG"
+            hardDown -> "HARD DOWN"
             else -> "NO SIGNAL"
         }
 
@@ -1273,7 +1436,7 @@ if (!swipeHandled && zone == TouchZone.RIGHT_EDGE) {
                             if (heldLong && !movedTooMuch) {
                                 onLongPress()
                             } else if (!heldLong && !movedTooMuch) {
-                                if (animationsEnabled && goblinFlashEnabled) goblinFlashTrigger++
+                                if (animationsEnabled && localVisualsEnabled && goblinFlashEnabled) goblinFlashTrigger++
                                 action.tap()
                                 lightHaptic()
                                 pushTimeline(TimelineKind.LOCAL_TAP)
@@ -1297,14 +1460,35 @@ if (!swipeHandled && zone == TouchZone.RIGHT_EDGE) {
         // Mood overlay: super subtle background tint (online grin / offline grumble)
         if (moodsEnabled && moodT > 0f) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val a = (if (hasSignal) 0.028f else 0.018f) * moodT
-                val c = if (hasSignal) GoblinOrange else GoblinDim
+                val a = (if (remoteOk) 0.028f else 0.018f) * moodT
+                val c = if (remoteOk) GoblinOrange else GoblinDim
                 drawRect(color = c.copy(alpha = safeAlpha(a)))
             }
         }
 
+// NO SIGNAL hint (TapScreen only; no dimming)
+        AnimatedVisibility(
+            visible = hardDown || noPong || !hasSignal,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 10.dp)
+                .zIndex(28f)
+        ) {
+            Text(
+                text = when {
+                    hardDown -> "HARD DOWN"
+                    noPong -> "NO PONG"
+                    else -> "NO SIGNAL"
+                },
+                color = GoblinDim.copy(alpha = 0.60f),
+                fontSize = 10.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
 // ===== Status line (live HUD) — mouth-safe pill =====
-if (showStatusLine && statusText.isNotEmpty()) {
+if (showStatusLineTap && statusText.isNotEmpty()) {
     val cfg = LocalConfiguration.current
     val isRound = cfg.isScreenRound
     val minDp = min(cfg.screenWidthDp, cfg.screenHeightDp).dp
@@ -1319,9 +1503,10 @@ if (showStatusLine && statusText.isNotEmpty()) {
 
     val inboundColor = when {
         !heartbeatEnabled -> GoblinDim
-        !hasSignal -> Color(0xFFFF6D6D)
-        phaseOk -> Color(0xFF6DFF8F)
-        else -> Color(0xFFFFD36D)
+        // If we see any inbound activity (pong or generic RX), don't paint it as dead.
+        (pongOk || rxOk) && phaseOk -> Color(0xFF6DFF8F)
+        (pongOk || rxOk) -> Color(0xFFFFD36D)
+        else -> Color(0xFFFF6D6D)
     }
 
     val outColor = when (health) {
@@ -1335,13 +1520,16 @@ if (showStatusLine && statusText.isNotEmpty()) {
 
     val c = when {
         !heartbeatEnabled -> GoblinDim
-        hasSignal -> Color(0xFF6DFF8F)
+        pongOk -> Color(0xFF6DFF8F)
+        rxOk -> Color(0xFFFFD36D)
+        noPong -> Color(0xFFFFD36D)
         else -> Color(0xFFFF6D6D)
     }
 
     val warnTint = if (!statusbarAutoDimWarn) null else when {
         !heartbeatEnabled -> null
-        !hasSignal -> Color(0xFFFF6D6D)
+        hardDown -> Color(0xFFFF6D6D)
+        noPong -> Color(0xFFFFD36D)
         inboundColor == Color(0xFFFF6D6D) -> Color(0xFFFF6D6D)
         inboundColor == Color(0xFFFFD36D) -> Color(0xFFFFD36D)
         else -> null
@@ -1371,7 +1559,7 @@ Column(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            if (showPreflight) {
+            if (showPreflightTap) {
             val minimal = (preflightMode == PreflightMode.MINIMAL)
             Row(
                 modifier = Modifier
@@ -1384,7 +1572,8 @@ Column(
                     label = if (minimal) null else "P",
                     color = when {
                         !heartbeatEnabled -> GoblinDim
-                        hasSignal -> Color(0xFF6DFF8F)
+                        remoteOk -> Color(0xFF6DFF8F)
+                        noPong -> Color(0xFFFFD36D)
                         else -> Color(0xFFFF6D6D)
                     }
                 )
@@ -1412,7 +1601,7 @@ Column(
             contentDescription = null,
             modifier = Modifier
                 .fillMaxSize()
-                .alpha(goblinFlashAlpha.value * goblinBaseAlpha)
+                .alpha(goblinFlashAlpha.value * goblinBaseAlpha * safe01(goblinFlashOpacity, 1f))
         )
 
         /* ================= UI overlays (text) ================= */
@@ -1427,7 +1616,11 @@ Column(
         )
 
         val bpmText = when {
-            !hasSignal -> "NO SIGNAL"
+            !remoteOk -> when {
+                hardDown -> "HARD DOWN"
+                noPong -> "NO PONG"
+                else -> "NO SIGNAL"
+            }
             extBpmUi != null -> {
                 val bpmInt = extBpmAnimated.roundToInt()
                 when (bpmFormat) {
@@ -1440,7 +1633,7 @@ Column(
         }
 
         AnimatedVisibility(
-            visible = showExternalBpm && (extBpmUi != null || !hasSignal),
+            visible = showExternalBpm && (extBpmUi != null || !remoteOk || noPong || hardDown),
             modifier = Modifier
                 .align(Alignment.Center)
                 .offset(y = 101.dp)
@@ -1457,7 +1650,7 @@ Column(
 
 
 // Timeline lane (last few seconds): blips for transport / pong / osc out
-if (showStatusLine && showTimeline) {
+if (showStatusLineTap && showTimelineTap) {
     Box(
         modifier = Modifier
             .align(Alignment.BottomCenter)
@@ -1559,11 +1752,11 @@ if (showStatusLine && showTimeline) {
         /* ================= OSC pulse dot ================= */
 
 
-        if (showOscDot) {
+        if (animationsEnabled && showOscDot) {
             val radiusTouch = min(widthPx, heightPx) / 2f
             Canvas(
                 modifier = Modifier
-                    .size(10.dp)
+                    .size((oscPulseRadiusDpSafe * 2f).dp)
                     .offset(
                         x = (radiusTouch * 0.39f).dp,
                         y = (radiusTouch * 0.26f).dp
@@ -1572,8 +1765,8 @@ if (showStatusLine && showTimeline) {
             ) {
                 drawCircle(
                     color = oscDotColor,
-                    alpha = (((0.18f + (if (oscPulse.value.isFinite()) oscPulse.value else 0f) * 0.82f) * fxMul)
-                        * (if (oscDotOpacity.isFinite()) oscDotOpacity else 1f)).coerceIn(0f, 1f)
+                    alpha = (((0.18f + (if (oscPulse.value.isFinite()) oscPulse.value else 0f) * 0.82f) )
+                        * oscPulseOpacitySafe * (if (oscDotOpacity.isFinite()) oscDotOpacity else 1f)).coerceIn(0f, 1f)
                 )
             }
         }
@@ -1585,6 +1778,8 @@ if (showStatusLine && showTimeline) {
                 .fillMaxSize()
                 .zIndex(7f)
         ) {
+            if (!animationsEnabled) return@Canvas
+            if (!remoteAnimationsEnabled) return@Canvas
             if (!remoteGhostModeEnabled) return@Canvas
             if (!hasSignal) return@Canvas
             val g = ghostUi ?: return@Canvas
@@ -1597,7 +1792,7 @@ if (showStatusLine && showTimeline) {
             val stale = (nowMs - g.lastSeenMs) > 1500L
             val locked = !stale
 
-            val baseAlpha = (if (stale) 0.06f else if (locked) 0.18f else 0.12f) * ghostMul
+            val baseAlpha = safeAlpha((if (stale) 0.06f else if (locked) 0.18f else 0.12f) * remoteGhostOpacitySafe)
             val dash = PathEffect.dashPathEffect(floatArrayOf(16f, 12f), 0f)
 
             drawCircle(
@@ -1612,7 +1807,7 @@ if (showStatusLine && showTimeline) {
                 val mx = cx
                 val my = cy - radius
                 drawCircle(
-                    color = GoblinBrown.copy(alpha = safeAlpha(0.35f * ghostMul)),
+                    color = GoblinBrown.copy(alpha = safeAlpha(0.35f * remoteGhostOpacitySafe)),
                     radius = 10f,
                     center = Offset(mx, my)
                 )
@@ -1626,31 +1821,82 @@ if (showStatusLine && showTimeline) {
                 .fillMaxSize()
                 .zIndex(8f)
         ) {
+            if (!animationsEnabled) return@Canvas
             val cx = size.width / 2f
             val cy = size.height / 2f
 
             val maxRadius = min(size.width, size.height) * 0.90f / 2f
             val overscan = maxRadius * 1.12f
-            val stroke = 14f
+
+            fun thicknessPxFor(kind: RippleKind?): Float {
+                val dp = when (kind) {
+                    RippleKind.TAP -> rippleTapThicknessDpSafe
+                    RippleKind.MULTIPLY, RippleKind.DIVIDE -> rippleMultDivThicknessDpSafe
+                    RippleKind.RESYNC -> rippleResyncThicknessDpSafe
+                    RippleKind.NUDGE_PLUS, RippleKind.NUDGE_MINUS -> rippleNudgeThicknessDpSafe
+                    null -> rippleTapThicknessDpSafe
+                }
+                return dpToPx(dp).coerceAtLeast(1f)
+            }
+
+            val ghostEchoThicknessPx = dpToPx(ghostEchoThicknessDpSafe).coerceAtLeast(1f)
+
+            fun kindEnabled(kind: RippleKind): Boolean = when (kind) {
+                RippleKind.TAP -> rippleTapEnabled
+                RippleKind.MULTIPLY, RippleKind.DIVIDE -> rippleMultDivEnabled
+                RippleKind.RESYNC -> rippleResyncEnabled
+                RippleKind.NUDGE_PLUS, RippleKind.NUDGE_MINUS -> rippleNudgeEnabled
+            }
+
+            fun kindOpacity(kind: RippleKind): Float = when (kind) {
+                RippleKind.TAP -> rippleTapOpacitySafe
+                RippleKind.MULTIPLY, RippleKind.DIVIDE -> rippleMultDivOpacitySafe
+                RippleKind.RESYNC -> rippleResyncOpacitySafe
+                RippleKind.NUDGE_PLUS, RippleKind.NUDGE_MINUS -> rippleNudgeOpacitySafe
+            }
 
             fun intensityFor(voice: Voice, kind: RippleKind): Float {
-                val base = when (kind) {
-                    RippleKind.TAP -> 0.35f
-                    RippleKind.MULTIPLY, RippleKind.DIVIDE -> 0.55f
-                    RippleKind.RESYNC -> 0.60f
-                    RippleKind.NUDGE_PLUS, RippleKind.NUDGE_MINUS -> 0.45f
+                if (!kindEnabled(kind)) return 0f
+
+                val base = when (voice) {
+                    Voice.LOCAL -> 0.35f
+                    Voice.REMOTE -> if (remoteGhostModeEnabled) 0.18f else 0.36f
                 }
-                return if (voice == Voice.LOCAL) {
-                    base * fxMul
-                } else {
-                    val remoteBase = if (remoteGhostModeEnabled) base * 0.18f else base * 0.35f
-                    remoteBase * fxMul * ghostMul
+
+                val voiceMul = when (voice) {
+                    Voice.LOCAL -> 1.0f
+                    Voice.REMOTE -> if (remoteGhostModeEnabled) remoteGhostOpacitySafe else 1.0f
                 }
+
+                val mult = when (kind) {
+                    RippleKind.TAP -> 1.00f
+                    RippleKind.MULTIPLY -> 0.85f
+                    RippleKind.DIVIDE -> 0.80f
+                    RippleKind.RESYNC -> 1.20f
+                    RippleKind.NUDGE_PLUS, RippleKind.NUDGE_MINUS -> 0.75f
+                }
+
+                return base * voiceMul * mult * kindOpacity(kind)
             }
+
+            fun fadeLate(p: Float): Float {
+                val t = ((p - 0.80f) / 0.20f).coerceIn(0f, 1f)
+                return 1f - (t * t)
+            }
+
+            fun smooth(p: Float): Float = (p * p * (3f - 2f * p))
 
             fun drawRipple(voice: Voice, kind: RippleKind?, p: Float) {
                 if (kind == null || p <= 0f) return
+                if (!kindEnabled(kind)) return
 
+                // Direction rules:
+                // LOCAL:
+                //   TAP/MULTIPLY/NUDGE+ = center -> edge (grow)
+                //   DIVIDE/NUDGE- = outside -> center (shrink)
+                //   RESYNC = multi ripple center -> edge
+                //
+                // REMOTE: invert direction (except for nudges)
                 val invert = (voice == Voice.REMOTE)
 
                 fun isGrowLocal(k: RippleKind): Boolean = when (k) {
@@ -1661,68 +1907,51 @@ if (showStatusLine && showTimeline) {
                 val allowInvert = kind != RippleKind.NUDGE_PLUS && kind != RippleKind.NUDGE_MINUS
                 val grow = if (invert && allowInvert) !isGrowLocal(kind) else isGrowLocal(kind)
 
-                fun fadeLate(p: Float): Float {
-                    val t = ((p - 0.80f) / 0.20f).coerceIn(0f, 1f)
-                    return 1f - (t * t)
-                }
+                val strokeW = thicknessPxFor(kind)
+                val alpha = safeAlpha(intensityFor(voice, kind) * fadeLate(p))
 
-                val alpha = (intensityFor(voice, kind) * fadeLate(p)).coerceIn(0f, 1f)
-
-                val strokeW = if (voice == Voice.REMOTE && remoteGhostModeEnabled) 10f else stroke
-
+                // RESYNC: triple ripple for local, single for remote ghost
                 if (kind == RippleKind.RESYNC) {
-
-                    // LOCAL = 3 rings. REMOTE ghost = 1 ring (calmer, reads as "external")
-                    val offsets = if (voice == Voice.REMOTE && remoteGhostModeEnabled)
-                        listOf(0.0f)
-                    else
-                        listOf(0.0f, 0.14f, 0.28f)
-
-                    val intens = if (voice == Voice.REMOTE && remoteGhostModeEnabled)
-                        listOf(1.0f)
-                    else
-                        listOf(1.0f, 0.72f, 0.52f)
+                    val offsets = if (voice == Voice.REMOTE && remoteGhostModeEnabled) listOf(0.0f) else listOf(0.0f, 0.14f, 0.28f)
+                    val intens = if (voice == Voice.REMOTE && remoteGhostModeEnabled) listOf(1.0f) else listOf(1.0f, 0.72f, 0.52f)
 
                     for (i in offsets.indices) {
                         val pi = (p - offsets[i]).coerceIn(0f, 1f)
                         if (pi <= 0f) continue
-
-                        val a = alpha * intens[i]
+                        val a = (alpha * intens[i]).coerceIn(0f, 1f)
                         val r = if (grow) maxRadius * pi else overscan * (1f - pi)
-
                         drawCircle(
                             color = GoblinBrown.copy(alpha = a),
                             radius = r,
                             center = Offset(cx, cy),
-                            style = Stroke(width = strokeW)
+                            style = Stroke(width = strokeW, cap = StrokeCap.Round)
                         )
                     }
                     return
                 }
 
-                val pr = (p * p * (3f - 2f * p))
+                val pr = smooth(p)
                 val radius = if (grow) maxRadius * pr else overscan * (1f - pr)
 
                 drawCircle(
                     color = GoblinBrown.copy(alpha = alpha),
                     radius = radius,
                     center = Offset(cx, cy),
-                    style = Stroke(width = strokeW)
+                    style = Stroke(width = strokeW, cap = StrokeCap.Round)
                 )
-
 
                 // Ghost Echo: secondary, delayed ripple trail (visual-only)
                 if (ghostEchoOn) {
                     val pe = (p - 0.22f).coerceIn(0f, 1f)
                     if (pe > 0f) {
-                        val pr2 = (pe * pe * (3f - 2f * pe))
+                        val pr2 = smooth(pe)
                         val r2 = if (grow) maxRadius * pr2 else overscan * (1f - pr2)
-                        val a2 = (alpha * ghostEchoStrengthSafe * 0.55f * fadeLate(pe)).coerceIn(0f, 1f)
+                        val a2 = safeAlpha(alpha * ghostEchoOpacitySafe * ghostEchoStrengthSafe * 0.55f * fadeLate(pe))
                         drawCircle(
                             color = GoblinBrown.copy(alpha = a2),
                             radius = r2,
                             center = Offset(cx, cy),
-                            style = Stroke(width = strokeW * 0.70f)
+                            style = Stroke(width = ghostEchoThicknessPx, cap = StrokeCap.Round)
                         )
                     }
                 }
@@ -1739,6 +1968,7 @@ if (showStatusLine && showTimeline) {
                 .fillMaxSize()
                 .zIndex(9f)
         ) {
+            if (!animationsEnabled) return@Canvas
             val cx = size.width / 2f
             val cy = size.height / 2f
             val baseRadius = min(size.width, size.height) * 0.78f / 2f
@@ -1750,7 +1980,7 @@ if (showStatusLine && showTimeline) {
 
             // Mood: tiny center glow
             if (moodsEnabled && moodT > 0f) {
-                val a = safeAlpha(0.045f * moodT * phaseMul)
+                val a = safeAlpha(0.045f * moodT)
                 if (a > 0f) {
                     drawCircle(
                         color = GoblinOrange.copy(alpha = a),
@@ -1762,8 +1992,8 @@ if (showStatusLine && showTimeline) {
 
             // Aura: only when stable
             if (phaseAuraEnabled && !startupWarmup && stableT > 0f) {
-                val a = safeAlpha(0.055f * stableT * phaseMul * (1f + 0.30f * moodT))
-                val w = baseRadius * 0.14f
+                val a = safeAlpha(0.075f * stableT * phaseAuraOpacitySafe * (1f + 0.30f * moodT))
+                val w = phaseAuraThicknessPx
                 drawCircle(
                     color = GoblinOrange.copy(alpha = a),
                     radius = baseRadius * 1.02f,
@@ -1775,7 +2005,7 @@ if (showStatusLine && showTimeline) {
             // Micro particles: subtle sparkle on the ring (stable only)
             if (microParticlesEnabled && !startupWarmup && stableT > 0f) {
                 val n = (6 + (6 * stableT)).toInt().coerceIn(6, 12)
-                val baseA = safeAlpha(0.14f * stableT * phaseMul)
+                val baseA = safeAlpha(0.14f * stableT * microParticlesOpacitySafe)
                 val baseR = baseRadius * 0.96f
                 val t = phaseDraw
                 for (i in 0 until n) {
@@ -1791,13 +2021,13 @@ if (showStatusLine && showTimeline) {
                     )
                 }
             }
+            if (phaseVisualizerEnabled && !startupWarmup) {
+                val strokeW = phaseRingThicknessPx.coerceAtLeast(1f)
+                val ringT = (0.55f + 0.45f * stableT).coerceIn(0f, 1f)
 
-            if (phaseVisualizerEnabled) {
-                val strokeW = 10f
-
-                // base ring (very subtle)
+                // base ring (subtle)
                 drawCircle(
-                    color = GoblinBrown.copy(alpha = safeAlpha(0.16f * phaseMul)),
+                    color = GoblinBrown.copy(alpha = safeAlpha(0.16f * ringT * phaseRingOpacitySafe)),
                     radius = baseRadius,
                     center = Offset(cx, cy),
                     style = Stroke(width = strokeW)
@@ -1806,10 +2036,10 @@ if (showStatusLine && showTimeline) {
                 // downbeat marker (12 o'clock)
                 val markerLen = 22f
                 drawLine(
-                    color = GoblinOrange.copy(alpha = safeAlpha(0.58f * phaseMul)),
+                    color = GoblinOrange.copy(alpha = safeAlpha(0.58f * ringT * phaseRingOpacitySafe)),
                     start = Offset(cx, cy - baseRadius - markerLen),
                     end = Offset(cx, cy - baseRadius + markerLen),
-                    strokeWidth = 6f,
+                    strokeWidth = (strokeW * 0.70f).coerceAtLeast(2f),
                     cap = StrokeCap.Round
                 )
 
@@ -1818,49 +2048,51 @@ if (showStatusLine && showTimeline) {
                 val px = cx + cos(a).toFloat() * baseRadius
                 val py = cy + sin(a).toFloat() * baseRadius
                 drawCircle(
-                    color = GoblinOrange.copy(alpha = safeAlpha(0.72f * phaseMul)),
-                    radius = 12f,
+                    color = GoblinOrange.copy(alpha = safeAlpha(0.72f * ringT * phaseRingOpacitySafe)),
+                    radius = (strokeW * 1.15f).coerceIn(6f, 14f),
                     center = Offset(px, py)
                 )
             }
 
-if (phaseSpiralEnabled && !startupWarmup) {
-    // A real spiral (Archimedean). It "breathes" with stability and rotates with phase.
-    val turns = 2.35f + (1f - stability) * 0.55f
-    val r0 = baseRadius * 0.22f
-    val r1 = baseRadius * 0.98f
-    val wobble = (1f - stability) * (baseRadius * 0.07f)
+            if (phaseSpiralEnabled && !startupWarmup && stableT > 0f) {
+                // A real spiral (Archimedean). It breathes with stability and rotates with phase.
+                val turns = 2.35f + (1f - stability) * 0.55f
+                val r0 = baseRadius * 0.22f
+                val r1 = baseRadius * 0.98f
+                val wobble = (1f - stability) * (baseRadius * 0.07f)
 
-    val a0 = (phaseDraw.toDouble() * 2.0 * PI) - (PI / 2.0)
-    val steps = 320
-    val path = Path()
+                val a0 = (phaseDraw.toDouble() * 2.0 * PI) - (PI / 2.0)
+                val steps = 320
+                val path = Path()
 
-    for (i in 0..steps) {
-        val t = i.toFloat() / steps.toFloat()
-        val theta = a0 + (t * turns * 2.0 * PI)
-        val wave = sin(theta * 3.0 + a0).toFloat()
-        val r = (r0 + (r1 - r0) * t) + wobble * wave
-        val x = cx + cos(theta).toFloat() * r
-        val y = cy + sin(theta).toFloat() * r
-        if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-    }
+                for (i in 0..steps) {
+                    val t = i.toFloat() / steps.toFloat()
+                    val theta = a0 + (t * turns * 2.0 * PI)
+                    val wave = sin(theta * 3.0 + a0).toFloat()
+                    val r = (r0 + (r1 - r0) * t) + wave * wobble
+                    val x = cx + cos(theta).toFloat() * r
+                    val y = cy + sin(theta).toFloat() * r
+                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
 
-    val aBase = ((0.22f + (1f - stability) * 0.22f) * phaseMul).coerceIn(0f, 1f)
-val aHi = ((0.10f + (1f - stability) * 0.10f) * phaseMul).coerceIn(0f, 1f)
+                val aBase = safeAlpha(0.12f * stableT * phaseSpiralOpacitySafe)
+                val aHi = safeAlpha(0.20f * stableT * phaseSpiralOpacitySafe)
+                val wBase = (phaseSpiralThicknessPx * 1.2f).coerceAtLeast(1f)
+                val wHi = (phaseSpiralThicknessPx * 0.55f).coerceAtLeast(1f)
 
-// Body (darker) - thinner so it reads as spiral, not ring
-drawPath(
-    path = path,
-    color = GoblinBrown.copy(alpha = aBase),
-    style = Stroke(width = 7f, cap = StrokeCap.Round)
-)
-// Highlight (orange) - very subtle edge
-drawPath(
-    path = path,
-    color = GoblinOrange.copy(alpha = aHi),
-    style = Stroke(width = 3f, cap = StrokeCap.Round)
-)
-}
+                drawPath(
+                    path = path,
+                    color = GoblinBrown.copy(alpha = aBase),
+                    style = Stroke(width = wBase, cap = StrokeCap.Round)
+                )
+
+                drawPath(
+                    path = path,
+                    color = GoblinOrange.copy(alpha = aHi),
+                    style = Stroke(width = wHi, cap = StrokeCap.Round)
+                )
+            }
+
         }
 
         /* ================= Downbeat pulse ring ================= */
@@ -1875,10 +2107,11 @@ drawPath(
             val safeRadius = min(size.width, size.height) * 0.82f / 2f
 
             if (!hasSignal) return@Canvas
+            if (!animationsEnabled) return@Canvas
             if (!showDownbeatIndicator) return@Canvas
 
             val dbOp = (if (downbeatOpacity.isFinite()) downbeatOpacity else 1f).coerceIn(0f, 1f)
-            val a = safeAlpha(0.28f * downbeatPulse.value * fxMul * dbOp)
+            val a = safeAlpha(0.28f * downbeatPulse.value * dbOp)
 
             when (downbeatStyle) {
                 DownbeatStyle.DOT -> {
