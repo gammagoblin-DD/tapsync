@@ -1,23 +1,34 @@
 package com.example.tapsyncwatch.domain.action
 
 /**
- * Simple gate so we can enable/disable transport haptics from settings without rebuilding ActionEngine.
- * Downbeat haptics are handled separately in the UI (TapScreen).
+ * Runtime gate so we can enable/disable haptics from settings without rebuilding ActionEngine.
+ *
+ * Semantics:
+ * - masterEnabled controls ALL haptics.
+ * - transportEnabled additionally controls transport-style events (resync / nudge).
  */
 class GatedHaptics(
     private val delegate: HapticEventListener
 ) : HapticEventListener {
 
     @Volatile
-    var enabled: Boolean = true
+    var masterEnabled: Boolean = true
 
-    private inline fun runIfEnabled(block: () -> Unit) {
-        if (enabled) block()
+    @Volatile
+    var transportEnabled: Boolean = true
+
+    private inline fun runIfMaster(block: () -> Unit) {
+        if (masterEnabled) block()
     }
 
-    override fun onTap() = runIfEnabled { delegate.onTap() }
-    override fun onMultiply() = runIfEnabled { delegate.onMultiply() }
-    override fun onDivide() = runIfEnabled { delegate.onDivide() }
-    override fun onResync() = runIfEnabled { delegate.onResync() }
-    override fun onNudge() = runIfEnabled { delegate.onNudge() }
+    private inline fun runIfTransport(block: () -> Unit) {
+        if (masterEnabled && transportEnabled) block()
+    }
+
+    override fun onTap() = runIfMaster { delegate.onTap() }
+    override fun onMultiply() = runIfMaster { delegate.onMultiply() }
+    override fun onDivide() = runIfMaster { delegate.onDivide() }
+
+    override fun onResync() = runIfTransport { delegate.onResync() }
+    override fun onNudge() = runIfTransport { delegate.onNudge() }
 }

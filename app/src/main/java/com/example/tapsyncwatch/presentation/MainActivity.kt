@@ -9,6 +9,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.lifecycleScope
 import com.example.tapsyncwatch.domain.action.ActionEngine
+import com.example.tapsyncwatch.domain.action.GatedHaptics
 import com.example.tapsyncwatch.domain.action.HapticFeedbackEngine
 import com.example.tapsyncwatch.domain.clock.Clock
 import com.example.tapsyncwatch.domain.transport.TransportEchoGuard
@@ -317,15 +318,26 @@ class MainActivity : ComponentActivity() {
 
             val vibrator = getSystemService(Vibrator::class.java)
 
+            // Haptics must be runtime-gated from settings (festival: disable = SILENCE).
+            val gatedHaptics = remember { GatedHaptics(HapticFeedbackEngine(vibrator)) }
+
             val actionEngine = remember {
                 ActionEngine(
                     scope = lifecycleScope,
                     clock = clock,
-                    haptics = HapticFeedbackEngine(vibrator)
+                    haptics = gatedHaptics
                 )
             }
 
             val settings by settingsStore.settings.collectAsState(initial = null)
+            // Push settings into the runtime haptics gate.
+            LaunchedEffect(settings?.hapticsEnabled, settings?.transportHapticsEnabled) {
+                val s = settings
+                if (s != null) {
+                    gatedHaptics.masterEnabled = s.hapticsEnabled
+                    gatedHaptics.transportEnabled = s.transportHapticsEnabled
+                }
+            }
             val clockState by clock.state.collectAsState()
             val heartbeatSuppressedUi by heartbeatSuppressed.collectAsState()
 
@@ -437,6 +449,7 @@ class MainActivity : ComponentActivity() {
                             showExternalBpm = s.showExternalBpm,
                             bpmOpacity = s.bpmOpacity,
                             bpmFormat = s.bpmFormat,
+                            hideBpmUnit = s.hideBpmUnit,
                             externalBpm = oscReceiver.externalBpm,
                             externalConfidence = oscReceiver.externalConfidence,
                             showOscDebug = false, // legacy fullscreen OSC overlay disabled (use DebugScreen OSC monitor)

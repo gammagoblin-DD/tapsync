@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.border
@@ -67,6 +68,8 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.widthIn
 
 
 private val GoblinOrange = Color(0xFFFF9A3D)
@@ -353,16 +356,34 @@ fun DebugScreen(
                     subtitle = "Preset switch + Test ALL",
                     accent = goblinOrange,
                 ) {
-                    Button(
-                        onClick = { showQuickActions = true },
-                        colors = ButtonDefaults.buttonColors(backgroundColor = goblinOrange),
+                    // Dezent + kleiner als ein "Big CTA" (watch-like pill)
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 38.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Color.Black.copy(alpha = 0.12f))
+                            .border(1.dp, goblinOrange.copy(alpha = 0.55f), RoundedCornerShape(999.dp))
+                            .clickable { showQuickActions = true }
+                            .padding(vertical = 6.dp, horizontal = 12.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Open Quick Actions", tint = Color.Black)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Open", color = Color.Black, fontWeight = FontWeight.Bold, maxLines = 1)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.Refresh,
+                                contentDescription = "Open Quick Actions",
+                                tint = goblinOrange,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                "Open",
+                                color = goblinOrange,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
             }
@@ -572,22 +593,8 @@ if (dbg.topTalkers.isNotEmpty()) {
             item { Spacer(Modifier.height(6.dp)) }
         }
             if (showQuickActions) {
-                // Scrim: blocks taps + vertical swipes from leaking to the underlying DebugScreen
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .zIndex(120f)
-                        .background(Color.Black.copy(alpha = 0.58f))
-                        .pointerInput(Unit) {
-                            awaitPointerEventScope {
-                                while (true) {
-                                    awaitPointerEvent(PointerEventPass.Initial)
-                                }
-                            }
-                        }
-                )
-
-                // Panel (full-screen, watch-like scroll)
+                // Panel (full-screen). We keep it fully black (no translucent scrim),
+                // so it reads "round/watch-like" instead of a dark rectangle over the DebugScreen.
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -603,10 +610,13 @@ if (dbg.topTalkers.isNotEmpty()) {
                             .fillMaxSize(),
                         color = Color.Black
                     ) {
+                        val qaListState = remember { LazyListState() }
+
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(horizontal = 12.dp),
+                            state = qaListState,
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                             contentPadding = PaddingValues(top = 14.dp, bottom = 44.dp)
                         ) {
@@ -640,9 +650,7 @@ if (dbg.topTalkers.isNotEmpty()) {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(Color.Black.copy(alpha = 0.18f))
-                                        .padding(12.dp),
+                                        .padding(6.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     Row(
@@ -650,8 +658,7 @@ if (dbg.topTalkers.isNotEmpty()) {
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        SmallActionPill(
-                                            label = "",
+                                        SmallIconPill(
                                             icon = Icons.Filled.ChevronLeft,
                                             enabled = !quickTestBusy,
                                             onClick = onPresetPrev
@@ -671,8 +678,7 @@ if (dbg.topTalkers.isNotEmpty()) {
                                             )
                                         }
 
-                                        SmallActionPill(
-                                            label = "",
+                                        SmallIconPill(
                                             icon = Icons.Filled.ChevronRight,
                                             enabled = !quickTestBusy,
                                             onClick = onPresetNext
@@ -694,22 +700,22 @@ if (dbg.topTalkers.isNotEmpty()) {
                             }
 
                             item {
-                                // Toggles
-                                Row(
+                                // Toggles (stacked for readability on round screens)
+                                Column(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     TogglePill(
                                         label = "EchoGuard",
                                         checked = echoGuardEnabled,
                                         onCheckedChange = { _ -> onToggleEchoGuard() },
-                                        modifier = Modifier.weight(1f)
+                                        modifier = Modifier.fillMaxWidth()
                                     )
                                     TogglePill(
-                                        label = "OSC Mon",
+                                        label = "OSC Monitor",
                                         checked = showOscMonitor,
                                         onCheckedChange = { _ -> onToggleOscMonitor() },
-                                        modifier = Modifier.weight(1f)
+                                        modifier = Modifier.fillMaxWidth()
                                     )
                                 }
                             }
@@ -806,13 +812,13 @@ if (dbg.topTalkers.isNotEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(bottom = 6.dp)
+                            .padding(bottom = 2.dp)
                             .zIndex(200f),
                         contentAlignment = Alignment.BottomCenter
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(28.dp)
+                                .size(20.dp)
                                 .clip(CircleShape)
                                 .background(Color.Black.copy(alpha = 0.35f))
                                 .border(1.dp, GoblinOrange.copy(alpha = 0.55f), CircleShape)
@@ -823,7 +829,7 @@ if (dbg.topTalkers.isNotEmpty()) {
                                 imageVector = Icons.Filled.Close,
                                 contentDescription = "Close",
                                 tint = qaText,
-                                modifier = Modifier.size(14.dp)
+                                modifier = Modifier.size(10.dp)
                             )
                         }
                     }
@@ -1186,9 +1192,29 @@ private fun TogglePill(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, color = text, style = MaterialTheme.typography.body2)
-        Spacer(Modifier.weight(1f))
-        Text(if (checked) "ON" else "OFF", color = dim, style = MaterialTheme.typography.caption)
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            color = text,
+            style = MaterialTheme.typography.body2,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(Modifier.width(10.dp))
+        Box(
+            modifier = Modifier
+                .widthIn(min = 52.dp)
+                .wrapContentWidth(Alignment.End),
+            contentAlignment = Alignment.CenterEnd
+        ) {
+            Text(
+                text = if (checked) "ON" else "OFF",
+                color = dim,
+                style = MaterialTheme.typography.caption,
+                maxLines = 1,
+                softWrap = false
+            )
+        }
     }
 }
 
@@ -1236,6 +1262,37 @@ private fun SmallActionPill(
                 overflow = TextOverflow.Ellipsis
             )
         }
+    }
+}
+
+@Composable
+private fun SmallIconPill(
+    icon: ImageVector,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    bg: Color = Color.Black.copy(alpha = 0.16f),
+    iconColor: Color = Color(0xFFF3EEE7),
+    dim: Color = Color(0xFFB9B0A6)
+) {
+    val shape = RoundedCornerShape(999.dp)
+    val border = if (enabled) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.06f)
+
+    Box(
+        modifier = modifier
+            .size(34.dp, 30.dp)
+            .clip(shape)
+            .background(bg)
+            .border(1.dp, border, shape)
+            .clickable(enabled = enabled) { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (enabled) iconColor else dim,
+            modifier = Modifier.size(18.dp)
+        )
     }
 }
 

@@ -551,6 +551,7 @@ fun TapScreen(
     showExternalBpm: Boolean,
     bpmOpacity: Float = 1.0f,
     bpmFormat: BpmFormat = BpmFormat.BPM,
+    hideBpmUnit: Boolean = false,
     externalBpm: StateFlow<Double?>,
     externalConfidence: StateFlow<Float?>,
     showOscDebug: Boolean,
@@ -1466,26 +1467,6 @@ if (!swipeHandled && zone == TouchZone.RIGHT_EDGE) {
             }
         }
 
-// NO SIGNAL hint (TapScreen only; no dimming)
-        AnimatedVisibility(
-            visible = hardDown || noPong || !hasSignal,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 10.dp)
-                .zIndex(28f)
-        ) {
-            Text(
-                text = when {
-                    hardDown -> "HARD DOWN"
-                    noPong -> "NO PONG"
-                    else -> "NO SIGNAL"
-                },
-                color = GoblinDim.copy(alpha = 0.60f),
-                fontSize = 10.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
 
 // ===== Status line (live HUD) — mouth-safe pill =====
 if (showStatusLineTap && statusText.isNotEmpty()) {
@@ -1615,6 +1596,8 @@ Column(
             label = "extBpmAnim"
         )
 
+        val bpmUnit = if (hideBpmUnit) "" else " BPM"
+
         val bpmText = when {
             !remoteOk -> when {
                 hardDown -> "HARD DOWN"
@@ -1624,9 +1607,9 @@ Column(
             extBpmUi != null -> {
                 val bpmInt = extBpmAnimated.roundToInt()
                 when (bpmFormat) {
-                    BpmFormat.BPM_PHASE -> "$bpmInt BPM · ${(extPhase * 100f).roundToInt()}%"
-                    BpmFormat.BPM_BAR -> "$bpmInt BPM · Bar $barCount"
-                    else -> "$bpmInt BPM"
+                    BpmFormat.BPM_PHASE -> "$bpmInt$bpmUnit · ${(extPhase * 100f).roundToInt()}%"
+                    BpmFormat.BPM_BAR -> "$bpmInt$bpmUnit · Bar $barCount"
+                    else -> "$bpmInt$bpmUnit"
                 }
             }
             else -> "–"
@@ -1753,23 +1736,30 @@ if (showStatusLineTap && showTimelineTap) {
 
 
         if (animationsEnabled && showOscDot) {
-            val radiusTouch = min(widthPx, heightPx) / 2f
+            // Use Density-safe px->dp conversion (no maxWidth/maxHeight dependency).
+            val density = LocalDensity.current
+            val radiusPx = kotlin.math.min(widthPx, heightPx) / 2f
+            val dotSize = (oscPulseRadiusDpSafe * 2f).dp
+
+            // Reference point from goblindot.png (normalized):
+            // x≈0.868, y≈0.753  => offsets from center: +0.736R, +0.506R
+            val dotX = with(density) { (radiusPx * 0.736f).toDp() } - (dotSize / 2f)
+            val dotY = with(density) { (radiusPx * 0.506f).toDp() } - (dotSize / 2f)
+
             Canvas(
                 modifier = Modifier
-                    .size((oscPulseRadiusDpSafe * 2f).dp)
-                    .offset(
-                        x = (radiusTouch * 0.39f).dp,
-                        y = (radiusTouch * 0.26f).dp
-                    )
+                    .size(dotSize)
+                    .offset(x = dotX, y = dotY)
                     .zIndex(18f)
             ) {
-                drawCircle(
-                    color = oscDotColor,
-                    alpha = (((0.18f + (if (oscPulse.value.isFinite()) oscPulse.value else 0f) * 0.82f) )
-                        * oscPulseOpacitySafe * (if (oscDotOpacity.isFinite()) oscDotOpacity else 1f)).coerceIn(0f, 1f)
-                )
+                val pulse = if (oscPulse.value.isFinite()) oscPulse.value else 0f
+                val base = 0.18f + pulse * 0.82f
+                val alpha = (base * oscPulseOpacitySafe * (if (oscDotOpacity.isFinite()) oscDotOpacity else 1f))
+                    .coerceIn(0f, 1f)
+                drawCircle(color = oscDotColor, alpha = alpha)
             }
         }
+
 
         /* ================= Remote Ghost Mode (clarified coding) ================= */
 

@@ -44,6 +44,7 @@ object SettingsKeys {
     val OSC_DOT_FADE_MS = longPreferencesKey("osc_dot_fade_ms")
     val BPM_OPACITY = floatPreferencesKey("bpm_opacity")
     val BPM_FORMAT = stringPreferencesKey("bpm_format")
+    val HIDE_BPM_UNIT = booleanPreferencesKey("hide_bpm_unit")
     val SHOW_DOWNBEAT_INDICATOR = booleanPreferencesKey("show_downbeat_indicator")
     val DOWNBEAT_STYLE = stringPreferencesKey("downbeat_style")
     val DOWNBEAT_OPACITY = floatPreferencesKey("downbeat_opacity")
@@ -249,6 +250,8 @@ val preflightOutOkMs: Long,
     val oscDotFadeMs: Long,
     val bpmOpacity: Float,
     val bpmFormat: BpmFormat,
+    /** If true, the TapScreen shows only the number (e.g. "120" instead of "120 BPM"). */
+    val hideBpmUnit: Boolean = false,
     val showDownbeatIndicator: Boolean,
     val downbeatStyle: DownbeatStyle,
     val downbeatOpacity: Float,
@@ -598,6 +601,7 @@ preflightOutOkMs = (prefs[SettingsKeys.PREFLIGHT_OUT_OK_MS] ?: DEFAULT_SETTINGS_
                 bpmFormat = runCatching {
                     BpmFormat.valueOf(prefs[SettingsKeys.BPM_FORMAT] ?: DEFAULT_SETTINGS_STATE.bpmFormat.name)
                 }.getOrElse { DEFAULT_SETTINGS_STATE.bpmFormat },
+                hideBpmUnit = prefs[SettingsKeys.HIDE_BPM_UNIT] ?: DEFAULT_SETTINGS_STATE.hideBpmUnit,
                 showDownbeatIndicator = prefs[SettingsKeys.SHOW_DOWNBEAT_INDICATOR]
                     ?: DEFAULT_SETTINGS_STATE.showDownbeatIndicator,
                 downbeatStyle = runCatching {
@@ -843,6 +847,10 @@ suspend fun setPreflightOutOkMs(value: Long) {
 
     suspend fun setBpmFormat(format: BpmFormat) {
         context.dataStore.edit { it[SettingsKeys.BPM_FORMAT] = format.name }
+    }
+
+    suspend fun setHideBpmUnit(hide: Boolean) {
+        context.dataStore.edit { it[SettingsKeys.HIDE_BPM_UNIT] = hide }
     }
 
     suspend fun setShowDownbeatIndicator(show: Boolean) {

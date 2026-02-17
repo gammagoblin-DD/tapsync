@@ -1598,6 +1598,15 @@ suspend fun pingPresetOnce(target: OscTarget): PresetPingResult {
                             scope.launch { settingsStore.setBpmFormat(v) }
                         }
                     }
+
+                    item {
+                        SettingsToggleChip(
+                            title = "Hide 'BPM'",
+                            subtitle = "Show only the number",
+                            checked = s.hideBpmUnit,
+                            enabled = s.showExternalBpm
+                        ) { v -> scope.launch { settingsStore.setHideBpmUnit(v) } }
+                    }
                 }
 
                 SettingsPage.DOWNBEAT_INDICATOR -> {
